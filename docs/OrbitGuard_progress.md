@@ -335,7 +335,7 @@ Status column starts `pending` for all; updated in place as each becomes verifia
 
 ## 10. Next action
 
-**Phase 0 and Phase 1 engineering items are done** (commit `1c3c67d` for Phase 0; Phase 1 commit recorded below once made). Phase 1 exit criteria met: Acceptance Test A passes, propagator matches the Skyfield reference within 10m/0.01 m/s, full §12 validation suite passes (61 tests total, 100% coverage on all Phase 1 modules, `ruff` clean).
+**Phase 0 and Phase 1 engineering items are done** (Phase 0: commits `1c3c67d`, `c90d2c8`; Phase 1: commit `0607db7`). Phase 1 exit criteria met: Acceptance Test A passes, propagator matches the Skyfield reference within 10m/0.01 m/s, full §12 validation suite passes (61 tests total, 100% coverage on all Phase 1 modules, `ruff` clean).
 
 Three Phase-0 human-only items remain open and are not blocking: team roles (§47), OSC allocation (§48), and human acknowledgment of the PRD/§50 log.
 
