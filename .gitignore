@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+
+# uv
+uv.lock.tmp
+
+# Experiment / training outputs (not source — regenerated from config+seed)
+artifacts/*
+!artifacts/.gitkeep
+experiments/*
+!experiments/.gitkeep
+
+# Ray/RLlib
+ray_results/
+
+# OS/editor
+.DS_Store
+*.swp
+
+# Zone.Identifier sidecar files (Windows download metadata, not project content)
+*:Zone.Identifier

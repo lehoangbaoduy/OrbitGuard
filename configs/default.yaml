@@ -1,0 +1,91 @@
+simulation:
+  N: 15
+  N_range: [10, 20]
+  physics_dt_s: 10
+  control_dt_s: 60
+  lookahead_s: 1800
+  episode_horizon_s: 21600
+
+dynamics:
+  model: two_body_j2
+  integrator: rk4
+
+sensing:
+  noise_model: gaussian
+  position_sigma_m: 100
+  velocity_sigma_mps: 0.1
+  covariance_mode: true_estimate
+
+collision:
+  hard_body_radius_m: 5.0
+
+risk:
+  model: normalized_separation_proxy
+  epsilon_m: 1.0
+  z0: 3.0
+  k: 1.5
+
+adaptive_margin:
+  d_base_m: 1000
+  d_min_m: 200
+  d_max_m: 5000
+  alpha: 1.0
+  beta: 0.5
+  gamma: 1.0
+  density_radius_km: 50
+  density_ref_count: 5
+
+rl:
+  algorithm: mappo
+  parameter_sharing: true
+  num_training_seeds: 3
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_param: 0.2
+  entropy_coeff: 0.01
+  train_batch_size: 4000
+  sgd_minibatch_size: 256
+  num_sgd_iter: 10
+  actor_hidden_layers: [128, 128]
+  critic_hidden_layers: [256, 256]
+
+observation:
+  k_neighbors: 4
+
+maneuver:
+  base_delta_v_mps: 0.1
+  phase_fraction: 0.5
+
+capability:
+  remaining_delta_v_mps: 2.0
+  mission_deviation_limit: 1.0
+
+reward:
+  w1_safety: 1.0
+  w2_mission: 0.3
+  w3_delta_v: 0.1
+  w4_coordination: 0.5
+  collision_penalty: -100
+  mission_weights: {q_a: 0.25, q_e: 0.25, q_i: 0.25, q_M: 0.25}
+
+shield:
+  repair_mode: bounded_joint_search
+  exact_enumeration_max_agents: 4
+  beam_width: 50
+
+experiment:
+  training_distribution_mix: {benign: 0.30, single_conjunction: 0.50, multi_conjunction: 0.20}
+  validation_seeds: 50
+  test_seeds_per_condition: 10
+  evaluation_seeds_per_model: 10
+
+data:
+  tle_source: celestrak_starlink_shell
+  tle_file: data/TLE_snapshot_53deg_shell.csv
+  tle_format: parsed_elements_csv   # pre-parsed orbital elements, not raw TLE text
+  tle_epoch_range: ["2026-09-14", "2026-09-17"]
+  tle_satellite_count: 3002
+  tle_inclination_range_deg: [53.04, 53.17]
+  tle_altitude_range_km: [460, 465]
+  snapshot_frozen: true

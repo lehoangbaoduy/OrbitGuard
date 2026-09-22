@@ -1,0 +1,14 @@
+# Validation-split overlay for configs/default.yaml (PRD §33).
+#
+# Purpose: reward-weight tuning, adaptive-margin coefficient tuning, RL
+# hyperparameter tuning, and checkpoint selection (§33) — never final-test
+# evaluation.
+#
+# `seed_pool_file` will point at a fixed file of 50 validation seeds (§33,
+# §39 `experiment.validation_seeds: 50`), generated once by the scenario
+# generator (Phase 1-2) and checksummed. That file does not exist yet —
+# do not fabricate seed values here ahead of the generator.
+
+split: validation
+num_seeds: 50
+seed_pool_file: null  # to be set once the seed pool is generated (Phase 4, P4-M4)

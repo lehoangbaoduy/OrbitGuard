@@ -1,0 +1,17 @@
+# Final-test-split overlay for configs/default.yaml (PRD §33).
+#
+# Strictly held out until every model/config choice is frozen — no
+# test-driven tuning, ever (§33, research-integrity requirement, tracked in
+# docs/OrbitGuard_progress.md §6). 10 fixed held-out seeds per condition x
+# 5 conditions (normal + 4 shifts) = 50 unique scenario configurations
+# (§33, §39 `experiment.test_seeds_per_condition: 10`).
+#
+# `seed_pool_file` will point at that fixed, checksummed file once generated
+# (Phase 5, P5-M2). It must live in a module the training/tuning code path
+# never imports (§6 structural protection) — enforced when that loader is
+# built, not by this file alone.
+
+split: test
+num_seeds_per_condition: 10
+conditions: [normal, noise_increase, density_increase, simultaneous_conjunctions, capability_reduction]
+seed_pool_file: null  # to be set once the held-out seed pool is generated (Phase 5, P5-M2)
