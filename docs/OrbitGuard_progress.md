@@ -74,6 +74,8 @@ Every table below adds an **"Agent coverage"** column: whether the implementing 
 
 ## 3. Open questions for Astro-physics relay (consolidated — do not trickle these out)
 
+**Status update (2026-09-22): the user reviewed all five questions and instructed "use recommendation answer, proceed" — Phase 1 was implemented using the recommended answers below.** This is the user/team authorizing the project to proceed on these answers, not the astrophysics teammate's own sign-off — that distinction matters and is tracked, not glossed over. If the actual astrophysics teammate later reviews these and disagrees, the affected code (`physics/frames.py`'s frame convention, `physics/dynamics.py`'s constants, `scenarios/constellation.py`'s sampling) is isolated enough to revise without touching the rest of Phase 1. See §9 (Deviations) for exactly which recommended value was implemented where.
+
 Per the master prompt: **pause and ask before assuming anything Astro-physics-related.** These are the concrete open items found while reading the PRD, batched here so they can be relayed to the astrophysics student in one pass rather than one at a time over multiple weeks:
 
 1. **§39 numeric defaults are explicitly unvalidated** (§47.1: "my best guesses ... not validated physics") — needs sign-off or revision: position noise σ = 100 m, velocity noise σ = 0.1 m/s, `base_delta_v` = 0.1 m/s, hard-body radius = 5 m per satellite, `d_base`/`d_min`/`d_max` = 1000/200/5000 m, risk-proxy `z0`/`k` = 3.0/1.5.
@@ -88,15 +90,15 @@ Per the master prompt: **pause and ask before assuming anything Astro-physics-re
 
 ## 4. Acceptance-test execution map (§38)
 
-| Test | Requirement | Becomes executable at | PRD-referenced exit criteria |
-|---|---|---|---|
-| **A — Benign orbit** | No-Maneuver baseline doesn't spontaneously collide, no conjunction injected | **Phase 1 exit** | §44 Phase 1 exit criteria |
-| **B — Single conjunction** | Injected conjunction detected, meaningful risk signal | **Phase 2 exit** | §44 Phase 2 exit criteria |
-| **C — Adaptive margin** | `d_safe` moves in expected direction within `[d_min,d_max]` as inputs change | **Phase 2 exit** | §44 Phase 2 exit criteria |
-| **D — RL pipeline** | 2-satellite train→evaluate, no code changes between | **Phase 3 GATE** | §44 Phase 3 exit bullet |
-| **E — Shield** | Unsafe proposal rejected/replaced when feasible alternative exists | **Phase 4** | §44 Phase 4 exit criteria |
-| **F — Reproducibility** | Same config+seed → same deterministic output | **Phase 5** (co-owned RL+Evaluation) | §44 Phase 5 |
-| **G — Distribution shift** | All 4 shift configs run from one experiment-config interface | **Phase 5** (Evaluation) | §44 Phase 5 |
+| Test | Requirement | Becomes executable at | Status | PRD-referenced exit criteria |
+|---|---|---|---|---|
+| **A — Benign orbit** | No-Maneuver baseline doesn't spontaneously collide, no conjunction injected | **Phase 1 exit** | **PASSES** — `tests/acceptance/test_acceptance_a_benign_orbit.py`, 2026-09-22 | §44 Phase 1 exit criteria |
+| **B — Single conjunction** | Injected conjunction detected, meaningful risk signal | **Phase 2 exit** | Pending | §44 Phase 2 exit criteria |
+| **C — Adaptive margin** | `d_safe` moves in expected direction within `[d_min,d_max]` as inputs change | **Phase 2 exit** | Pending | §44 Phase 2 exit criteria |
+| **D — RL pipeline** | 2-satellite train→evaluate, no code changes between | **Phase 3 GATE** | Pending | §44 Phase 3 exit bullet |
+| **E — Shield** | Unsafe proposal rejected/replaced when feasible alternative exists | **Phase 4** | Pending | §44 Phase 4 exit criteria |
+| **F — Reproducibility** | Same config+seed → same deterministic output | **Phase 5** (co-owned RL+Evaluation) | Pending | §44 Phase 5 |
+| **G — Distribution shift** | All 4 shift configs run from one experiment-config interface | **Phase 5** (Evaluation) | Pending | §44 Phase 5 |
 
 ---
 
@@ -154,21 +156,26 @@ Legend for **Agent coverage**: `own` = implementing agent covers its nominal PRD
 
 ---
 
-### Phase 1 — Physics Foundation (Weeks 2–3)
+### Phase 1 — Physics Foundation (Weeks 2–3) — status: **core milestones done 2026-09-22**
 
-| ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref |
-|---|---|---|---|---|---|---|
-| P1-M1 | Two-body + J2 acceleration model | Astro | Unit tests vs. analytic two-body acceleration; J2 term sign/magnitude check | P0, **Astro Q2 (frame)** | `physics/dynamics.py` | §10 |
-| P1-M2 | RK4 integrator, configurable `dt` | Astro | Convergence test as `dt`↓; matches analytic circular-orbit propagation | P1-M1 | `physics/integrator.py` | §11, §12 |
-| P1-M3 | ECI↔RTN frame transforms | Astro | Round-trip transform identity test; unit-tested per §9 | **Astro Q2** | `physics/frames.py` | §9 |
-| P1-M4 | Physics validation suite (§12) | Astro | Energy/ang.-momentum conservation, J2 nodal regression, reference-tool comparison (**Astro Q4: which tool/tolerance**), convergence check | P1-M1..M3 | `tests/physics/test_validation.py` | §12 |
-| P1-M5 | Constellation generator, N=10–20 from TLE distributions | Astro | Sampled elements fall within observed shell ranges (§16); deterministic under fixed seed | Data (§2), P1-M1 | `scenarios/constellation.py` | §16–17 |
-| P1-M6 *(parallel track)* | RL: learn PettingZoo/RLlib on a toy env (not OrbitGuard yet) — no repo artifact expected | RL | N/A (learning task) | none | none | §47.7 |
-| P1-M7 *(parallel track)* | Safety: shield repair-search logic against mocked risk data | Safety | Unit tests against mock inputs | mock risk schema (§24) | `safety/shield.py` (skeleton) | §47.7 |
-| P1-M8 *(parallel track)* | Evaluation: scaffold baseline runner + seed-pool separation tooling against mocked training outputs | Evaluation | Import/lint only at this stage | mock schema | `evaluation/` skeleton | §47.7 |
-| P1-M9 *(parallel track)* | Visualization: Dash app shell against hand-written mock episode file | Visualization | App launches, renders mock | mock episode file (§40 schema) | `visualization/` skeleton | §47.7 |
+Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were resolved by adopting the user-approved recommended answers (2026-09-22), not left open — see §9 Deviations for the exact substitutions used.
 
-**Exit criteria:** Acceptance Test **A** passes; propagator matches reference tool within agreed tolerance (**blocked on Astro Q4**).
+| ID | Task | Owner | Agent coverage | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
+|---|---|---|---|---|---|---|---|---|
+| P1-M1 | Two-body + J2 acceleration model | Astro | covering:Astro | 12 tests: inverse-square law, independent reformulation of the J2 formula, pole/equatorial symmetry, fail-loud on non-finite/zero position | P0, Astro Q2 (resolved) | `orbit_guard/physics/dynamics.py`, `tests/physics/test_dynamics.py` | §10 | **Done** |
+| P1-M2 | RK4 integrator, configurable `dt` | Astro | covering:Astro | Convergence vs. analytic circular orbit (errors shrink ~16x per dt-halving, 4th-order); fail-loud on non-finite input/output | P1-M1 | `orbit_guard/physics/integrator.py`, `tests/physics/test_integrator.py` | §11, §12 | **Done** |
+| P1-M3 | ECI↔RTN frame transforms + COE↔Cartesian | Astro | covering:Astro | Kepler-equation solve, COE round-trip (5 mean-anomaly + 1 quadrant-edge case), RTN orthonormality/round-trip, fail-loud on near-equatorial/near-circular/near-parabolic | Astro Q2 (resolved) | `orbit_guard/physics/frames.py`, `tests/physics/test_frames.py` | §9 | **Done** |
+| P1-M4 | Physics validation suite (§12), all 5 required checks + fail-loud | Astro | covering:Astro | Two-body circular sanity; energy + angular-momentum conservation (two-body-only); **J2 nodal regression measured at ≈-4.7°/day, matches analytic secular formula within 2%** (Astro Q4 rate); **Skyfield SPICE-based `keplerlib.propagate` reference comparison** (Astro Q4 tool), elliptical case, within 10m/0.01 m/s; convergence of full two-body+J2 dynamics vs. fine-dt reference | P1-M1..M3 | `tests/physics/test_validation.py` | §12 | **Done** |
+| P1-M5 | Constellation generator, N=10–20 from TLE distributions | Astro | covering:Astro | Loads real 3,002-row snapshot; fitted distribution matches PRD-documented ranges (within rounding — see §9); N-range boundary rejection; deterministic under seed; differs across seeds; sampled altitude stays within shell envelope | Data (§2), P1-M1, P1-M3 | `orbit_guard/scenarios/constellation.py`, `tests/scenarios/test_constellation.py` | §16–17 | **Done** |
+| P1-ACC-A *(added)* | Acceptance Test A: benign, no-conjunction, No-Maneuver episode never collides | Astro | covering:Astro | Full N=15, 6h episode horizon (`physics_dt`=10s), pairwise min-separation check against combined hard-body radius | P1-M1..M5 | `tests/acceptance/test_acceptance_a_benign_orbit.py` | §38 (Test A) | **Done — passes** |
+| P1-M6 *(parallel track)* | RL: learn PettingZoo/RLlib on a toy env (not OrbitGuard yet) — no repo artifact expected | RL | — | N/A (learning task) | none | none | §47.7 | **Deferred** — no benefit to a solo-agent implementation; will build real PettingZoo env directly in Phase 3 |
+| P1-M7 *(parallel track)* | Safety: shield repair-search logic against mocked risk data | Safety | — | — | mock risk schema (§24) | `safety/shield.py` (skeleton) | §47.7 | **Deferred to Phase 4** — building against mocks now would be throwaway work with no separate human owner to unblock |
+| P1-M8 *(parallel track)* | Evaluation: scaffold baseline runner + seed-pool separation tooling against mocked training outputs | Evaluation | — | — | mock schema | `evaluation/` skeleton | §47.7 | **Deferred to Phase 5** |
+| P1-M9 *(parallel track)* | Visualization: Dash app shell against hand-written mock episode file | Visualization | — | — | mock episode file (§40 schema) | `visualization/` skeleton | §47.7 | **Deferred to Phase 6** |
+
+**Exit criteria (§44):** Acceptance Test **A** passes ✓; propagator matches reference tool (Skyfield) within agreed tolerance ✓ (10m / 0.01 m/s over 6000s for an elliptical two-body case — tight relative to LEO scales). **Phase 1 exit criteria met.** Full suite: **61 tests, 100% line coverage on all Phase 1 modules, `ruff check` clean.**
+
+**Note on P1-M6–M9 (parallel tracks):** the PRD's parallel-track guidance in §47.7 assumes a 5-person human team where idle leads build against mocks while Astro works. This implementation has one agent covering all owner tags, so building throwaway mock-based scaffolding for Safety/Evaluation/Visualization now — only to replace it with real integrations in Phases 4–6 — has no parallelism benefit and would be speculative work against interfaces that may still shift. Deferred to the phase where each becomes load-bearing, flagged here rather than silently dropped.
 
 ---
 
@@ -316,11 +323,22 @@ Status column starts `pending` for all; updated in place as each becomes verifia
 | 2026-09-22 | User approved Phase 0; executed repo scaffolding, `configs/default.yaml` (+ split placeholders), TLE commit, `pyproject.toml`/`uv` env, `.gitignore`. Initial commit `1c3c67d` (root commit, 27 files). | Direct user instruction "Proceed to phase 0." All engineering §44 Phase 0 items done same-day; human-only items (M4/M5, M6 human half) remain open and flagged, not silently closed. |
 | 2026-09-22 | Chose `uv` (not pip/poetry) as the Python project/dependency manager | Already present in the environment (`~/.local/bin/uv`), no `pip` binary available; matches CONST-ARCH-002's preference for existing, battle-tested tooling over inventing a new setup |
 | 2026-09-22 | `pyproject.toml` declares only `numpy`/`scipy`/`pyyaml`/`pytest`/`pytest-cov` — not the full eventual stack (`gymnasium`, `pettingzoo`, `ray[rllib]`, `dash`, `plotly`) | YAGNI (user's global coding-style rule): those aren't needed until Phase 3 (RL) and Phase 6 (visualization) respectively; adding them now would be speculative and untested against actual usage |
+| 2026-09-22 | User instructed "Use recommendation answer, proceed with phase 1." Implemented all five recommended Astro answers from §3 as Phase 1 design choices, not just informational text. | Direct user authorization. Q1 (numeric defaults): kept §39 defaults unchanged in `configs/default.yaml`. Q2 (frame): `physics/frames.py` defines "OG-ECI" as whatever frame `coe_to_cartesian` produces (TEME-equivalent), with **no** epoch-based propagation or TEME/J2000 conversion anywhere — satellites are seeded fresh from sampled elements at simulator t=0. Q3 (RTN sign convention): not yet encoded (that's `safety/maneuver_mapper.py`, Phase 3/`P3-M3`) — recommendation recorded here for when that module is built. Q4 (validation tool/tolerance): used Skyfield's `keplerlib.propagate` (SPICE `prop2b.f`-based) for the two-body reference check, and the independent closed-form analytic J2 secular nodal-regression formula for the J2 check — not the same tool for both, per the recommendation's reasoning that SGP4-wrapping tools model extra physics OrbitGuard doesn't. Q5 (density-shift definition): not yet implemented (Phase 5 scope); recommendation recorded for reuse then. |
+| 2026-09-22 | Registered harness-os domain spec `ORBG-DOM-001` (SatelliteState/SatelliteCapability/OrbitalElements) before writing Phase 1 code; confirmed `create_spec` **can** write in this environment (spec id 244) — resolves the write-capability question deferred from Phase 0. Logged via `record_decision` (id 1861). | CONST-CORE-001. The domain-spec schema (entities/fields) has no way to express numerical/algorithmic behavior (acceleration formulas, RK4, frame transforms) — that correctness contract is carried entirely by the test suite instead, written test-first per CONST-CORE-002. This is a genuine schema-fit limitation, not a corner cut. |
+| 2026-09-22 | Followed real RED→GREEN TDD for every new module (`state.py`, `dynamics.py`, `integrator.py`, `frames.py`, `constellation.py`): wrote the test file, ran `pytest` to confirm the exact expected failure (`ModuleNotFoundError`/`ImportError`), then implemented, then reran to confirm pass. | CONST-CORE-002 discipline, followed manually since this repo isn't harness-initialized locally (§1) — `pytest`'s own exit code is the RED/GREEN authority (CONST-AI-003), not a self-asserted claim. |
+| 2026-09-22 | Found and fixed two bugs **in the test suite itself**, not in the physics implementation: (1) an RK4 "one-period" convergence test compared against the wrong target because `round(period/dt)` doesn't land exactly on one period, making rounding error dominate; fixed by comparing against the exact analytic circular-orbit position at a fixed, evenly-divisible time instead. (2) the J2 nodal-regression test compared `raan_final - raan0` without unwrapping, and RAAN (returned mod 2π) wrapped through 0 during the ~47° expected drift, producing a wildly wrong 31°/day instead of -4.7°/day; fixed with a shortest-angular-difference unwrap. | Caught by running tests and reading the actual failure numerically (31.3 vs -4.7 has the wrong sign *and* magnitude, which doesn't fit "numerical noise") rather than loosening tolerances to force a pass. Recorded because both are the kind of subtle test-design bug that would otherwise silently under-verify a real physics property. |
+| 2026-09-22 | `fit_shell_distribution`'s test asserts against the real CSV's exact min/max with a small tolerance, not PRD §16's literal stated bounds (which said "53.04-53.17°" / "460-465 km") | The real data's tails slightly exceed the PRD's rounded prose (observed inclination min 53.0355°, altitude max 465.30 km). The CSV is ground truth (verified in Phase 0, §2); PRD prose is a rounded human-readable summary of it. No data or code issue — a documentation-precision note worth surfacing, not silently absorbing. |
+| 2026-09-22 | Added `ruff` as a dev dependency and ran `ruff check` over all Phase 1 code; fixed all 7 findings (unquoted forward-refs now that `from __future__ import annotations` is used, `Callable` import source, an unnecessary `int(round(...))`, an unused import, two blind `except Exception` assertions narrowed to `dataclasses.FrozenInstanceError`) | Matches the user's Python coding-style rule (ruff for linting) and the general code-quality checklist; all fixes were style/precision, not behavior changes — confirmed by rerunning the full suite green after each. |
+| 2026-09-22 | Deferred P1-M6 through P1-M9 (the "parallel track" tasks for RL/Safety/Evaluation/Visualization leads building against mocks while Astro works) rather than building mock-based scaffolding now | These tasks exist in the PRD to keep a 5-person human team from being idle while Astro works. A single implementing agent has no idle-parallelism benefit from building throwaway mocks now, only to replace them with real integrations in Phases 3-6 — that's speculative work against interfaces likely to shift (YAGNI). Deferred explicitly to the phase each becomes load-bearing, not silently dropped. |
 
 ---
 
 ## 10. Next action
 
-**Phase 0 engineering items are done** (commit `1c3c67d`). Three human-only items remain open and are not blocking: team roles (§47), OSC allocation (§48), and human acknowledgment of the PRD/§50 log — the user should close these in parallel, not necessarily before Phase 1 starts.
+**Phase 0 and Phase 1 engineering items are done** (commit `1c3c67d` for Phase 0; Phase 1 commit recorded below once made). Phase 1 exit criteria met: Acceptance Test A passes, propagator matches the Skyfield reference within 10m/0.01 m/s, full §12 validation suite passes (61 tests total, 100% coverage on all Phase 1 modules, `ruff` clean).
 
-**Awaiting user approval to begin Phase 1 (Physics Foundation).** Before Phase 1 physics code is written (`physics/dynamics.py`, `physics/frames.py`, `safety/maneuver_mapper.py`), the five Astro-physics questions in §3 should be relayed and at least partially resolved — most urgently Q2 (ECI frame + TEME-seeding conversion) and Q3 (RTN sign convention), since those two directly gate the first physics modules rather than being cleanup-later items.
+Three Phase-0 human-only items remain open and are not blocking: team roles (§47), OSC allocation (§48), and human acknowledgment of the PRD/§50 log.
+
+**Astro questions Q1-Q5:** implemented per the user-approved recommendations (see §9). Q3 (RTN sign convention) and Q5 (density-shift definition) aren't consumed by any code yet — they'll matter starting Phase 3 (`safety/maneuver_mapper.py`) and Phase 5 respectively. If the actual astrophysics teammate reviews these recommendations and disagrees with any of them, flag it before those phases start.
+
+**Awaiting user approval to begin Phase 2 (Sensing, Conjunction & Risk).** Phase 2 builds directly on Phase 1's `physics/` and `scenarios/` modules: Gaussian telemetry noise, the ground-truth/observation/belief/prediction separation (a load-bearing anti-leakage requirement, §14), TCA/minimum-separation, collision detection (formalizing the inline check used in Acceptance Test A into `conjunction/collision.py`), the risk proxy, the adaptive margin `d_safe(i,j)`, and conjunction injection. No new Astro-physics ambiguities were identified for Phase 2 beyond Q5 (already flagged, not yet load-bearing until Phase 5).

@@ -858,11 +858,11 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Get the one component everything else depends on right, before building anything on top of it.
 
-- [ ] Two-body + J2 acceleration model (`physics/dynamics.py`) — **Astro**
-- [ ] RK4 integrator (`physics/integrator.py`), configurable timestep — **Astro**
-- [ ] ECI ↔ RTN frame transforms, unit tested — **Astro**
-- [ ] Physics validation suite passing (§12): energy/angular-momentum conservation, J2 nodal-regression sanity check, comparison against a reference tool (Skyfield/poliastro), convergence check as timestep shrinks — **Astro**
-- [ ] Constellation generator producing N=10–20 satellites from the TLE-derived distributions (§16–17) — **Astro**
+- [x] Two-body + J2 acceleration model (`physics/dynamics.py`) — **Astro**
+- [x] RK4 integrator (`physics/integrator.py`), configurable timestep — **Astro**
+- [x] ECI ↔ RTN frame transforms, unit tested — **Astro**
+- [x] Physics validation suite passing (§12): energy/angular-momentum conservation, J2 nodal-regression sanity check, comparison against a reference tool (Skyfield/poliastro), convergence check as timestep shrinks — **Astro**
+- [x] Constellation generator producing N=10–20 satellites from the TLE-derived distributions (§16–17) — **Astro**
 
 *(RL, Safety, Evaluation, and Visualization leads are not idle this phase — see §47.7 for what each builds against mocked data while physics is underway.)*
 
