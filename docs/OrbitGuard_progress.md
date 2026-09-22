@@ -148,7 +148,7 @@ Legend for **Agent coverage**: `own` = implementing agent covers its nominal PRD
 | P0-M4 | Team roles assigned (§47) | Joint | **N/A — human action** | — | — | — | §47 | **Outstanding (human)** |
 | P0-M5 | OSC compute allocation requested | RL | **N/A — human action, flagged to user** | — | — | — | §48 | **Outstanding (human)** |
 | P0-M6 | PRD + §50 log reviewed/acknowledged by team | Joint | own (agent review complete; human ack still pending — see §2) | This file exists and cites §50 | none | this file | §44, §50 | **Partial (agent done, human outstanding)** |
-| P0-M7 *(added, not in §44 but load-bearing per §40)* | Initial git commit establishing provenance baseline | Joint | covering:Joint | `git log` non-empty, `HEAD` short hash recorded below | P0-M1..M3 | initial commit — hash: **see §9 Deviations log entry 2026-09-22 (post-commit update)** | §40 (implied) | **Done** |
+| P0-M7 *(added, not in §44 but load-bearing per §40)* | Initial git commit establishing provenance baseline | Joint | covering:Joint | `git log` non-empty, `HEAD` short hash recorded below | P0-M1..M3 | initial commit `1c3c67d` (root commit, 27 files) | §40 (implied) | **Done** |
 
 **Exit criteria (§44):** repo exists ✓, config loads without error ✓, TLE file committed ✓, every team member can state MVP scope (§3.1) from memory — **human criterion, outstanding**. Engineering exit criteria met 2026-09-22; human criterion (M4/M5/M6/implicit-M-in-exit-criteria) remains open pending user action, per §2.
 
@@ -313,9 +313,14 @@ Status column starts `pending` for all; updated in place as each becomes verifia
 | 2026-09-22 | Master prompt's four-tag owner scheme (`Astro/RL/Eval/Joint`) superseded by PRD v1.6's six-tag scheme (`Astro/RL/Safety/Evaluation/Visualization/Joint`) in this tracker | Master prompt predates PRD v1.6's role split (§47); PRD is source of truth per its own precedence rule |
 | 2026-09-22 | Did not probe `create_spec` write capability yet | Would create a persistent governance-log row before implementation is approved; deferred to first real spec at Phase 1 start |
 | 2026-09-22 | No repo scaffolding, config, or commits made yet despite being "Phase 0" tasks | Master prompt requires pausing for approval before moving into a phase; this document is the Step-1 planning artifact, not Phase 0 execution |
+| 2026-09-22 | User approved Phase 0; executed repo scaffolding, `configs/default.yaml` (+ split placeholders), TLE commit, `pyproject.toml`/`uv` env, `.gitignore`. Initial commit `1c3c67d` (root commit, 27 files). | Direct user instruction "Proceed to phase 0." All engineering §44 Phase 0 items done same-day; human-only items (M4/M5, M6 human half) remain open and flagged, not silently closed. |
+| 2026-09-22 | Chose `uv` (not pip/poetry) as the Python project/dependency manager | Already present in the environment (`~/.local/bin/uv`), no `pip` binary available; matches CONST-ARCH-002's preference for existing, battle-tested tooling over inventing a new setup |
+| 2026-09-22 | `pyproject.toml` declares only `numpy`/`scipy`/`pyyaml`/`pytest`/`pytest-cov` — not the full eventual stack (`gymnasium`, `pettingzoo`, `ray[rllib]`, `dash`, `plotly`) | YAGNI (user's global coding-style rule): those aren't needed until Phase 3 (RL) and Phase 6 (visualization) respectively; adding them now would be speculative and untested against actual usage |
 
 ---
 
 ## 10. Next action
 
-**Awaiting user approval to begin Phase 0 execution** (repo scaffolding, `configs/default.yaml`, initial commit). The five Astro-physics questions in §3 should be relayed and at least partially resolved before Phase 1 physics coding starts, though they do not block Phase 0 scaffolding itself.
+**Phase 0 engineering items are done** (commit `1c3c67d`). Three human-only items remain open and are not blocking: team roles (§47), OSC allocation (§48), and human acknowledgment of the PRD/§50 log — the user should close these in parallel, not necessarily before Phase 1 starts.
+
+**Awaiting user approval to begin Phase 1 (Physics Foundation).** Before Phase 1 physics code is written (`physics/dynamics.py`, `physics/frames.py`, `safety/maneuver_mapper.py`), the five Astro-physics questions in §3 should be relayed and at least partially resolved — most urgently Q2 (ECI frame + TEME-seeding conversion) and Q3 (RTN sign convention), since those two directly gate the first physics modules rather than being cleanup-later items.
