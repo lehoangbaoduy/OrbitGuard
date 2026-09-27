@@ -2,7 +2,7 @@
 
 **Written for:** the OrbitGuard teammate implementing this half of Phase 2 with the Antigravity coding agent — not for Claude, not for the PRD's original "Astro" role. If you're a human reading this before pointing an agent at it, read the whole thing once; it's shorter than it looks because most of the actual specification lives in the test files, not in this prose.
 
-**Status when this was written:** OrbitGuard's Phase 0 (repo/config/data setup) and Phase 1 (physics foundation — orbital dynamics, integrator, frame transforms, constellation generator) are complete, tested (61 tests, 100% coverage), and committed. You are building on top of real, working code, not a stub.
+**Status when this was written:** OrbitGuard's Phase 0 (repo/config/data setup), Phase 1 (physics foundation — orbital dynamics, integrator, frame transforms, constellation generator), and Phase 2 Part A (sensing/belief pipeline, adaptive safety margin, conjunction injection — the other half of Phase 2, done in parallel by a teammate using Claude) are complete, tested (138 tests, ~99%+ coverage on new modules), and committed. You are building on top of real, working code, not a stub. Part A's modules (`orbit_guard/sensing/`, `orbit_guard/safety/adaptive_margin.py`, `orbit_guard/scenarios/conjunction_generator.py`) are outside your scope — you don't need to read them, and nothing in your four files should import from them.
 
 ---
 
@@ -137,12 +137,12 @@ uv run pytest --cov=orbit_guard --cov-report=term-missing   # coverage
 
 If you don't have `uv`, standard `pip install -e .` from `pyproject.toml` plus `pytest`/`scipy`/`numpy` also works — `uv` is just what this project standardized on.
 
-**Do not let the full suite (`uv run pytest -q`, currently 61 tests outside your scope) regress.** If something you did breaks a Phase 1 test, you've touched something outside your boundary — stop and check what you imported or modified.
+**Do not let the full suite (`uv run pytest -q`, currently 138 tests outside your scope) regress.** If something you did breaks a Phase 1 or Part A test, you've touched something outside your boundary — stop and check what you imported or modified.
 
 ## 6. Definition of done
 
 - [ ] `uv run pytest tests/conjunction/ -v` — all tests pass, none skipped, none modified from what was handed to you
-- [ ] `uv run pytest -q` — full suite still green (currently 61 + your new passing tests)
+- [ ] `uv run pytest -q` — full suite still green (currently 138 + your new passing tests)
 - [ ] `uv run ruff check orbit_guard tests` — clean
 - [ ] `uv run pytest --cov=orbit_guard --cov-report=term-missing` — your four new files at or near 100% (matching the standard the rest of the codebase already holds itself to; the project-wide minimum is 80%)
 - [ ] No file outside `orbit_guard/conjunction/` was created or modified
@@ -184,9 +184,14 @@ with ModuleNotFoundError:
 Read each one fully before writing any implementation code. Your job is to
 make every test in all four files pass, by implementing the four modules --
 never by editing the tests. Run `uv run pytest tests/conjunction/ -v` to see
-current status, and `uv run pytest -q` to confirm you haven't broken anything
-else in the repo (it should show 61 passing tests before you start, and only
-grow from there).
+current status. Before you've created any of your four files, a bare
+`uv run pytest -q` will show 4 COLLECTION ERRORS (ModuleNotFoundError) for
+your test files, not a clean pass -- that's expected and is your starting
+RED state, not a broken repo. To confirm the REST of the repo is healthy
+before you start, run `uv run pytest -q --ignore=tests/conjunction`
+instead -- it should show 138 passing. Once your four modules exist, drop
+the `--ignore` flag and the full suite (138 + your new tests) should be
+green.
 
 FUNCTION SIGNATURES REQUIRED (see the test files for exact behavior):
 

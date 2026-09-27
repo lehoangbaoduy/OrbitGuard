@@ -872,13 +872,13 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Correct inputs for both the RL policy and the safety shield — errors here silently poison every result downstream.
 
-- [ ] Telemetry/uncertainty model — configurable Gaussian noise (§15) — **Astro**
-- [ ] Ground-truth / observation / belief / prediction / evaluation-truth separation implemented as distinct, non-conflatable code paths (§14) — **Astro**
-- [ ] TCA and minimum-separation computation (§19), unit tested — **Astro**
-- [ ] Collision detection against ground truth (§18), unit tested, boundary conditions covered — **Astro**
-- [ ] Risk proxy `f(z)` implemented (§21) — monotonicity and boundedness unit tested — **Astro**
-- [ ] Adaptive safety margin `d_safe(i,j)` implemented (§22) — bounds and symmetry unit tested — **Astro** *(the formula and its tests — coefficient tuning is a separate Phase 4 milestone owned by RL)*
-- [ ] Conjunction injection / scenario generator with configurable randomization (§17) — **Astro**
+- [x] Telemetry/uncertainty model — configurable Gaussian noise (§15) — **Astro**
+- [x] Ground-truth / observation / belief / prediction / evaluation-truth separation implemented as distinct, non-conflatable code paths (§14) — **Astro**
+- [ ] TCA and minimum-separation computation (§19), unit tested — **Astro** *(Part B, handed to a teammate — see docs/OrbitGuard_progress.md Phase 2 section)*
+- [ ] Collision detection against ground truth (§18), unit tested, boundary conditions covered — **Astro** *(Part B)*
+- [ ] Risk proxy `f(z)` implemented (§21) — monotonicity and boundedness unit tested — **Astro** *(Part B)*
+- [x] Adaptive safety margin `d_safe(i,j)` implemented (§22) — bounds and symmetry unit tested — **Astro** *(the formula and its tests — coefficient tuning is a separate Phase 4 milestone owned by RL)*
+- [x] Conjunction injection / scenario generator with configurable randomization (§17) — **Astro**
 
 **Exit criteria:** Acceptance Tests B and C (§38) pass — an injected conjunction is detected with a meaningful risk signal, and `d_safe` moves in the expected direction (and stays within `[d_min, d_max]`) as uncertainty, density, and risk inputs change.
 
