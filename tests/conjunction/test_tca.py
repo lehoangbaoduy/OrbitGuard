@@ -10,6 +10,7 @@ module must consume that format directly -- do not invent a new one.
 
 import numpy as np
 import pytest
+
 from orbit_guard.conjunction.tca import compute_tca
 
 

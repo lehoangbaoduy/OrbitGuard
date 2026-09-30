@@ -15,6 +15,7 @@ use `risk_proxy` / `R_proxy` everywhere, including in your own code.
 import math
 
 import pytest
+
 from orbit_guard.conjunction.risk import risk_proxy
 
 _EPSILON_M = 1.0

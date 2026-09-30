@@ -874,13 +874,13 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 - [x] Telemetry/uncertainty model — configurable Gaussian noise (§15) — **Astro**
 - [x] Ground-truth / observation / belief / prediction / evaluation-truth separation implemented as distinct, non-conflatable code paths (§14) — **Astro**
-- [ ] TCA and minimum-separation computation (§19), unit tested — **Astro** *(Part B, handed to a teammate — see docs/OrbitGuard_progress.md Phase 2 section)*
-- [ ] Collision detection against ground truth (§18), unit tested, boundary conditions covered — **Astro** *(Part B)*
-- [ ] Risk proxy `f(z)` implemented (§21) — monotonicity and boundedness unit tested — **Astro** *(Part B)*
+- [x] TCA and minimum-separation computation (§19), unit tested — **Astro** *(Part B, delivered by teammate ATMunn/Antigravity as PR #1, reviewed and merged — see docs/OrbitGuard_progress.md Phase 2 section)*
+- [x] Collision detection against ground truth (§18), unit tested, boundary conditions covered — **Astro** *(Part B)*
+- [x] Risk proxy `f(z)` implemented (§21) — monotonicity and boundedness unit tested — **Astro** *(Part B)*
 - [x] Adaptive safety margin `d_safe(i,j)` implemented (§22) — bounds and symmetry unit tested — **Astro** *(the formula and its tests — coefficient tuning is a separate Phase 4 milestone owned by RL)*
 - [x] Conjunction injection / scenario generator with configurable randomization (§17) — **Astro**
 
-**Exit criteria:** Acceptance Tests B and C (§38) pass — an injected conjunction is detected with a meaningful risk signal, and `d_safe` moves in the expected direction (and stays within `[d_min, d_max]`) as uncertainty, density, and risk inputs change.
+**Exit criteria: met (2026-09-30).** Acceptance Tests B and C (§38) pass — an injected conjunction is detected with a meaningful risk signal (`tests/acceptance/test_acceptance_b_single_conjunction.py`), and `d_safe` moves in the expected direction (and stays within `[d_min, d_max]`) as uncertainty, density, and risk inputs change (`tests/acceptance/test_acceptance_c_adaptive_margin.py`).
 
 #### Phase 3 — RL Environment & 2-Agent Sanity Check — GATE (Weeks 7–8)
 

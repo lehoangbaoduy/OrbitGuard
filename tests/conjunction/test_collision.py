@@ -9,6 +9,7 @@ resample).
 
 import numpy as np
 import pytest
+
 from orbit_guard.conjunction.collision import CollisionResult, detect_collision
 
 
