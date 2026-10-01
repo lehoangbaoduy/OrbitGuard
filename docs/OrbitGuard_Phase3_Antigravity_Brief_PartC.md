@@ -145,7 +145,7 @@ uv run pytest tests/acceptance/test_acceptance_d_training_smoke.py -v   # alread
 
 # confirm the REST of the repo is healthy before you start:
 uv run pytest -q --ignore=tests/rl/test_observation.py --ignore=tests/rl/test_reward.py --ignore=tests/safety/test_maneuver_mapper.py
-# -> should show 177 passing (165 Phase-0-2 baseline + 9 stub-env conformance + 3 Acceptance-D smoke)
+# -> should show 197 passing (165 Phase-0-2 baseline + 9 stub-env conformance + 3 centralized-critic-state + 3 Acceptance-D smoke + 17 mission-deviation), with zero collection errors
 
 uv run ruff check orbit_guard tests
 ```
@@ -164,7 +164,7 @@ A bare `uv run pytest -q` (no `--ignore`) will show 3 collection errors (`Module
 - [ ] `uv run pytest tests/acceptance/test_acceptance_d_training_smoke.py -v` — still passing (or extended, not weakened, if you improve on it)
 - [ ] A real centralized critic wired to `StubOrbitGuardEnv.state()`, not just a parameter-shared policy with RLlib's default decentralized critic (see §4 — this is the actual CTDE requirement, and the smoke test alone does not prove it)
 - [ ] Your own tests for `rl/training.py`/`rl/rllib_env.py`, following house style (AAA pattern, descriptive names), including a test that the centralized critic actually receives global state
-- [ ] `uv run pytest -q --ignore=tests/rl/test_observation.py --ignore=tests/safety/test_maneuver_mapper.py` — 177 + 23 (+ your own new tests) all green (a different teammate's two files may still be in progress in parallel — a bare `pytest -q` with no ignore will still show 2 collection errors until that work also lands, that's expected, not your bug)
+- [ ] `uv run pytest -q --ignore=tests/rl/test_observation.py --ignore=tests/safety/test_maneuver_mapper.py` — 197 + 23 (+ your own new tests) all green, zero collection errors (a different teammate's two files may still be in progress in parallel — a bare `pytest -q` with no ignore will still show 2 collection errors until that work also lands, that's expected, not your bug)
 - [ ] `uv run ruff check orbit_guard tests` — clean
 - [ ] No file outside `orbit_guard/rl/reward.py`, `orbit_guard/rl/training.py`, `orbit_guard/rl/rllib_env.py` (plus your own new test file(s)) was created or modified
 - [ ] `pyproject.toml`/`uv.lock`/`orbit_guard/rl/__init__.py`/`orbit_guard/rl/observation.py` untouched

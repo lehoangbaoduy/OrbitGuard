@@ -160,7 +160,7 @@ uv run pytest tests/safety/test_maneuver_mapper.py tests/rl/test_observation.py 
 
 # confirm the REST of the repo is healthy before you start:
 uv run pytest -q --ignore=tests/rl/test_observation.py --ignore=tests/rl/test_reward.py --ignore=tests/safety/test_maneuver_mapper.py
-# -> should show 177 passing (165 Phase-0-2 baseline + 9 stub-env conformance + 3 Acceptance-D smoke)
+# -> should show 197 passing (165 Phase-0-2 baseline + 9 stub-env conformance + 3 centralized-critic-state + 3 Acceptance-D smoke + 17 mission-deviation), with zero collection errors
 
 uv run ruff check orbit_guard tests
 uv run pytest --cov=orbit_guard --cov-report=term-missing
@@ -170,14 +170,14 @@ A bare `uv run pytest -q` (no `--ignore`) will show 3 collection errors (`Module
 
 **`uv sync` pulls `torch` with CUDA dependencies, which is multi-gigabyte on Linux even though you never use torch directly** (it's a transitive dependency of `ray[rllib]`, needed by the parallel Part C work, not by you). Make sure your environment has the disk space/bandwidth for it, and budget time for the first `uv sync`.
 
-**Your own full-suite check depends on Ray being runnable** (`tests/acceptance/test_acceptance_d_training_smoke.py` is part of the 177 baseline and needs a working local Ray instance). If Ray won't start in your environment (e.g. a constrained sandbox or native Windows without WSL — Ray's scheduler has limited native-Windows support), use `--ignore=tests/acceptance/test_acceptance_d_training_smoke.py` as a fallback for the "confirm the rest of the repo is healthy" check, and flag it to the team — your own two files don't need Ray at all, this only affects the full-suite sanity check.
+**Your own full-suite check depends on Ray being runnable** (`tests/acceptance/test_acceptance_d_training_smoke.py` is part of the baseline and needs a working local Ray instance). If Ray won't start in your environment (e.g. a constrained sandbox or native Windows without WSL — Ray's scheduler has limited native-Windows support), use `--ignore=tests/acceptance/test_acceptance_d_training_smoke.py` as a fallback for the "confirm the rest of the repo is healthy" check, and flag it to the team — your own two files don't need Ray at all, this only affects the full-suite sanity check.
 
 ---
 
 ## 6. Definition of done
 
 - [ ] `uv run pytest tests/safety/test_maneuver_mapper.py tests/rl/test_observation.py -v` — all 41 tests pass, none skipped, neither file modified from what was handed to you
-- [ ] `uv run pytest -q --ignore=tests/rl/test_reward.py` — 177 + 41 = 218 tests, all green (Part C's `reward.py` may still be in progress in parallel — a bare `pytest -q` with no ignore will still show 1 collection error until Part C also lands, that's expected, not your bug). If Ray won't run in your environment, use `--ignore=tests/rl/test_reward.py --ignore=tests/acceptance/test_acceptance_d_training_smoke.py` instead and flag it.
+- [ ] `uv run pytest -q --ignore=tests/rl/test_reward.py` — 197 + 41 = 238 tests, all green, zero collection errors (Part C's `reward.py` may still be in progress in parallel — a bare `pytest -q` with no ignore will still show 1 collection error until Part C also lands, that's expected, not your bug). If Ray won't run in your environment, use `--ignore=tests/rl/test_reward.py --ignore=tests/acceptance/test_acceptance_d_training_smoke.py` instead and flag it.
 - [ ] `uv run ruff check orbit_guard tests` — clean
 - [ ] `uv run pytest --cov=orbit_guard --cov-report=term-missing` — your two new files at or near 100%
 - [ ] No file outside `orbit_guard/safety/maneuver_mapper.py` and `orbit_guard/rl/observation.py` was created or modified
@@ -230,7 +230,7 @@ to see current status. Before you've created your files, a bare
 teammate's tests/rl/test_reward.py, which is not your job) -- that's
 expected. To confirm the rest of the repo is healthy before you start, run:
 `uv run pytest -q --ignore=tests/rl/test_observation.py --ignore=tests/rl/test_reward.py --ignore=tests/safety/test_maneuver_mapper.py`
--- it should show 177 passing.
+-- it should show 197 passing with zero collection errors (this baseline count will keep growing as Part A lands more of its own work -- trust the "zero collection errors outside your own 3 known ones" check over a hardcoded number if they ever drift apart).
 
 FUNCTION SIGNATURES REQUIRED (see the test files for exact behavior):
 
@@ -289,7 +289,7 @@ HARD RULES:
 
 DONE means: both test files pass in full,
 `uv run pytest -q --ignore=tests/rl/test_reward.py` (a different teammate's
-parallel work, which may not exist yet) shows 218 passing with nothing else
+parallel work, which may not exist yet) shows 238 passing with nothing else
 regressed, ruff is clean, and coverage on your two new files is at or near
 100%. Report back with the actual pytest output showing all green, not
 just a claim that it works.
