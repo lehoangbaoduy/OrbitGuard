@@ -7,6 +7,10 @@ dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
     "pyyaml>=6.0",
+    "gymnasium>=0.29",
+    "pettingzoo>=1.24",
+    "ray[rllib]>=2.9",
+    "torch>=2.2",
 ]
 
 [dependency-groups]
