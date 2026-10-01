@@ -127,48 +127,57 @@ def sample_constellation(
         )
 
     rng = np.random.default_rng(seed)
-    satellites = []
-    for _ in range(n):
-        altitude_km = float(
-            np.clip(
-                rng.normal(shell.altitude_km_mean, shell.altitude_km_std),
-                shell.altitude_km_min,
-                shell.altitude_km_max,
-            )
-        )
-        inclination_deg = float(
-            np.clip(
-                rng.normal(shell.inclination_deg_mean, shell.inclination_deg_std),
-                shell.inclination_deg_min,
-                shell.inclination_deg_max,
-            )
-        )
-        eccentricity = float(
-            np.clip(
-                abs(rng.normal(shell.eccentricity_mean, shell.eccentricity_std)),
-                shell.eccentricity_min,
-                shell.eccentricity_max,
-            )
-        )
-        raan_rad = float(rng.uniform(0.0, 2 * np.pi))
-        arg_periapsis_rad = float(rng.uniform(0.0, 2 * np.pi))
-        mean_anomaly_rad = float(rng.uniform(0.0, 2 * np.pi))
+    return tuple(_sample_one_satellite(rng, shell, capability_template) for _ in range(n))
 
-        semi_major_axis_m = R_EARTH_EQUATORIAL_M + altitude_km * 1000.0
-        r, v = coe_to_cartesian(
-            semi_major_axis_m,
-            eccentricity,
-            np.radians(inclination_deg),
-            raan_rad,
-            arg_periapsis_rad,
-            mean_anomaly_rad,
-        )
 
-        satellites.append(
-            GeneratedSatellite(
-                state=SatelliteState(position_m=tuple(r), velocity_mps=tuple(v)),
-                capability=capability_template,
-            )
-        )
+def _sample_one_satellite(
+    rng: np.random.Generator, shell: ShellDistribution, capability_template: SatelliteCapability
+) -> GeneratedSatellite:
+    """One synthetic satellite from the fitted shell distribution (PRD §16-17).
 
-    return tuple(satellites)
+    Factored out of `sample_constellation` so `rl/environment.py`'s small-N
+    (N<`MIN_SUPPORTED_N`) Phase 3 sanity-check scenarios can reuse the exact
+    same per-satellite sampling statistics without going through
+    `sample_constellation`'s own N-range floor, which stays unchanged and
+    enforced only at that function's own boundary -- see
+    `orbit_guard.scenarios.small_n_scenario`.
+    """
+    altitude_km = float(
+        np.clip(
+            rng.normal(shell.altitude_km_mean, shell.altitude_km_std),
+            shell.altitude_km_min,
+            shell.altitude_km_max,
+        )
+    )
+    inclination_deg = float(
+        np.clip(
+            rng.normal(shell.inclination_deg_mean, shell.inclination_deg_std),
+            shell.inclination_deg_min,
+            shell.inclination_deg_max,
+        )
+    )
+    eccentricity = float(
+        np.clip(
+            abs(rng.normal(shell.eccentricity_mean, shell.eccentricity_std)),
+            shell.eccentricity_min,
+            shell.eccentricity_max,
+        )
+    )
+    raan_rad = float(rng.uniform(0.0, 2 * np.pi))
+    arg_periapsis_rad = float(rng.uniform(0.0, 2 * np.pi))
+    mean_anomaly_rad = float(rng.uniform(0.0, 2 * np.pi))
+
+    semi_major_axis_m = R_EARTH_EQUATORIAL_M + altitude_km * 1000.0
+    r, v = coe_to_cartesian(
+        semi_major_axis_m,
+        eccentricity,
+        np.radians(inclination_deg),
+        raan_rad,
+        arg_periapsis_rad,
+        mean_anomaly_rad,
+    )
+
+    return GeneratedSatellite(
+        state=SatelliteState(position_m=tuple(r), velocity_mps=tuple(v)),
+        capability=capability_template,
+    )
