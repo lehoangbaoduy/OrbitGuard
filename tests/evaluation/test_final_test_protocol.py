@@ -108,3 +108,11 @@ def test_a_tampered_test_pool_file_fails_its_checksum(tmp_path):
 
     with pytest.raises(ValueError, match="checksum"):
         load_test_pool(pool_file, freeze_file, {})
+
+
+def test_the_committed_test_pool_matches_the_frozen_generator(tmp_path):
+    from pathlib import Path
+
+    record = json.loads((Path(__file__).resolve().parents[2] / "configs" / "test_seeds.json").read_text())
+
+    assert {name: tuple(seeds) for name, seeds in record["conditions"].items()} == generate_test_pool()

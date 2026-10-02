@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -61,6 +62,24 @@ def build_tasks(
                     for seed in seeds
                 )
     return tasks
+
+
+_RUN_VARIANT_TO_MODEL = {
+    "adaptive": "adaptive_mappo",
+    "fixed": "fixed_margin_mappo",
+    "noshield": "adaptive_mappo_no_shield",
+}
+
+
+def build_registry(runs_dir: str | Path) -> dict[str, dict[int, str]]:
+    """model -> {training seed -> actor weights}, from `n15_<variant>_s<seed>/actor_weights.npz` run directories."""
+    registry: dict[str, dict[int, str]] = {}
+    for run in sorted(Path(runs_dir).glob("n15_*_s*")):
+        weights = run / "actor_weights.npz"
+        match = re.fullmatch(r"n15_(adaptive|fixed|noshield)_s(\d+)", run.name)
+        if match and weights.exists():
+            registry.setdefault(_RUN_VARIANT_TO_MODEL[match[1]], {})[int(match[2])] = str(weights)
+    return registry
 
 
 def _derived(record: Mapping) -> dict[str, float]:
@@ -179,6 +198,10 @@ def main(argv: list[str] | None = None) -> None:
     report = sub.add_parser("report", help="markdown table from an episode log")
     report.add_argument("--episodes", required=True)
 
+    registry_cmd = sub.add_parser("registry", help="write the model -> checkpoint registry from finished runs")
+    registry_cmd.add_argument("--runs-dir", required=True)
+    registry_cmd.add_argument("--out", required=True)
+
     freeze = sub.add_parser("freeze", help="snapshot config + checkpoints before the final test")
     freeze.add_argument("--registry", required=True)
     freeze.add_argument("--out", required=True)
@@ -186,6 +209,12 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.command == "report":
         print(format_report(read_records(args.episodes)))
+        return
+
+    if args.command == "registry":
+        built = build_registry(args.runs_dir)
+        Path(args.out).write_text(json.dumps({m: {str(k): v for k, v in seeds.items()} for m, seeds in built.items()}, indent=2))
+        print({model: sorted(seeds) for model, seeds in built.items()})
         return
 
     registry_raw = json.loads(Path(args.registry).read_text())

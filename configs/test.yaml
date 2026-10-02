@@ -14,4 +14,4 @@
 split: test
 num_seeds_per_condition: 10
 conditions: [normal, noise_increase, density_increase, simultaneous_conjunctions, capability_reduction]
-seed_pool_file: null  # to be set once the held-out seed pool is generated (Phase 5, P5-M2)
+seed_pool_file: configs/test_seeds.json  # readable only via evaluation/test_seed_pool.load_test_pool, which requires a freeze snapshot

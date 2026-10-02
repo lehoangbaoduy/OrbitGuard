@@ -120,3 +120,20 @@ def test_report_is_a_markdown_table_naming_models_conditions_and_seed_counts():
     assert "| model |" in report
     assert "rule_based" in report and "adaptive_mappo" in report
     assert "training seeds" in report.lower()
+
+
+def test_registry_is_built_from_finished_run_directories(tmp_path):
+    from orbit_guard.evaluation.experiment import build_registry
+
+    for variant, seed in (("adaptive", 0), ("adaptive", 1), ("fixed", 0), ("noshield", 2)):
+        run = tmp_path / f"n15_{variant}_s{seed}"
+        run.mkdir()
+        (run / "actor_weights.npz").write_bytes(b"w")
+    (tmp_path / "n15_adaptive_s2").mkdir()  # unfinished run: no weights yet
+    (tmp_path / "ckpt_exp4").mkdir()  # unrelated directory
+
+    registry = build_registry(tmp_path)
+
+    assert set(registry) == {"adaptive_mappo", "fixed_margin_mappo", "adaptive_mappo_no_shield"}
+    assert set(registry["adaptive_mappo"]) == {0, 1}
+    assert registry["adaptive_mappo_no_shield"][2].endswith("actor_weights.npz")
