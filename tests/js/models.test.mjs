@@ -138,13 +138,6 @@ test("running counts read 'so far / episode total', with an em dash for the shie
   assert.match(c.shield, new RegExp(`^${on.payload.summary.shield} / ${on.payload.summary.shield}`));
 });
 
-test("the lanes say how sparse the episode is, so IDs are only printed when they fit", () => {
-  const ep = load("shielded");
-  assert.equal(typeof M.isSparse(ep, 1), "boolean");
-  assert.equal(M.isSparse({ payload: { runs: { 1: new Array(31).fill({}) } } }, 1), false);
-  assert.equal(M.isSparse({ payload: { runs: { 1: new Array(30).fill({}) } } }, 1), true);
-});
-
 // ------------------------------------------------------------------ summary strip running values
 test("running values end exactly on the episode totals and print in the same format as the totals", () => {
   const ep = load("shielded");

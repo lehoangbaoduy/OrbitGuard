@@ -7,7 +7,6 @@
   const DASH = "—";
   const STATUS_COLLIDED = 3;
   const EARLIER_DECISIONS = 3;
-  const SPARSE_RUN_LIMIT = 30; // IDs are printed in the lanes only when there are this few runs
   const MERGE_GAP_STEPS = 24; // runs closer than this merge into one mark on the timeline
   const EVENT_KEY = { 1: "maneuver", 2: "shield", 3: "collision" };
 
@@ -109,8 +108,6 @@
     };
   }
 
-  const isSparse = (ep, type) => ((ep.payload.runs[String(type)] || []).length) <= SPARSE_RUN_LIMIT;
-
   /* ----------------------------------------------------- summary strip, live */
   const STRIP_FORMAT = { delta_v_mps: (v) => fixed(v, 2), maneuvers: (v) => fixed(v, 0), shield: (v) => fixed(v, 0), collisions: (v) => fixed(v, 0), mean_deviation: (v) => fixed(v, 3) };
 
@@ -123,5 +120,5 @@
     return out;
   }
 
-  OG.models = { fuelBars, inspector, inspectorSeries, countsLanes, laneMarks, collisionMarks, runningCounts, isSparse, stripRunning, MERGE_GAP_STEPS, DASH };
+  OG.models = { fuelBars, inspector, inspectorSeries, countsLanes, laneMarks, collisionMarks, runningCounts, stripRunning, MERGE_GAP_STEPS, DASH };
 })(globalThis);

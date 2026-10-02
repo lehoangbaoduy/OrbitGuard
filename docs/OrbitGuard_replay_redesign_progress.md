@@ -79,32 +79,32 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 | EC-07 | Thruster OFFLINE ⊘ / LIMITED Δv ◐ badges, fuel-track styles | README | py + ui | 1/5 | DONE (live: ◐ LIMITED Δv chip + bar, ⊘ OFF dashed bar, "m/s stranded") |
 | EC-08 | Retired/collided satellites: ✕ ghost, "—" d_min, "impact T+n", retire strip, excluded from ranking | README | py + ui | 5/6 | DONE (live on the fleet-collision fixture: ✕ pins, "retired · impact T+23", "—" d_min, collided pair first in the table) |
 | EC-09 | NaN/absent field → "—" + reason tooltip | rule 4 | py + js | 5 | DONE (models + charts print "—", never 0; node tests) |
-| EC-10 | Dense BEFORE: >3 same-type grouped, "+N more", histogram lanes, 15×T matrix, banner "N satellites" | DS | py + js + ui | 5 | TODO |
-| EC-11 | Sparse AFTER: IDs in lanes when ≤ 30 runs | DS | js + ui | 5 | TODO |
-| EC-12 | Collision step with reduced motion → static red frame | README | ui | 7 | TODO |
-| EC-13 | Switching tab/shield keeps scenario, step, selection, camera, play state | README | js + ui | 4 | TODO |
-| EC-14 | Switching scenario → derived start step | D7 | py + ui | 4 | TODO |
-| EC-15 | Camera drag/wheel during playback is not reset | README | js + ui | 4 | TODO |
-| EC-16 | No horizontal overflow at 320/390/768/1024/1440, including **live resize** | user rule + earlier bug | ui | 2/7 | DOING (PR2 shell verified at 320/390/768/1024/1440 exact CSS px + live resize, 0 overflow; re-check each PR) |
-| EC-17 | Phone < 760 px: sticky stage + Risk/Timeline/Inspect tabs, ≥ 44 px targets | README | ui | 7 | TODO |
-| EC-18 | Keys: Space, ←/→, [ / ], ignored in inputs; slider PgUp/PgDn ±30, Home/End, Shift ±10 | DS | js + ui | 4 | TODO |
-| EC-19 | `prefers-reduced-motion`: durations 0, stepping, no interpolation | README | js + ui | 7 | TODO |
-| EC-20 | Earth textures fail → stylised surface fallback | DS | ui | 3 | TODO |
-| EC-21 | Hover only repeats rail/table/inspector info; touch works | DS | ui | 5 | TODO |
-| EC-22 | Selected satellite retires mid-episode | derived | js + ui | 5 | TODO |
-| EC-23 | Prev/next event disabled at the ends (45%) | DS | js + ui | 4 | TODO |
+| EC-10 | Dense BEFORE: >3 same-type grouped, "+N more", histogram lanes, 15×T matrix, banner "N satellites" | DS | py + js + ui | 5 | DONE (live on the real untrained episode: grouped rows "×11", "Expand groups", banner "13 satellites", lanes + matrix) |
+| EC-11 | Sparse AFTER: IDs in lanes when ≤ 30 runs | DS | js + ui | 5 | SUPERSEDED (the handoff README shows in-lane marks for the selected satellite only; `drawLaneMarks`, tested) |
+| EC-12 | Collision step with reduced motion → static red frame | README | ui | 7 | DONE (live with reduced-motion emulation: 0.35 static red frame at the collision step, gone on the next) |
+| EC-13 | Switching tab/shield keeps scenario, step, selection, camera, play state | README | js + ui | 4 | DONE (live: step, satellite, camera and play state kept across tab/shield switches; strip counted 30.00 → 4.65 → 3.15) |
+| EC-14 | Switching scenario → derived start step | D7 | py + ui | 4 | DONE (live: each scenario opens its own start step) |
+| EC-15 | Camera drag/wheel during playback is not reset | README | js + ui | 4 | DONE (live: drag during playback; camera unchanged across later steps) |
+| EC-16 | No horizontal overflow at 320/390/768/1024/1440, including **live resize** | user rule + earlier bug | ui | 2/7 | DONE (320/390/768/1024/1440 no overflow; live resize 1440 → 600 → 1440 re-parents the dock and keeps the chart) |
+| EC-17 | Phone < 760 px: sticky stage + Risk/Timeline/Inspect tabs, ≥ 44 px targets | README | ui | 7 | DONE (390 px: sticky stage + playback, tabs, 44 px targets; evidence `pr7_phone_*_390.png`) |
+| EC-18 | Keys: Space, ←/→, [ / ], ignored in inputs; slider PgUp/PgDn ±30, Home/End, Shift ±10 | DS | js + ui | 4 | DONE (node tests + live keys) |
+| EC-19 | `prefers-reduced-motion`: durations 0, stepping, no interpolation | README | js + ui | 7 | DONE (reduced motion: stepping, no interpolation, durations 0) |
+| EC-20 | Earth textures fail → stylised surface fallback | DS | ui | 3 | DONE (live with the texture requests aborted: plain surface, loading overlay hides) |
+| EC-21 | Hover only repeats rail/table/inspector info; touch works | DS | ui | 5 | DONE (tooltips only repeat panel data; pointer events serve mouse and touch) |
+| EC-22 | Selected satellite retires mid-episode | derived | js + ui | 5 | DONE (fixture: selected satellite collided → ✕, "retired · impact T+23", closest "—") |
+| EC-23 | Prev/next event disabled at the ends (45%) | DS | js + ui | 4 | DONE (prev/next/step buttons disabled at the ends) |
 | EC-24 | Reference note hidden without `--reference` | rule 6 | py + ui | 1/5 | DONE (note rendered in the Collisions cell only when `--reference-log` yields a match; no log exists yet because the grid search has not run) |
 | EC-25 | Comparative copy only from data; denominator 0 → no ratio | rule 7 | py | 1 | DONE (never '100% less' for non-zero, NaN/inf/zero denominator → None) |
 | EC-26 | Other tab's trace missing → bars show "—" | rule 4 | py + ui | 1/5 | DONE (missing counterpart shows "no trace recorded" without a bar; verified on the fixture directory) |
 | EC-27 | Meta missing/invalid → fail loudly naming fields | rule 3 | py | 1 | DONE |
 | EC-28 | Old trace without meta via `--trace` → clear error | D5 | py | 1 | DONE |
-| EC-29 | FR16: replay imports no Ray/torch | existing | py | 1/7 | DOING (py DONE: app + data layer import no ray/torch/gymnasium; final check PR7) |
+| EC-29 | FR16: replay imports no Ray/torch | existing | py | 1/7 | DONE (importing the app loads no ray/torch/gymnasium) |
 | EC-30 | Literal guard: no episode numbers/synthetic imports in `.py/.js/.css`; assets folder lacks `orbitguard-data.js`, `support.js` | rule 8 | py | 0 | DONE |
 | EC-31 | Status matrices equal `frame_at` at every step (consistency of vectorised vs per-frame logic) | derived | py | 1 | DONE (vectorised == frame_at at every step incl. 12 real N=15 traces, one burn threshold) |
 | EC-32 | Payload size budget (≈ 1.5 MB / episode) and only the current episode in the Store | advisor | py | 1 | DONE (0.95 MB measured on a recorded N=15 T=360 episode, test runs without local files) |
 | EC-33 | Vendored plotly.js checksum pinned; no `dcc.Graph` in layout | D1 | py | 0/2 | DONE (no dcc.Graph in layout, vendored build checksum pinned) |
-| EC-34 | Label merging within threshold (≤ 4 per plate), plates never stack | DS | js + ui | 3 | TODO |
-| EC-35 | Fleet-fuel: exhausted tanks, "all empty" step, retired tint, offline flat grey | DS | py + ui | 5 | TODO |
+| EC-34 | Label merging within threshold (≤ 4 per plate), plates never stack | DS | js + ui | 3 | DONE with a known limit (more than 4 labels near each other in `labelAll` mode may stack; the UI never enables that mode) |
+| EC-35 | Fleet-fuel: exhausted tanks, "all empty" step, retired tint, offline flat grey | DS | py + ui | 5 | DONE (live: EMPTY bars, all-empty marker on the area chart, retired tint, offline dashed OFF) |
 
 ## 5. Exit criteria (Definition of Done)
 
@@ -171,7 +171,7 @@ Playwright: 320/390/768/1024/1440 + live resize (EC-16).
 | `callbacks.py` (`PayloadProvider` with LRU(6) cache, `apply_click`, `parse_selection` validating client state, one selection callback updating controls IN PLACE via wildcard outputs so focus survives) + `app.py` rewrite (`create_app(index, reference_log)`, `--episodes/--trace/--reference-log`) | DONE |
 | CSS `02_og_base`, `03_og_layout`, `04_og_stage`, `07_og_motion`, `08_og_phone` (container query for the dock at ≥ 780 px) | DONE (`05_og_panels`/`06_og_timeline` land with PR5, icons with PR4) |
 | Playwright on the 12 real episodes: 5 widths, live resize, tab + shield clicks, console clean | DONE (evidence `docs/redesign/evidence/pr2_*.png`) |
-| Review (code-reviewer on layout/callbacks/CSS) | DOING |
+| Review (code-reviewer on layout/callbacks/CSS) | folded into the PR3–PR5 reviews (typescript-reviewer) and the PR1 python-reviewer; no separate pass |
 | `figures.py` token hexes/glyphs | MOVED to PR7 with the legacy removal (D11): nothing renders `figures.py` any more, so changing it now has no visible effect |
 
 ### PR3 — 3D scene (JS)
