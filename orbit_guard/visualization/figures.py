@@ -43,7 +43,7 @@ PAIR_STYLE = {
     "collision": Style("#ff3b6b", "x", "COLLISION", dash="solid", width=5, glyph="✕"),
     "high_risk": Style("#ffb020", "diamond", "HIGH RISK", dash="dash", width=4, glyph="▲"),
     "inside_d_safe": Style("#3dd6e6", "circle-open", "INSIDE d_safe", dash="dot", width=3, glyph="◎"),
-    "nominal": Style(GRID, "circle", "nominal", dash="solid", width=1, glyph="·"),
+    "nominal": Style(MUTED, "circle", "nominal", dash="solid", width=1, glyph="·"),
 }
 EVENT_STYLE = {
     "maneuver": Style("#4ade80", "square", "MANEUVER", glyph="■"),
@@ -64,6 +64,16 @@ def _earth_surface() -> go.Surface:
         z=EARTH_RADIUS_KM * np.cos(v), colorscale=[[0, "#0f2a4a"], [1, "#16406e"]], showscale=False,
         opacity=0.9, hoverinfo="skip", name="Earth",
     )
+
+
+def _satellite_label(sat, style: Style) -> str:
+    """Always-visible text: id, plus the status and/or event word -- never colour alone."""
+    parts = [f"S{sat.index}"]
+    if sat.status != "nominal":
+        parts.append(style.label)
+    if sat.event != "none":
+        parts.append(EVENT_STYLE[sat.event].label)
+    return " · ".join(parts)
 
 
 def constellation_figure(frame: Frame, trace: EpisodeTrace, trail: int = 8) -> go.Figure:
@@ -99,7 +109,7 @@ def constellation_figure(frame: Frame, trace: EpisodeTrace, trail: int = 8) -> g
                 x=coords[:, 0], y=coords[:, 1], z=coords[:, 2], mode="markers+text",
                 marker={"symbol": style.marker, "color": style.color, "size": 7 if status == "nominal" else 10,
                         "line": {"color": style.color, "width": 2}},
-                text=[f"S{sat.index}" if status == "nominal" else f"S{sat.index} · {style.label}" for sat in members],
+                text=[_satellite_label(sat, style) for sat in members],
                 textposition="top center", textfont={"color": style.color, "size": 11},
                 name=f"{style.glyph} {style.label}",
                 hovertext=[
@@ -143,7 +153,7 @@ def constellation_figure(frame: Frame, trace: EpisodeTrace, trail: int = 8) -> g
         paper_bgcolor=PANEL, plot_bgcolor=PANEL, font={"color": TEXT, "family": "Inter, system-ui, sans-serif"},
         scene={"xaxis": axis, "yaxis": axis, "zaxis": axis, "aspectmode": "data", "bgcolor": INK},
         margin={"l": 0, "r": 0, "t": 8, "b": 0}, height=560,
-        legend={"bgcolor": "rgba(17,26,46,0.85)", "bordercolor": GRID, "borderwidth": 1, "font": {"size": 12}},
+        showlegend=False,  # the app shows its own colour + shape + label legend beneath the plot
         uirevision="constellation",
     )
     return figure
@@ -175,8 +185,8 @@ def event_timeline_figure(trace: EpisodeTrace, current_step: int) -> go.Figure:
     figure.update_layout(
         paper_bgcolor=PANEL, plot_bgcolor=INK, font={"color": TEXT, "family": "Inter, system-ui, sans-serif"},
         xaxis={"title": "episode time (min)", "gridcolor": GRID, "range": [0, float(minutes[-1]) + 1]},
-        yaxis={"title": "satellite", "gridcolor": GRID, "dtick": 1, "range": [-0.7, trace.num_agents - 0.3]},
-        margin={"l": 50, "r": 10, "t": 8, "b": 40}, height=250, legend={"orientation": "h", "y": 1.18},
+        yaxis={"title": "satellite", "gridcolor": GRID, "zeroline": False, "dtick": 1, "range": [-0.7, trace.num_agents - 0.3], "tickprefix": "S"},
+        margin={"l": 50, "r": 10, "t": 8, "b": 40}, height=max(250, 22 * trace.num_agents + 120), legend={"orientation": "h", "y": 1.18},
         uirevision="timeline",
     )
     return figure

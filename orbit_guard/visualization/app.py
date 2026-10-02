@@ -123,6 +123,12 @@ button {{ background: {GRID}; color: {TEXT}; border: 1px solid {MUTED}; border-r
 button:hover, button:focus-visible {{ background: #34456a; outline: 2px solid #3dd6e6; }}
 .events {{ list-style: none; padding: 0; margin: 0; font-family: {_MONO}; font-size: 12px; }}
 .status {{ font-family: {_MONO}; font-size: 12px; color: {TEXT}; }}
+.dash-slider-track {{ background: {GRID} !important; height: 6px !important; }}
+.dash-slider-range {{ background: #3dd6e6 !important; height: 6px !important; }}
+.dash-slider-thumb {{ background: {INK} !important; border: 3px solid #3dd6e6 !important; width: 16px !important; height: 16px !important; }}
+.dash-slider-mark {{ color: {MUTED} !important; font-family: {_MONO}; }}
+.dash-slider-container input[type=number], .dash-slider-container input {{ background: {INK}; color: {TEXT}; border: 1px solid {MUTED};
+  font-family: {_MONO}; border-radius: 4px; }}
 @media (max-width: 960px) {{ .grid {{ grid-template-columns: 1fr; }} .cards {{ grid-template-columns: repeat(2, 1fr); }} }}
 """
 
