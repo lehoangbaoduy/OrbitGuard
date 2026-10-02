@@ -91,6 +91,17 @@
       OG.dom.h("span", { class: "og-banner-main" }, `${b.glyph} ${b.label} · ${b.sats}`), b.more ? OG.dom.h("span", { class: "og-banner-more" }, b.more) : null) : null);
   }
 
+  /* The legend dims the shield entry (and says so) when the episode ran without the shield. */
+  function renderLegend() {
+    const shieldName = S.ep.vocab.event[2].name;
+    for (const chip of document.querySelectorAll(".og-legend-chip")) {
+      const off = chip.dataset.legend === shieldName && !S.ep.shield;
+      chip.classList.toggle("is-off", off);
+      const note = chip.querySelector(".og-legend-off");
+      if (note) note.textContent = off ? "(off)" : "";
+    }
+  }
+
   function renderStrip(step) {
     const running = OG.models.stripRunning(S.ep, step);
     for (const [metric, text] of Object.entries(running)) setText(`og-strip-run-${metric}`, text);
@@ -425,6 +436,7 @@
       const host = $("og-scrub");
       if (host) { host.setAttribute("aria-valuemax", String(ep.T)); drawScrubber(); }
       renderTimeline();
+      renderLegend();
       countUpStrip();
       renderPanels();
       requestDraw("force");

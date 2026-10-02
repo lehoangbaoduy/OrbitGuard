@@ -74,3 +74,7 @@
   #og-tracked .og-pane-body > *, #og-tracked .og-rows { flex-shrink: 0; overflow: visible; }
   #og-inspector { flex: 0 0 auto; }
 }
+
+/* Legend: the shield entry is dimmed and says "(off)" when the episode ran without the shield. */
+.og-legend-chip.is-off { opacity: .5; }
+.og-legend-off { margin-left: 4px; color: var(--og-text-3); }

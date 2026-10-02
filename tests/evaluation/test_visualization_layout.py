@@ -191,6 +191,18 @@ def test_strip_notes_are_data_generated():
     assert "10× after" in _text(_strip(payload))
 
 
+def test_reference_note_appears_in_the_collisions_cell_only_when_the_payload_has_one():
+    note = "adaptive_mappo 1/10 · no_maneuver 5/10 episodes with a collision"
+    shown = _text(_strip(_payload(shielded_trace(), reference_note=note)))
+    hidden = _payload(shielded_trace())
+    cell = next(c for c in _walk(_strip(_payload(shielded_trace(), reference_note=note))) if getattr(c, "id", None) == "og-strip-cell-collisions")
+
+    assert note in shown
+    assert note in _text(cell) and [c for c in _walk(cell) if getattr(c, "id", None) == "og-strip-ref"]
+    assert "episodes with a collision" not in _text(_strip(hidden))
+    assert not [c for c in _walk(_strip(hidden)) if getattr(c, "id", None) == "og-strip-ref"]
+
+
 def test_strip_is_empty_state_safe_without_a_payload():
     assert _text(_strip(None)).count("—") >= 5
 
@@ -233,6 +245,16 @@ def test_legend_lists_every_status_with_glyph_and_label_and_states_the_visual_sc
     for glyph, label in (("○", "INSIDE d_safe"), ("◆", "HIGH RISK"), ("✕", "COLLIDED"), ("■", "MANEUVER"), ("◇", "SHIELD INTERVENTION")):
         assert glyph in text and label in text, (glyph, label)
     assert "not drawn to scale" in text and "not data" in text
+
+
+def test_legend_chips_are_tagged_with_their_vocabulary_name_so_the_stage_can_dim_the_shield_entry():
+    from orbit_guard.visualization.vocabulary import EVENT_VOCAB
+
+    legend = next(c for c in _walk(_layout()) if getattr(c, "id", None) == "og-legend")
+    tags = {c.__dict__.get("data-legend") for c in _walk(legend) if getattr(c, "className", "") == "og-legend-chip"}
+
+    assert EVENT_VOCAB[2].name in tags and EVENT_VOCAB[1].name in tags
+    assert None not in tags
 
 
 def test_the_stage_has_a_starfield_for_the_camera_parallax():

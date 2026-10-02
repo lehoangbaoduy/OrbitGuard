@@ -68,15 +68,15 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 
 | ID | Case | Source | Test | PR | Status |
 |---|---|---|---|---|---|
-| EC-01 | Loading trace: stage text, panes keep size (no layout jump) | DS "Empty & loading" | ui | 6 | DOING (loading region + stable pane sizes in layout, PR2; JS hide-on-ready lands PR4) |
-| EC-02 | No trace / empty directory: "No episode loaded", controls disabled | DS | py + ui | 6 | DOING (server-rendered 'No episode loaded' + disabled controls tested; Playwright evidence PR6) |
+| EC-01 | Loading trace: stage text, panes keep size (no layout jump) | DS "Empty & loading" | ui | 6 | DONE (loading overlay hides only after Plotly resolved; failures shown, never hidden) |
+| EC-02 | No trace / empty directory: "No episode loaded", controls disabled | DS | py + ui | 6 | DONE (empty dir: "No episode loaded", controls disabled; evidence `pr6_empty_1584.png`) |
 | EC-03 | Scenario×policy×shield with no trace → option disabled "no trace recorded" | rule 4 | py + ui | 1/6 | DONE (py: index offers BEFORE/AFTER always, missing ones disabled 'no trace recorded' in layout + callback; ui evidence in PR6) |
-| EC-04 | Step 0: inspector says actions exist for steps 1–N | DS | js + ui | 5 | TODO |
-| EC-05 | All nominal: rail empty-card ("All N satellites nominal") | DS | js + ui | 5 | TODO |
-| EC-06 | Shield OFF: strip "—", hatched lane, legend dim + "(off)", tally "◇ off", empty-card text | DS | py + ui | 6 | TODO |
-| EC-07 | Thruster OFFLINE ⊘ / LIMITED Δv ◐ badges, fuel-track styles | README | py + ui | 1/5 | DOING (py capability flags DONE; badges PR5) |
-| EC-08 | Retired/collided satellites: ✕ ghost, "—" d_min, "impact T+n", retire strip, excluded from ranking | README | py + ui | 5/6 | DOING (py: retirement derived from collisions, not `alive`; ghost/impact UI PR5/6) |
-| EC-09 | NaN/absent field → "—" + reason tooltip | rule 4 | py + js | 5 | TODO |
+| EC-04 | Step 0: inspector says actions exist for steps 1–N | DS | js + ui | 5 | DONE (live: "Step 0: no decision yet — actions exist for steps 1–N") |
+| EC-05 | All nominal: rail empty-card ("All N satellites nominal") | DS | js + ui | 5 | DONE (empty card, node tests + live) |
+| EC-06 | Shield OFF: strip "—", hatched lane, legend dim + "(off)", tally "◇ off", empty-card text | DS | py + ui | 6 | DONE (strip "—", hatched lane, legend shield entry dimmed "(off)", tally "◇ off", empty-card text; evidence `pr6_collision_noshield_1584.png`) |
+| EC-07 | Thruster OFFLINE ⊘ / LIMITED Δv ◐ badges, fuel-track styles | README | py + ui | 1/5 | DONE (live: ◐ LIMITED Δv chip + bar, ⊘ OFF dashed bar, "m/s stranded") |
+| EC-08 | Retired/collided satellites: ✕ ghost, "—" d_min, "impact T+n", retire strip, excluded from ranking | README | py + ui | 5/6 | DONE (live on the fleet-collision fixture: ✕ pins, "retired · impact T+23", "—" d_min, collided pair first in the table) |
+| EC-09 | NaN/absent field → "—" + reason tooltip | rule 4 | py + js | 5 | DONE (models + charts print "—", never 0; node tests) |
 | EC-10 | Dense BEFORE: >3 same-type grouped, "+N more", histogram lanes, 15×T matrix, banner "N satellites" | DS | py + js + ui | 5 | TODO |
 | EC-11 | Sparse AFTER: IDs in lanes when ≤ 30 runs | DS | js + ui | 5 | TODO |
 | EC-12 | Collision step with reduced motion → static red frame | README | ui | 7 | TODO |
@@ -91,9 +91,9 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 | EC-21 | Hover only repeats rail/table/inspector info; touch works | DS | ui | 5 | TODO |
 | EC-22 | Selected satellite retires mid-episode | derived | js + ui | 5 | TODO |
 | EC-23 | Prev/next event disabled at the ends (45%) | DS | js + ui | 4 | TODO |
-| EC-24 | Reference note hidden without `--reference` | rule 6 | py + ui | 1/5 | DOING (py DONE: reference.py filters model/condition/n_agents, errors name file:line; UI PR5) |
+| EC-24 | Reference note hidden without `--reference` | rule 6 | py + ui | 1/5 | DONE (note rendered in the Collisions cell only when `--reference-log` yields a match; no log exists yet because the grid search has not run) |
 | EC-25 | Comparative copy only from data; denominator 0 → no ratio | rule 7 | py | 1 | DONE (never '100% less' for non-zero, NaN/inf/zero denominator → None) |
-| EC-26 | Other tab's trace missing → bars show "—" | rule 4 | py + ui | 1/5 | DOING (py DONE: missing counterpart → None; strip renders 'no trace recorded' without bar; JS running values PR5) |
+| EC-26 | Other tab's trace missing → bars show "—" | rule 4 | py + ui | 1/5 | DONE (missing counterpart shows "no trace recorded" without a bar; verified on the fixture directory) |
 | EC-27 | Meta missing/invalid → fail loudly naming fields | rule 3 | py | 1 | DONE |
 | EC-28 | Old trace without meta via `--trace` → clear error | D5 | py | 1 | DONE |
 | EC-29 | FR16: replay imports no Ray/torch | existing | py | 1/7 | DOING (py DONE: app + data layer import no ray/torch/gymnasium; final check PR7) |
@@ -211,7 +211,11 @@ timeline Counts / By satellite, summary strip (totals, BEFORE/AFTER bars, ratio 
 | Live: all panels fill from real traces; dock scrolls when the inspector + tracked panes exceed the stage height (stage height uses `50vw` as in the handoff) | DONE, polish in PR7 |
 
 ### PR6 — Shield-off and empty states
-Files: `assets/23_og_states.js`, `05_og_panels.css` (edit), `layout.py` (edit). EC-01…EC-03, EC-06, EC-08, EC-09, EC-24, EC-26.
+Files: `05_og_panels.css` (edit), `layout.py` (edit). EC-01…EC-03, EC-06, EC-08, EC-09, EC-24, EC-26.
+| Task | Status |
+|---|---|
+| Legend shield entry dims + "(off)" (`data-legend` tags, controller), reference note in the Collisions cell (TDD), live check of empty / no-trace / collision / capability / shield-off states on fixture directories | DONE |
+| Known gap | Switching one control to a combination without a trace is ignored (the option is disabled with the reason), so a baseline policy whose only trace is shield-off cannot be reached from a shield-on selection. All 12 real combinations exist, so this only affects partial directories. |
 
 ### PR7 — Phone layout, motion polish, reduced motion, cleanup
 Files: `assets/08_og_phone.css`, `17_og_motion.js` (edit), `figures.py` (remove legacy builders), delete obsolete tests, docs.
@@ -241,3 +245,4 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-02 | PR2: fonts, selection, layout, strip, callbacks, app rewrite, CSS; verified live on the 12 real episodes at 5 widths + live resize | DONE pending review; no overflow, console clean |
 | 2026-10-02 | PR3 review (typescript-reviewer): 1 HIGH + 6 MEDIUM fixed or accepted, tests added (node 110 passing) | DONE |
 | 2026-10-02 | PR4/PR5 wired together: controller, stage, playback bar, panels, timeline, charts; verified live (play, keys, scrub, EC-13/14, strip count-up) | DONE pending review; suite 923 passed |
+| 2026-10-02 | PR6: states verified live on fixture directories (empty, partial, collision, capability, shield-off); legend dimming + reference note added | DONE pending review |

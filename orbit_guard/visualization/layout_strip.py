@@ -94,6 +94,8 @@ def _cell(metric: str, payload: Mapping[str, Any] | None) -> html.Div:
         entry = strip.get(metric) or {}
         children.append(_bars(metric, entry, meta.get("policy"), meta.get("shield") is False))
         children.append(html.Div(entry.get("note") or "", id=f"og-strip-note-{metric}", className="og-cell-note"))
+    if metric == "collisions" and (payload or {}).get("reference_note"):
+        children.append(html.Div(payload["reference_note"], id="og-strip-ref", className="og-cell-ref", title="From the evaluation log given with --reference-log"))
     children.append(html.Div(id=f"og-strip-run-{metric}", className="og-cell-run"))
     return html.Div(children, id=f"og-strip-cell-{metric}", className="og-cell")
 

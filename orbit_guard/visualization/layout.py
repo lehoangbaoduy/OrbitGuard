@@ -184,7 +184,11 @@ SCALE_CAPTION = "Satellite models are enlarged for visibility, not drawn to scal
 def _legend() -> html.Div:
     """Status vocabulary chips: colour + glyph + label, straight from the single vocabulary (PRD §41)."""
     chips = [
-        html.Span([html.Span(style.glyph, className="og-legend-glyph", style={"--chip": style.color}), html.Span(style.label, className="og-legend-label")], className="og-legend-chip")
+        html.Span(
+            [html.Span(style.glyph, className="og-legend-glyph", style={"--chip": style.color}), html.Span(style.label, className="og-legend-label"), html.Span(className="og-legend-off")],
+            className="og-legend-chip",
+            **{"data-legend": style.name},
+        )
         for style in (*SAT_VOCAB[1:], *EVENT_VOCAB[1:3])
     ]
     return html.Div([html.Div(chips, className="og-legend-chips"), html.Div(SCALE_CAPTION, className="og-legend-caption")], id="og-legend", className="og-legend")

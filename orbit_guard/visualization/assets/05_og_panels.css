@@ -88,3 +88,5 @@ button.og-chip { cursor: pointer; }
 .og-decision-line { font-family: var(--og-font-mono); font-size: var(--og-fs-sm); }
 .og-chip.is-maneuver { --c: var(--og-maneuver); }
 .og-chip.is-shield { --c: var(--og-shield); }
+
+.og-cell-ref { margin-top: 4px; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
