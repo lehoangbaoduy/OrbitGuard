@@ -236,6 +236,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._collided_agents: set[int] = set()
         self.episode_seed: int | None = None
         self._metrics = EpisodeMetricsTracker()
+        self.last_step: dict = {}
 
     def observation_space(self, agent):
         return self._observation_space
@@ -275,6 +276,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._step_count = 0
         self._collided_agents = set()
         self._metrics.reset()
+        self.last_step = {}
 
         self._sensing_rng = np.random.default_rng(int(self._rng.integers(0, 2**31 - 1)))
         self._shadow_states = [
@@ -304,6 +306,7 @@ class OrbitGuardEnv(ParallelEnv):
 
         post_beliefs = self._current_beliefs()
         post_assessments = self._store_pending(post_beliefs)
+        self.last_step = self._describe_step(actions, approved_actions, applied_delta_v, collided_pairs)
         self._record_step_metrics(
             applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision, pre_beliefs
         )
@@ -471,6 +474,29 @@ class OrbitGuardEnv(ParallelEnv):
                 newly_collided.add(j)
                 collided_pairs.add((i, j))
         return newly_collided, collided_pairs, min_separations
+
+    def _describe_step(self, proposed: dict, approved: dict, applied_delta_v, collided_pairs) -> dict:
+        """Per-satellite record of the step just taken, for traces and replay (inactive satellites: 0/False)."""
+        proposals = [int(proposed.get(agent, 0)) for agent in self.possible_agents]
+        approvals = [int(approved.get(agent, 0)) for agent in self.possible_agents]
+        return {
+            "proposed": proposals,
+            "approved": approvals,
+            "intervened": [p != a for p, a in zip(proposals, approvals, strict=True)],
+            "applied_dv_mps": [float(np.linalg.norm(dv)) for dv in applied_delta_v],
+            "collided_pairs": sorted(collided_pairs),
+        }
+
+    def snapshot(self) -> dict:
+        """State for traces/replay: true positions (display and metrics only), capability, belief-based pair assessments."""
+        return {
+            "positions_m": np.array([gt[:3] for gt in self._ground_truth]),
+            "alive": [agent in self.agents for agent in self.possible_agents],
+            "remaining_dv_mps": [c.remaining_delta_v_mps for c in self._capabilities],
+            "maneuver_enabled": [c.maneuver_enabled for c in self._capabilities],
+            "mission_deviation": list(self._pending_mission_deviations),
+            "pairs": [(a.i, a.j, a.d_min_m, a.d_safe_m, a.risk_proxy) for a in self._pending_assessments],
+        }
 
     def _reference_assessments(self, assessments, beliefs) -> list:
         """Re-score `assessments` under the PRD §22 adaptive margin, whatever margin the run uses.
