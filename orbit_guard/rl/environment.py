@@ -59,6 +59,11 @@ from orbit_guard.physics.mission_deviation import (
 )
 from orbit_guard.physics.state import SatelliteCapability
 from orbit_guard.rl.conjunction_assessment import build_neighbor_candidates
+from orbit_guard.rl.episode_metrics import (
+    EpisodeMetricsTracker,
+    EpisodeSummary,
+    ShieldStep,
+)
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
     compute_coordination_term,
@@ -183,6 +188,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._pending_mission_deviations: list[float] = [0.0] * num_agents
         self._collided_agents: set[int] = set()
         self.episode_seed: int | None = None
+        self._metrics = EpisodeMetricsTracker()
 
     def observation_space(self, agent):
         return self._observation_space
@@ -215,6 +221,7 @@ class OrbitGuardEnv(ParallelEnv):
         self.agents = list(self.possible_agents)
         self._step_count = 0
         self._collided_agents = set()
+        self._metrics.reset()
 
         self._sensing_rng = np.random.default_rng(int(self._rng.integers(0, 2**31 - 1)))
         self._shadow_states = [
@@ -235,7 +242,7 @@ class OrbitGuardEnv(ParallelEnv):
         applied_delta_v, approved_requested = self._apply_actions(approved_actions)
         requested_delta_v = approved_requested if approved_actions is actions else self._requested_delta_v(actions)
         fine_trajectories = self._propagate_ground_truth(applied_delta_v)
-        newly_collided = self._check_collisions(fine_trajectories)
+        newly_collided, collided_pairs, min_separations = self._check_collisions(fine_trajectories)
         self._collided_agents |= newly_collided
         self._step_count += 1
         truncated_now = self._step_count >= self._horizon_steps
@@ -243,6 +250,9 @@ class OrbitGuardEnv(ParallelEnv):
 
         post_beliefs = self._current_beliefs()
         post_assessments = self._store_pending(post_beliefs)
+        self._record_step_metrics(
+            applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision
+        )
 
         rewards = self._compute_rewards(
             actions, requested_delta_v, pre_assessments, self._outcome_assessments(post_assessments, decision),
@@ -391,17 +401,51 @@ class OrbitGuardEnv(ParallelEnv):
         self._ground_truth = [trajectory[-1] for trajectory in fine_trajectories]
         return fine_trajectories
 
-    def _check_collisions(self, fine_trajectories: list[np.ndarray]) -> set[int]:
+    def _check_collisions(self, fine_trajectories: list[np.ndarray]):
+        """Ground-truth collision check; returns (newly collided agents, colliding pairs, per-pair min separation)."""
         newly_collided: set[int] = set()
+        collided_pairs: set[tuple[int, int]] = set()
+        min_separations: dict[tuple[int, int], float] = {}
         for i, j in generate_candidate_pairs(self._num_agents):
             result = detect_collision(
                 fine_trajectories[i], fine_trajectories[j], self._physics_dt_s,
                 self._hard_body_radius_m, self._hard_body_radius_m,
             )
+            min_separations[(i, j)] = result.min_separation_m
             if result.collided:
                 newly_collided.add(i)
                 newly_collided.add(j)
-        return newly_collided
+                collided_pairs.add((i, j))
+        return newly_collided, collided_pairs, min_separations
+
+    def _record_step_metrics(
+        self, applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision
+    ) -> None:
+        as_triples = lambda assessments: {
+            (a.i, a.j): (a.d_min_m, a.d_safe_m, a.risk_proxy) for a in assessments
+        }
+        self._metrics.record_step(
+            applied_delta_v_mps=[float(np.linalg.norm(dv)) for dv in applied_delta_v],
+            collided=collided_pairs,
+            min_separation_m=min_separations,
+            pre=as_triples(pre_assessments),
+            post=as_triples(post_assessments),
+            mission_deviations=[self._pending_mission_deviations[self._agent_index[a]] for a in self.agents],
+            shield=self._shield_step(decision),
+        )
+
+    def _shield_step(self, decision) -> ShieldStep | None:
+        """Hook: shield accounting for the metrics tracker. None here (no shield)."""
+        return None
+
+    def episode_summary(self) -> EpisodeSummary:
+        """Outcome metrics and failure labels for the episode so far (PRD §34, §36, §40)."""
+        capabilities = self._capabilities
+        return self._metrics.summary(
+            remaining_delta_v_mps=[c.remaining_delta_v_mps for c in capabilities],
+            smallest_burn_mps=[0.5 * c.max_delta_v_per_action_mps for c in capabilities],
+            maneuver_enabled=[c.maneuver_enabled for c in capabilities],
+        )
 
     def _compute_rewards(
         self, actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided

@@ -21,6 +21,7 @@ Semantics (PRD §28):
 from __future__ import annotations
 
 from orbit_guard.rl.environment import OrbitGuardEnv
+from orbit_guard.rl.episode_metrics import ShieldStep
 from orbit_guard.safety.shield import JointActionShield, ShieldResult
 
 
@@ -57,6 +58,13 @@ class ShieldedOrbitGuardEnv(OrbitGuardEnv):
 
     def _outcome_assessments(self, post_assessments, decision: ShieldResult):
         return list(decision.proposal_evaluation.pairs)
+
+    def _shield_step(self, decision: ShieldResult) -> ShieldStep:
+        return ShieldStep(
+            interventions=sum(decision.intervened),
+            proposal_accepted=decision.accepted,
+            approved_feasible=decision.feasible,
+        )
 
     def _step_infos(self, decision: ShieldResult) -> dict:
         repair_mode = decision.repair.stats.mode if decision.repair is not None else None
