@@ -16,11 +16,12 @@ of silently producing a policy input derived from ground truth.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
-from orbit_guard.physics.integrator import StateDerivative, propagate
+from orbit_guard.physics.integrator import StateDerivative, propagate, propagate_batch
 from orbit_guard.sensing.noise import NoiseModel, apply_noise, estimated_covariance
 
 
@@ -90,6 +91,21 @@ def predict_belief(
         )
     trajectory = propagate(belief.state_vector, dt, n_steps, derivative_fn)
     return PredictedState(trajectory=trajectory, dt_s=dt)
+
+
+def predict_beliefs_batch(
+    beliefs: Sequence[AgentBelief], dt: float, n_steps: int, batch_derivative_fn: StateDerivative
+) -> list[PredictedState]:
+    """`predict_belief` for many beliefs at once (same type guard, one vectorized propagation)."""
+    for belief in beliefs:
+        if not isinstance(belief, AgentBelief):
+            raise TypeError(
+                f"predict_beliefs_batch() requires AgentBelief items, got {type(belief).__name__} "
+                "-- prediction must use the estimated state, never ground truth (PRD §14 point 4)"
+            )
+    states = np.array([belief.state_vector for belief in beliefs], dtype=np.float64)
+    trajectories = propagate_batch(states, dt, n_steps, batch_derivative_fn)
+    return [PredictedState(trajectory=trajectory, dt_s=dt) for trajectory in trajectories]
 
 
 def to_evaluation_truth(ground_truth_trajectory: np.ndarray) -> EvaluationTruth:

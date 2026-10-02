@@ -22,7 +22,7 @@ import numpy as np
 from orbit_guard.conjunction.risk import risk_proxy as compute_risk_proxy
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.conjunction.tca import compute_tca
-from orbit_guard.physics.dynamics import state_derivative
+from orbit_guard.physics.dynamics import state_derivative_batch
 from orbit_guard.safety.adaptive_margin import (
     MarginFn,
     compute_local_density,
@@ -32,7 +32,7 @@ from orbit_guard.sensing.belief import (
     AgentBelief,
     PredictedState,
     combined_relative_sigma,
-    predict_belief,
+    predict_beliefs_batch,
 )
 
 DEFAULT_DENSITY_RADIUS_M = 50_000.0
@@ -57,8 +57,7 @@ def prediction_steps(lookahead_s: float, physics_dt_s: float) -> int:
 
 def predict_all(beliefs: Sequence[AgentBelief], lookahead_s: float, physics_dt_s: float) -> list[PredictedState]:
     """Propagate every belief `lookahead_s` forward (no maneuvers)."""
-    n_steps = prediction_steps(lookahead_s, physics_dt_s)
-    return [predict_belief(b, physics_dt_s, n_steps, state_derivative) for b in beliefs]
+    return predict_beliefs_batch(beliefs, physics_dt_s, prediction_steps(lookahead_s, physics_dt_s), state_derivative_batch)
 
 
 def pair_density(

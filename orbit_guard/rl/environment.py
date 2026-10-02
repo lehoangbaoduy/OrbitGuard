@@ -50,8 +50,8 @@ from pettingzoo import ParallelEnv
 from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.pair_assessment import assess_all_pairs, predict_all
 from orbit_guard.conjunction.screening import generate_candidate_pairs
-from orbit_guard.physics.dynamics import state_derivative
-from orbit_guard.physics.integrator import propagate
+from orbit_guard.physics.dynamics import state_derivative_batch
+from orbit_guard.physics.integrator import propagate_batch
 from orbit_guard.physics.mission_deviation import (
     compute_mission_deviation,
     compute_weighted_mission_deviation,
@@ -313,16 +313,16 @@ class OrbitGuardEnv(ParallelEnv):
     def _advance_shadow_states(self) -> None:
         """Advance the no-maneuver shadow one control step (PRD §25, Q9).
 
-        Propagating incrementally (vs. from t=0 every call) is bit-identical
-        to a from-scratch propagation of the same total step count -- RK4 is
-        a pure step-wise recurrence (`physics.integrator.propagate` is just
-        repeated `rk4_step` calls) -- but turns an O(step_count) per-step cost
+        Propagating incrementally (vs. from t=0 every call) matches a
+        from-scratch propagation of the same total step count (to roundoff) --
+        RK4 is a pure step-wise recurrence (`physics.integrator.propagate` is
+        just repeated `rk4_step` calls) -- but turns an O(step_count) per-step cost
         into O(1), avoiding a quadratic episode cost.
         """
-        self._shadow_states = [
-            propagate(state, self._physics_dt_s, self._substeps_per_control, state_derivative)[-1]
-            for state in self._shadow_states
-        ]
+        trajectories = propagate_batch(
+            np.array(self._shadow_states), self._physics_dt_s, self._substeps_per_control, state_derivative_batch
+        )
+        self._shadow_states = [trajectory[-1] for trajectory in trajectories]
 
     def _observations_from(self, beliefs, assessments, shadow_states) -> dict:
         observations = {}
@@ -374,13 +374,14 @@ class OrbitGuardEnv(ParallelEnv):
         return applied_delta_v, requested_delta_v
 
     def _propagate_ground_truth(self, applied_delta_v: list[np.ndarray]) -> list[np.ndarray]:
-        fine_trajectories = []
-        for idx in range(self._num_agents):
-            gt = self._ground_truth[idx]
-            state_after_burn = np.concatenate([gt[:3], gt[3:6] + applied_delta_v[idx]])
-            trajectory = propagate(state_after_burn, self._physics_dt_s, self._substeps_per_control, state_derivative)
-            fine_trajectories.append(trajectory)
-            self._ground_truth[idx] = trajectory[-1]
+        states_after_burn = np.array(
+            [np.concatenate([gt[:3], gt[3:6] + dv]) for gt, dv in zip(self._ground_truth, applied_delta_v, strict=True)]
+        )
+        trajectories = propagate_batch(
+            states_after_burn, self._physics_dt_s, self._substeps_per_control, state_derivative_batch
+        )
+        fine_trajectories = list(trajectories)
+        self._ground_truth = [trajectory[-1] for trajectory in fine_trajectories]
         return fine_trajectories
 
     def _check_collisions(self, fine_trajectories: list[np.ndarray]) -> set[int]:

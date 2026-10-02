@@ -44,3 +44,23 @@ def propagate(
         current = rk4_step(current, dt, derivative_fn)
         trajectory[step] = current
     return trajectory
+
+
+def propagate_batch(
+    states: np.ndarray,
+    dt: float,
+    n_steps: int,
+    derivative_fn: StateDerivative,
+) -> np.ndarray:
+    """Propagate every row of a (B, 6) array together with a batch derivative function.
+
+    `rk4_step` is already shape-agnostic, so this is the same RK4 recurrence as
+    `propagate` applied to all satellites at once. Shape: (B, n_steps + 1, 6).
+    """
+    trajectories = np.empty((states.shape[0], n_steps + 1, states.shape[1]), dtype=np.float64)
+    trajectories[:, 0] = states
+    current = states
+    for step in range(1, n_steps + 1):
+        current = rk4_step(current, dt, derivative_fn)
+        trajectories[:, step] = current
+    return trajectories

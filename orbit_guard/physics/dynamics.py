@@ -67,3 +67,26 @@ def two_body_state_derivative(state_vector: np.ndarray) -> np.ndarray:
     position = state_vector[0:3]
     velocity = state_vector[3:6]
     return np.concatenate([velocity, two_body_acceleration(position)])
+
+
+def state_derivative_batch(states: np.ndarray) -> np.ndarray:
+    """Vectorized `state_derivative` over rows of a (B, 6) array (same model, same failure checks)."""
+    if not np.all(np.isfinite(states)):
+        raise ValueError(f"Non-finite state encountered: {states}")
+    position = states[:, 0:3]
+    velocity = states[:, 3:6]
+    r = np.linalg.norm(position, axis=1)
+    if np.any(r <= 0.0):
+        raise ValueError(f"Degenerate (zero-norm) position in batch: {position}")
+    z_over_r_sq = (position[:, 2] / r) ** 2
+    j2_coeff = -1.5 * J2 * MU_EARTH_M3_S2 * R_EARTH_EQUATORIAL_M**2 / r**5
+    j2_acceleration_batch = np.stack(
+        [
+            j2_coeff * position[:, 0] * (1 - 5 * z_over_r_sq),
+            j2_coeff * position[:, 1] * (1 - 5 * z_over_r_sq),
+            j2_coeff * position[:, 2] * (3 - 5 * z_over_r_sq),
+        ],
+        axis=1,
+    )
+    two_body_batch = -MU_EARTH_M3_S2 * position / (r**3)[:, None]
+    return np.concatenate([velocity, two_body_batch + j2_acceleration_batch], axis=1)

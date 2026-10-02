@@ -52,8 +52,8 @@ from orbit_guard.conjunction.pair_assessment import (
     prediction_steps,
 )
 from orbit_guard.conjunction.screening import generate_candidate_pairs
-from orbit_guard.physics.dynamics import state_derivative
-from orbit_guard.physics.integrator import propagate
+from orbit_guard.physics.dynamics import state_derivative_batch
+from orbit_guard.physics.integrator import propagate_batch
 from orbit_guard.physics.mission_deviation import (
     compute_mission_deviation,
     compute_weighted_mission_deviation,
@@ -144,15 +144,22 @@ class _JointContext:
             )
         return self._delta_v[key]
 
+    def prefetch(self, keys: Sequence[tuple[int, int]]) -> None:
+        """Propagate every not-yet-cached (agent, intent) trajectory together, in one vectorized call."""
+        missing = sorted({key for key in keys if key not in self._trajectories})
+        if not missing:
+            return
+        states = np.array([self.beliefs[agent].state_vector for agent, _ in missing])
+        for row, (agent, intent) in enumerate(missing):
+            states[row, 3:6] += self.delta_v(agent, intent)
+        trajectories = propagate_batch(states, self._shield.physics_dt_s, self._shield.n_steps, state_derivative_batch)
+        for key, trajectory in zip(missing, trajectories, strict=True):
+            self._trajectories[key] = trajectory
+
     def trajectory(self, agent: int, intent: int) -> np.ndarray:
-        key = (agent, intent)
-        if key not in self._trajectories:
-            state = self.beliefs[agent].state_vector.copy()
-            state[3:6] += self.delta_v(agent, intent)
-            self._trajectories[key] = propagate(
-                state, self._shield.physics_dt_s, self._shield.n_steps, state_derivative
-            )
-        return self._trajectories[key]
+        if (agent, intent) not in self._trajectories:
+            self.prefetch([(agent, intent)])
+        return self._trajectories[(agent, intent)]
 
     def capability_ok(self, agent: int, intent: int) -> bool:
         if intent == NO_MANEUVER_INTENT:
@@ -289,6 +296,7 @@ class JointActionShield:
         predictions = baseline_predictions if baseline_predictions is not None else predict_all(beliefs, self.lookahead_s, self.physics_dt_s)
         context = _JointContext(self, list(beliefs), list(capabilities), deviations, predictions)
 
+        context.prefetch([(agent, intent) for agent, intent in enumerate(effective) if intent != NO_MANEUVER_INTENT])
         proposal_evaluation = context.evaluate(effective)
         affected = sorted({a for v in proposal_evaluation.violations for a in v.agents if active[a]})
         if not proposal_evaluation.violations or not affected:
@@ -305,6 +313,7 @@ class JointActionShield:
             for agent in affected
         }
         touching = [pair for pair in context.all_pairs if affected_set & set(pair)]
+        context.prefetch([(agent, intent) for agent, intents in candidates.items() for intent in intents])
 
         def score(assignment) -> AssignmentScore:
             evaluation = context.evaluate(assignment, touching, affected)
