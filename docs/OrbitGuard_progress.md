@@ -332,14 +332,14 @@ Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were
 
 ### Phase 5 — Baselines & Core Experiments (Weeks 11–13)
 
-| ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref |
-|---|---|---|---|---|---|---|
-| P5-M1 | All 5 baselines runnable from config alone | Evaluation | Baseline switch via config diff only, no code edit | Phase 4 pipeline | `evaluation/baselines.py` | §31, FR14 |
-| P5-M2 | Adaptive-vs-Fixed-Margin comparison, full 3-seed protocol | Evaluation (+ RL pipeline) | Paired stats across matched seeds | P5-M1 | results table | §44 |
-| P5-M3 | All 4 core distribution shifts, zero-shot, from config | Evaluation (+ Astro defines shift params) | No fine-tuning code path exists | Astro Q5 resolved | `evaluation/shifts.py` | §32, FR15 |
-| P5-M4 | Full seed protocol: 3 training × 10 eval × 5 conditions | Evaluation | Episode count matches exactly 150 (learned) / 50 (non-learned) per §33 | P5-M1..M3 | experiment artifacts | §33 |
-| P5-M5 | Acceptance Tests **F**, **G** | RL+Evaluation (F), Evaluation (G) | Reproducibility check; single-config-interface shift run | P5-M1..M4 | test logs | §38 |
-| P5-M6 | Metrics/statistics pipeline: mean/SD/CI, degradation scores | Evaluation | Requires ≥3 seeds before "headline" table generated | P5-M4 | `evaluation/statistics.py` | §34 |
+| ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
+|---|---|---|---|---|---|---|---|
+| P5-M1 | All 5 baselines runnable from config alone | Evaluation | Baseline switch via config diff only, no code edit | Phase 4 pipeline | `evaluation/baselines.py` | §31, FR14 | **Code done 2026-10-02** — `evaluation/baselines.py`; model name in config alone selects env class, margin, policy (tests) |
+| P5-M2 | Adaptive-vs-Fixed-Margin comparison, full 3-seed protocol | Evaluation (+ RL pipeline) | Paired stats across matched seeds | P5-M1 | results table | §44 | **Pending compute** — pipeline ready (`scripts/run_experiments.sh`); needs the nine N=15 trainings |
+| P5-M3 | All 4 core distribution shifts, zero-shot, from config | Evaluation (+ Astro defines shift params) | No fine-tuning code path exists | Astro Q5 resolved | `evaluation/shifts.py` | §32, FR15 | **Code done 2026-10-02** — `evaluation/shifts.py` + env hooks; all five conditions run from config (Acceptance G) |
+| P5-M4 | Full seed protocol: 3 training × 10 eval × 5 conditions | Evaluation | Episode count matches exactly 150 (learned) / 50 (non-learned) per §33 | P5-M1..M3 | experiment artifacts | §33 | **Pending compute** — task matrix builder + runner done, episode counts pinned by tests; sweep not yet run |
+| P5-M5 | Acceptance Tests **F**, **G** | RL+Evaluation (F), Evaluation (G) | Reproducibility check; single-config-interface shift run | P5-M1..M4 | test logs | §38 | **Done 2026-10-02** — `tests/acceptance/test_acceptance_f_reproducibility.py`, `..._g_distribution_shift.py` |
+| P5-M6 | Metrics/statistics pipeline: mean/SD/CI, degradation scores | Evaluation | Requires ≥3 seeds before "headline" table generated | P5-M4 | `evaluation/statistics.py` | §34 | **Code done 2026-10-02** — `evaluation/statistics.py` (CI, paired Wilcoxon, degradation, per-training-seed pooling); headline table awaits real data |
 
 **Exit criteria:** headline adaptive-vs-fixed result exists with paired stats, reproducible from fresh checkout.
 
@@ -347,13 +347,24 @@ Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were
 
 ### Phase 6 — Ablations, Visualization & Analysis (Week 14)
 
-| ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref |
-|---|---|---|---|---|---|---|
-| P6-M1 | Shield-vs-no-shield ablation (separate training run) | RL (train), Evaluation (compare), Safety (interpret) | Confirms P4-M6 distinction empirically | P4-M6 | ablation report | §28, §46 |
-| P6-M2 | Dash/Plotly visualization; standalone replay (FR16) | Visualization | **Playwright MCP inspection of live rendered app**, not code-only review; replay works with RL trainer stopped | Phase 5 logged episodes | `visualization/app.py` | §41 |
-| P6-M3 | Failure-mode taxonomy (§36) applied to logged episodes | Evaluation (reviewed by Astro) | All 9 categories machine-readable, not collapsed to one flag | P5 artifacts | tagged episode logs | §36 |
-| P6-M4 | Result tables/figures generated from logged data, not hand-typed | Evaluation | Script/notebook reads experiment DB/files directly | P5-M6 | figures/tables | §49 |
+| ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
+|---|---|---|---|---|---|---|---|
+| P6-M1 | Shield-vs-no-shield ablation (separate training run) | RL (train), Evaluation (compare), Safety (interpret) | Confirms P4-M6 distinction empirically | P4-M6 | ablation report | §28, §46 | **Pending compute** — no-shield training is a separate CLI run (`--no-shield`) already queued; comparison not yet run |
+| P6-M2 | Dash/Plotly visualization; standalone replay (FR16) | Visualization | **Playwright MCP inspection of live rendered app**, not code-only review; replay works with RL trainer stopped | Phase 5 logged episodes | `visualization/app.py` | §41 | **Done 2026-10-02** — Dash app; inspected live with Playwright at 1440 and 390 px (0 console errors, no overflow, play/slider/step work), standalone from a saved `.npz` |
+| P6-M3 | Failure-mode taxonomy (§36) applied to logged episodes | Evaluation (reviewed by Astro) | All 9 categories machine-readable, not collapsed to one flag | P5 artifacts | tagged episode logs | §36 | **Done 2026-10-02** — nine labels logged per episode (`rl/episode_metrics.py`), counted per model in `evaluation/results.py` |
+| P6-M4 | Result tables/figures generated from logged data, not hand-typed | Evaluation | Script/notebook reads experiment DB/files directly | P5-M6 | figures/tables | §49 | **Code done 2026-10-02** — `python -m orbit_guard.evaluation.results` writes table/taxonomy/figure from the log; no real data yet |
 | P6-M5 *(added)* | Headless replay integration test (produce → save → load → replay, no training/inference required) | Visualization | Full round-trip test | P6-M2 | `tests/test_replay.py` | (master prompt "Headless Replay Test") |
+
+
+**Phases 4-6 implementation record (2026-10-02, branch `finished_project`; stopped here at the user's request, no Phase 7).**
+Everything below is code + tests (553 passing, ruff clean) unless marked otherwise.
+- *Shield*: `safety/repair_search.py` (exact <=4, beam 50), `safety/shield.py` (7 steps, belief-only, injectable margin), `rl/shielded_environment.py` (separate class; spy + import tests). Acceptance E: unshielded no-op proposals collide on 3/3 zero-noise conjunction seeds, shielded 0/3.
+- *Shield behaviour at N=15* (random 5% burns / all no-op proposals, 3 episodes each, default noise): intervened on 0.6% / 1.4% of steps (0.04% / 0.16% of agent-steps), infeasible on <1% of steps, 0 collisions. Nonzero (the diagnostic is wired) but small, since conjunctions are rare at N=15. Per-step shield cost ~37 ms.
+- *Speed*: vectorized propagation (Q32) took N=15 from 168 to 38 ms/step (75 ms shielded).
+- *P4-M5*: validation pool, structural test-pool guard, grid harness exist; **the grid has NOT been run**.
+- *Phase 5/6 pipeline*: baselines from config, five shift conditions, per-episode metrics + nine failure labels, resumable multiprocess runner, freeze-gated final-test pool, statistics, replay app, results generator, `scripts/run_experiments.sh`.
+- *Robustness of the Phase 3 gate result* (default tuned config, N=2, fresh seeds 5000-5039, no-maneuver baseline 7 collision episodes): seed 0 -> 0 collisions, all four checks pass; seed 1 -> 0 collisions, all pass; seed 2 -> run still in progress when this was written.
+- ***Not done (compute-bound)***: the nine N=15 trainings (queued, 50 iterations each, default hyperparameters), hence the P4-M1 3-seed exit evidence, the validation grid, the final-test sweep (5 models x 5 conditions x 10 seeds x 3 training seeds), the shield/no-shield ablation, and the headline adaptive-vs-fixed table. No result in this repository supports any adaptive-vs-fixed claim yet. If the grid selects a non-default point, the N=15 models must be retrained with it before the freeze.
 
 ---
 
