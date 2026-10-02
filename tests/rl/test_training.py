@@ -175,3 +175,18 @@ def test_env_factory_builds_a_shielded_env_only_when_asked():
 
     assert type(plain) is OrbitGuardEnv
     assert isinstance(shielded, ShieldedOrbitGuardEnv)
+
+
+def test_margin_fn_loads_the_configured_coefficients_and_accepts_overrides():
+    from orbit_guard.rl.training import load_margin_fn
+    from orbit_guard.safety.adaptive_margin import compute_d_safe, compute_sigma_norm
+
+    default = load_margin_fn()
+    tuned = load_margin_fn(alpha=2.0, gamma=0.5)
+
+    assert default(141.0, 0.4, 0.3) == pytest.approx(compute_d_safe(compute_sigma_norm(141.0), 0.4, 0.3))
+    assert tuned(141.0, 0.4, 0.3) == pytest.approx(
+        compute_d_safe(compute_sigma_norm(141.0), 0.4, 0.3, alpha=2.0, gamma=0.5)
+    )
+    with pytest.raises(ValueError):
+        load_margin_fn(delta=1.0)

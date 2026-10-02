@@ -243,3 +243,14 @@ def test_no_maneuver_request_costs_nothing_even_when_the_budget_is_exhausted():
     _, rewards, _, _, _ = env.step({agent: int(ManeuverIntent.NO_MANEUVER) for agent in env.agents})
 
     assert all(reward == pytest.approx(0.0) for reward in rewards.values())
+
+
+def test_unseeded_episodes_draw_from_the_training_seed_range_and_seeded_ones_are_honored():
+    from orbit_guard.evaluation.seed_pools import TRAINING_SEED_FLOOR
+
+    env = _fast_env()
+
+    env.reset()
+    assert env.episode_seed >= TRAINING_SEED_FLOOR
+    env.reset(seed=123)
+    assert env.episode_seed == 123

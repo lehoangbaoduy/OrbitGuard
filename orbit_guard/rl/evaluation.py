@@ -22,7 +22,7 @@ neighbor with risk_proxy above `THREATENING_RISK_THRESHOLD`.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -84,10 +84,20 @@ def _rate(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
 
 
-def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, seed: int = 0) -> EvaluationReport:
-    """Roll `policy` through `num_episodes` episodes on seeds `seed .. seed+num_episodes-1`."""
+def evaluate_policy(
+    policy: Policy,
+    env_factory: EnvFactory,
+    num_episodes: int,
+    seed: int = 0,
+    *,
+    seeds: Sequence[int] | None = None,
+) -> EvaluationReport:
+    """Roll `policy` through `num_episodes` episodes on seeds `seed .. seed+num_episodes-1`, or on `seeds` if given."""
+    if seeds is not None:
+        num_episodes = len(seeds)
     if num_episodes < 1:
         raise ValueError(f"num_episodes must be >= 1, got {num_episodes}")
+    episode_seeds = tuple(seeds) if seeds is not None else tuple(seed + episode for episode in range(num_episodes))
 
     env = env_factory({})
     returns, steps, delta_v_used = [], [], []
@@ -96,7 +106,7 @@ def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, 
     shield_agent_steps = shield_interventions = shield_steps = shield_infeasible_steps = 0
 
     for episode in range(num_episodes):
-        observations, _ = env.reset(seed=seed + episode)
+        observations, _ = env.reset(seed=episode_seeds[episode])
         episode_return, episode_steps, collided = 0.0, 0, False
         while env.agents:
             actions = {agent: policy(agent, observations[agent]) for agent in env.agents}
@@ -138,9 +148,11 @@ def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, 
     )
 
 
-def evaluate(algo: Algorithm, env_factory: EnvFactory, num_episodes: int, seed: int = 0) -> EvaluationReport:
+def evaluate(
+    algo: Algorithm, env_factory: EnvFactory, num_episodes: int, seed: int = 0, *, seeds: Sequence[int] | None = None
+) -> EvaluationReport:
     """Greedy rollout of the trained actor, decentralized (local observation only)."""
-    return evaluate_policy(make_greedy_policy(algo, env_factory), env_factory, num_episodes, seed)
+    return evaluate_policy(make_greedy_policy(algo, env_factory), env_factory, num_episodes, seed, seeds=seeds)
 
 
 @dataclass(frozen=True)

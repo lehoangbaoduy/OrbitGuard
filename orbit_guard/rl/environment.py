@@ -50,6 +50,7 @@ from pettingzoo import ParallelEnv
 from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.pair_assessment import assess_all_pairs, predict_all
 from orbit_guard.conjunction.screening import generate_candidate_pairs
+from orbit_guard.evaluation.seed_pools import TRAINING_SEED_FLOOR
 from orbit_guard.physics.dynamics import state_derivative_batch
 from orbit_guard.physics.integrator import propagate_batch
 from orbit_guard.physics.mission_deviation import (
@@ -181,6 +182,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._pending_predictions: list = []
         self._pending_mission_deviations: list[float] = [0.0] * num_agents
         self._collided_agents: set[int] = set()
+        self.episode_seed: int | None = None
 
     def observation_space(self, agent):
         return self._observation_space
@@ -189,6 +191,11 @@ class OrbitGuardEnv(ParallelEnv):
         return self._action_space
 
     def reset(self, seed=None, options=None):
+        if seed is None:
+            # Unseeded (training) episodes draw from a range reserved away from the validation and
+            # final-test pools (evaluation/seed_pools.py), so a split can never leak into training.
+            seed = int(np.random.default_rng().integers(TRAINING_SEED_FLOOR, 2**31 - 1))
+        self.episode_seed = seed
         self._rng = np.random.default_rng(seed)
         scenario_seed = int(self._rng.integers(0, 2**31 - 1))
 

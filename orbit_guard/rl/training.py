@@ -38,6 +38,7 @@ from orbit_guard.rl.rllib_env import (
     EnvFactory,
     register_orbit_guard_env,
 )
+from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
@@ -103,7 +104,21 @@ def load_reward_weights(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overri
     return weights
 
 
-def make_env_factory(num_agents: int, reward_weights: dict[str, float], shielded: bool) -> EnvFactory:
+def load_margin_fn(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: float) -> MarginFn:
+    """The PRD §22 adaptive margin from the `adaptive_margin:` block; `overrides` (alpha/beta/gamma/d_*) win."""
+    with Path(config_path).open() as handle:
+        block = yaml.safe_load(handle)["adaptive_margin"]
+    coefficients = {key: float(block[key]) for key in ("d_base_m", "d_min_m", "d_max_m", "alpha", "beta", "gamma")}
+    unknown = set(overrides) - set(coefficients)
+    if unknown:
+        raise ValueError(f"unknown margin coefficients {sorted(unknown)}; expected {sorted(coefficients)}")
+    coefficients.update(overrides)
+    return make_adaptive_margin(**coefficients)
+
+
+def make_env_factory(
+    num_agents: int, reward_weights: dict[str, float], shielded: bool, margin_fn: MarginFn | None = None
+) -> EnvFactory:
     """Env factory for a training/eval run: shield-active or a fully separate no-shield environment.
 
     The shield module is imported only on the shielded branch, so a no-shield run
@@ -112,11 +127,13 @@ def make_env_factory(num_agents: int, reward_weights: dict[str, float], shielded
     if shielded:
         from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
 
-        return lambda config: ShieldedOrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights)
+        return lambda config: ShieldedOrbitGuardEnv(
+            num_agents=num_agents, reward_weights=reward_weights, margin_fn=margin_fn
+        )
 
     from orbit_guard.rl.environment import OrbitGuardEnv
 
-    return lambda config: OrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights)
+    return lambda config: OrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights, margin_fn=margin_fn)
 
 
 def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSettings) -> PPOConfig:
@@ -247,6 +264,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--gamma", type=float, default=None)
     for weight in ("w1", "w2", "w3", "w4", "collision-penalty"):
         parser.add_argument(f"--{weight}", type=float, default=None)
+    for coefficient in ("alpha", "beta", "gamma-margin"):
+        parser.add_argument(f"--margin-{coefficient}", type=float, default=None)
     args = parser.parse_args(argv)
 
     overrides = {
@@ -268,7 +287,15 @@ def main(argv: list[str] | None = None) -> None:
     reward_weights = load_reward_weights(args.config, **weight_overrides)
     print(settings, reward_weights, f"shield={args.shield}", flush=True)
 
-    env_factory = make_env_factory(args.agents, reward_weights, shielded=args.shield)
+    margin_overrides = {
+        name: getattr(args, f"margin_{name}")
+        for name in ("alpha", "beta")
+        if getattr(args, f"margin_{name}") is not None
+    }
+    if args.margin_gamma_margin is not None:
+        margin_overrides["gamma"] = args.margin_gamma_margin
+    margin_fn = load_margin_fn(args.config, **margin_overrides)
+    env_factory = make_env_factory(args.agents, reward_weights, shielded=args.shield, margin_fn=margin_fn)
 
     algo = build_algo(env_factory, settings)
     try:
