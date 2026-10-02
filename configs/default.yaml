@@ -79,6 +79,21 @@ shield:
   exact_enumeration_max_agents: 4
   beam_width: 50
 
+# The five compared models (PRD §31, §35). Switching `experiment.model` between these keys is the
+# ONLY change needed to run a different baseline (FR14). `margin` picks the safety margin used for the
+# model's observations/reward/shield; outcome metrics always use the adaptive margin as the common
+# reference. The fixed margin's constant is the mean adaptive d_safe over the validation scenarios
+# under no manoeuvres (frozen once; see docs/OrbitGuard_progress.md).
+models:
+  no_maneuver: {policy: no_maneuver, shield: false, margin: adaptive}
+  rule_based: {policy: rule_based, shield: false, margin: adaptive}
+  fixed_margin_mappo: {policy: mappo, shield: true, margin: fixed}
+  adaptive_mappo: {policy: mappo, shield: true, margin: adaptive}
+  adaptive_mappo_no_shield: {policy: mappo, shield: false, margin: adaptive}
+
+fixed_margin:
+  d_safe_m: 1142.0  # measured: mean adaptive d_safe over 12 validation scenarios, N=15, no manoeuvres (1141.9 m)
+
 # Zero-shot distribution-shift conditions (PRD §32). Magnitudes are provisional astro choices:
 # noise_scale multiplies the training sensing sigmas (3x is beyond the training range, which is a
 # single fixed value); phase_spread_rad is the std of the clustered RAAN/arg-periapsis/mean-anomaly
@@ -92,6 +107,7 @@ shifts:
   capability_reduction: {disabled_count: 2, reduced_count: 2, reduced_budget_scale: 0.25}
 
 experiment:
+  model: adaptive_mappo
   training_distribution_mix: {benign: 0.30, single_conjunction: 0.50, multi_conjunction: 0.20}
   validation_seeds: 50
   test_seeds_per_condition: 10

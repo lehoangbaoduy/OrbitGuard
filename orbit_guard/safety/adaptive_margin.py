@@ -16,6 +16,7 @@ by the PRD beyond the symbol. This module uses the provisional choice
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -88,6 +89,39 @@ def compute_d_safe(
     return float(np.clip(raw, d_min_m, d_max_m))
 
 
+@dataclass(frozen=True)
+class AdaptiveMargin:
+    """The PRD §22 adaptive margin as a picklable `MarginFn` (sigma_norm derived from `sigma_rel_m`, Q6)."""
+
+    d_base_m: float = 1000.0
+    d_min_m: float = 200.0
+    d_max_m: float = 5000.0
+    alpha: float = 1.0
+    beta: float = 0.5
+    gamma: float = 1.0
+
+    def __call__(self, sigma_rel_m: float, rho: float, risk: float) -> float:
+        return compute_d_safe(
+            compute_sigma_norm(sigma_rel_m, self.d_base_m), rho, risk,
+            d_base_m=self.d_base_m, d_min_m=self.d_min_m, d_max_m=self.d_max_m,
+            alpha=self.alpha, beta=self.beta, gamma=self.gamma,
+        )
+
+
+@dataclass(frozen=True)
+class FixedMargin:
+    """The Fixed-Margin baseline (PRD §31 #3): `d_safe = constant`, blind to uncertainty, density and risk."""
+
+    d_safe_m: float
+
+    def __post_init__(self):
+        if self.d_safe_m <= 0:
+            raise ValueError(f"d_safe_m must be > 0, got {self.d_safe_m}")
+
+    def __call__(self, sigma_rel_m: float, rho: float, risk: float) -> float:
+        return self.d_safe_m
+
+
 def make_adaptive_margin(
     d_base_m: float = 1000.0,
     d_min_m: float = 200.0,
@@ -96,23 +130,8 @@ def make_adaptive_margin(
     beta: float = 0.5,
     gamma: float = 1.0,
 ) -> MarginFn:
-    """The PRD §22 adaptive margin as a `MarginFn` (sigma_norm derived from `sigma_rel_m`, Q6)."""
-
-    def margin(sigma_rel_m: float, rho: float, risk: float) -> float:
-        return compute_d_safe(
-            compute_sigma_norm(sigma_rel_m, d_base_m), rho, risk,
-            d_base_m=d_base_m, d_min_m=d_min_m, d_max_m=d_max_m, alpha=alpha, beta=beta, gamma=gamma,
-        )
-
-    return margin
+    return AdaptiveMargin(d_base_m, d_min_m, d_max_m, alpha, beta, gamma)
 
 
 def make_fixed_margin(d_safe_m: float) -> MarginFn:
-    """The Fixed-Margin baseline (PRD §31 #3): `d_safe = constant`, blind to uncertainty, density and risk."""
-    if d_safe_m <= 0:
-        raise ValueError(f"d_safe_m must be > 0, got {d_safe_m}")
-
-    def margin(sigma_rel_m: float, rho: float, risk: float) -> float:
-        return d_safe_m
-
-    return margin
+    return FixedMargin(d_safe_m)

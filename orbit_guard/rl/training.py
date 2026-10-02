@@ -35,12 +35,16 @@ from orbit_guard.rl.ctde_module import (
     POLICY_ID,
     CentralizedCriticTorchRLModule,
 )
+from orbit_guard.rl.env_factory import (
+    load_margin_fn,
+    load_reward_weights,
+    make_env_factory,
+)
 from orbit_guard.rl.rllib_env import (
     CTDEParallelPettingZooEnv,
     EnvFactory,
     register_orbit_guard_env,
 )
-from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
@@ -87,56 +91,6 @@ def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **ove
     }
     settings.update(overrides)
     return TrainingSettings(**settings)
-
-
-def load_reward_weights(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: float) -> dict[str, float]:
-    """Reward weights from the `reward:` block (PRD §25/§39), as `compute_reward` keyword args."""
-    with Path(config_path).open() as handle:
-        reward_block = yaml.safe_load(handle)["reward"]
-    weights = {
-        "w1": reward_block["w1_safety"],
-        "w2": reward_block["w2_mission"],
-        "w3": reward_block["w3_delta_v"],
-        "w4": reward_block["w4_coordination"],
-        "collision_penalty": reward_block["collision_penalty"],
-    }
-    unknown = set(overrides) - set(weights)
-    if unknown:
-        raise ValueError(f"unknown reward weights {sorted(unknown)}; expected {sorted(weights)}")
-    weights.update(overrides)
-    return weights
-
-
-def load_margin_fn(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: float) -> MarginFn:
-    """The PRD §22 adaptive margin from the `adaptive_margin:` block; `overrides` (alpha/beta/gamma/d_*) win."""
-    with Path(config_path).open() as handle:
-        block = yaml.safe_load(handle)["adaptive_margin"]
-    coefficients = {key: float(block[key]) for key in ("d_base_m", "d_min_m", "d_max_m", "alpha", "beta", "gamma")}
-    unknown = set(overrides) - set(coefficients)
-    if unknown:
-        raise ValueError(f"unknown margin coefficients {sorted(unknown)}; expected {sorted(coefficients)}")
-    coefficients.update(overrides)
-    return make_adaptive_margin(**coefficients)
-
-
-def make_env_factory(
-    num_agents: int, reward_weights: dict[str, float], shielded: bool, margin_fn: MarginFn | None = None
-) -> EnvFactory:
-    """Env factory for a training/eval run: shield-active or a fully separate no-shield environment.
-
-    The shield module is imported only on the shielded branch, so a no-shield run
-    never even loads it (PRD §28, P4-M6).
-    """
-    if shielded:
-        from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
-
-        return lambda config: ShieldedOrbitGuardEnv(
-            num_agents=num_agents, reward_weights=reward_weights, margin_fn=margin_fn
-        )
-
-    from orbit_guard.rl.environment import OrbitGuardEnv
-
-    return lambda config: OrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights, margin_fn=margin_fn)
 
 
 def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSettings) -> PPOConfig:
