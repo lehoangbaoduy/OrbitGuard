@@ -1,0 +1,74 @@
+/* OrbitGuard replay — "deep-space glass HUD" tokens.
+   Load AFTER Nocturne's styles.css. Nocturne supplies ground, neutral ramps, spacing (--space-*),
+   radii (--radius-*), shadows and the :focus-visible ring; this file overrides type + accent and
+   adds status, surface and motion tokens. Dash port: copy to assets/00_tokens.css. */
+:root {
+  /* — Nocturne overrides — */
+  --color-accent: #dbe6f3;                 /* ice-white chrome accent: every hue is reserved for status */
+  --font-heading: "Instrument Sans", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, sans-serif;
+
+  /* — type — */
+  --og-font-sans: var(--font-body);        /* labels, headings, prose */
+  --og-font-mono: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace; /* telemetry numbers, IDs */
+  --og-fs-hero: 44px;     /* mission clock */
+  --og-fs-display: 34px;  /* hero metrics, inspector ID */
+  --og-fs-xl: 22px;       /* secondary metrics */
+  --og-fs-lg: 16px;       /* d_min values */
+  --og-fs-md: 14px;       /* body, buttons */
+  --og-fs-sm: 12px;       /* table cells, chips */
+  --og-fs-xs: 11px;       /* kickers, axis, legend — floor; never smaller */
+  --og-track-kicker: 0.18em;
+
+  /* — surfaces — */
+  --og-ground: var(--color-bg);            /* #161826 page */
+  --og-void: #0e1019;                      /* 3D well — Nocturne ground mixed with shade */
+  --og-glass: color-mix(in oklab, var(--color-surface) 60%, transparent);
+  --og-glass-hi: color-mix(in oklab, var(--color-surface) 86%, transparent);
+  --og-blur: 14px;
+  --og-ice: #dbe6f3;
+  --og-hair: color-mix(in oklab, var(--og-ice) 12%, transparent);     /* pane edges */
+  --og-hair-hi: color-mix(in oklab, var(--og-ice) 30%, transparent);  /* hover edges, rules */
+  --og-glow: 0 0 0 1px color-mix(in oklab, var(--og-ice) 45%, transparent), 0 0 18px color-mix(in oklab, var(--og-ice) 22%, transparent);
+  --og-text: var(--color-text);            /* #e9e9ed  15.1:1 on ground */
+  --og-text-2: var(--color-neutral-300);   /* #cfd3e5  12.0:1 */
+  --og-text-3: var(--color-neutral-500);   /* #9397ab   6.0:1 — smallest-text floor */
+
+  /* — status (colour + marker + label; never colour alone) — ratios vs --og-ground — */
+  --og-collision: #ff5c7a;  /* ✕  5.9:1 */
+  --og-risk:      #ffb547;  /* ◆ 10.6:1 */
+  --og-dsafe:     #4fd8e8;  /* ○ 10.9:1 */
+  --og-shield:    #bb9cf7;  /* ◇  7.5:1 */
+  --og-maneuver:  #5fe08f;  /* ■ 11.0:1 */
+  --og-nominal:   var(--color-neutral-500); /* ● 6.0:1 */
+  --og-tint: 14%;           /* chip fill = color-mix(status 14%, transparent) */
+
+  /* — layout rhythm (Nocturne 0.7× scale + page gutters) — */
+  --og-gutter: clamp(12px, 2vw, 28px);
+  --og-gap-pane: 14px;      /* between panes */
+  --og-pad-pane: 14px 16px; /* data panes */
+  --og-r-stage: var(--radius-lg);  /* 14px — the 3D stage only */
+  --og-r-pane: var(--radius-md);   /* 8px — data panes */
+  --og-r-chip: var(--radius-sm);   /* 4px — chips, ticks */
+
+  /* — motion — */
+  --og-dur-press: 90ms;     /* button press scale */
+  --og-dur-fast: 160ms;     /* chip cross-fade, tab switch */
+  --og-dur-base: 240ms;     /* banner / rail row in */
+  --og-dur-count: 420ms;    /* metric count-up, line fade-in */
+  --og-dur-enter: 520ms;    /* pane slide-in on load */
+  --og-stagger: 70ms;
+  --og-dur-pulse: 900ms;    /* shield halo, once */
+  --og-dur-flash: 1400ms;   /* collision flash */
+  --og-step-ms: 250;        /* 1× playback = 4 steps/s; 0.5×–4× scale this */
+  --og-ease-out: cubic-bezier(.16, 1, .3, 1);
+  --og-ease-inout: cubic-bezier(.65, 0, .35, 1);
+  --og-ease-flash: cubic-bezier(.2, .8, .2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --og-dur-press: 0ms; --og-dur-fast: 0ms; --og-dur-base: 0ms; --og-dur-count: 0ms;
+    --og-dur-enter: 0ms; --og-stagger: 0ms; --og-dur-pulse: 0ms; --og-dur-flash: 0ms;
+  }
+}

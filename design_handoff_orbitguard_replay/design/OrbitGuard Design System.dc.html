@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&amp;family=Martian+Mono:wght@300;400;500&amp;display=swap">
+<link rel="stylesheet" href="_ds/nocturne-e3069b91-3078-45ac-b541-9b3bc2c183a7/styles.css">
+<link rel="stylesheet" href="orbitguard-tokens.css">
+<script src="_ds/nocturne-e3069b91-3078-45ac-b541-9b3bc2c183a7/_ds_bundle.js"></script>
+<style>
+html, body { margin: 0; background: #161826; }
+a { color: #dbe6f3; text-underline-offset: 3px; } a:hover { color: #f3f5fe; }
+</style>
+</helmet>
+
+<div style="min-height:100vh; color:var(--og-text); font-family:var(--og-font-sans); font-size:14px; line-height:1.55; background:radial-gradient(1000px 600px at 20% 0%, color-mix(in oklab, var(--color-section) 24%, transparent), transparent 70%), var(--og-ground)">
+  <div style="max-width:1180px; padding:40px var(--og-gutter) 80px; display:flex; flex-direction:column; gap:56px">
+
+    <header style="display:flex; flex-direction:column; gap:14px; max-width:760px">
+      <span style="font-family:var(--og-font-mono); font-size:13px; letter-spacing:.34em; color:var(--og-ice)">ORBITGUARD · REPLAY</span>
+      <h1 style="margin:0; font-size:clamp(30px, 4vw, 44px); font-weight:500; letter-spacing:-.015em; line-height:1.1">Deep-space glass HUD — design system &amp; component spec</h1>
+      <p style="margin:0; color:var(--og-text-2); text-wrap:pretty">One style: translucent glass panes over a near-black well, thin ice-white hairlines, and glow only on what is live. Status hues (red, amber, cyan, violet, green) are reserved for state — chrome is ice-white. Built on Nocturne (ground, neutral ramps, spacing, radii, focus ring) with type and accent overridden. Tokens live in <a href="orbitguard-tokens.css">orbitguard-tokens.css</a>; the working screen is <a href="OrbitGuard Replay.dc.html">OrbitGuard Replay</a>.</p>
+    </header>
+
+    <!-- 00 BEFORE / AFTER -->
+    <section style="display:flex; flex-direction:column; gap:16px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">00</span><h2 style="margin:0; font-size:24px; font-weight:500">Before / after training — <a href="OrbitGuard Replay.dc.html">OrbitGuard Replay</a></h2></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:16px">
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Structure</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>A shared SCENARIO selector in the header (Normal · 3 simultaneous conjunctions · Capability reduction). Scenarios are sample episodes, not modes.</li>
+            <li>Two tabs: BEFORE TRAINING (untrained policy) and AFTER TRAINING (trained policy). Shield is ON in both, so the only difference is training. Both use the same layout and components; only the loaded source differs.</li>
+            <li>Switching tabs keeps the scenario, step, selected satellite, camera and play state; the strip values count to the new totals. Switching scenario jumps to that scenario’s start step. No side-by-side view.</li>
+          </ul>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Summary strip</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Five cells — Total Δv · Maneuvers · Shield interventions · Collisions · Mission deviation — showing this tab’s episode total at 26 mono.</li>
+            <li>Under each value: a BEFORE and an AFTER bar on one shared scale (the active tab in ice, the other dimmed), so the gap reads without arithmetic. Then a ratio note (“65× after” / “98% less than before”) and the running value at the current step.</li>
+            <li>Phone: one row of five compact cells; values only, no bars.</li>
+            <li>It replaces the old key-metrics panel; the running values live in each cell’s “T+n” line.</li>
+          </ul>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Designing for both densities</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li><b style="font-weight:600; color:var(--og-text)">This step:</b> a 15-cell strip, one cell per satellite, showing the event or status glyph (always 15 cells, whatever the density), plus a tally (“◇ 11 ■ 0”). Status rows (◆ ○ ✕) stay individual. An event type with more than 3 satellites collapses to one group row, for example “◇ ×11 · S0 S1 S2 … · 11 blocked → COAST”. “Expand groups” or “+N more” drills down.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Timeline, Counts view:</b> each lane is a histogram, with bar height = satellites with that event at that step (0–15). The shield lane uses a hollow bar with a solid cap, so it differs from maneuvers by shape as well as colour. Satellite-ID labels appear only when a lane has ≤30 runs (sparse AFTER); dense lanes show “peak 15/15 · T+67” instead.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Timeline, By satellite view:</b> 15 rows × 360 steps, where tall cell = maneuver and short centred cell = shield. Click a row to inspect that satellite; click a column to jump to that step.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Scrubber:</b> shield and maneuver density bars on two rows, plus amber ◆ ticks where a pair enters INSIDE d_safe or HIGH RISK. The hover preview lists counts first (“SHIELD ×11 · S0, S1 … +6”).</li>
+            <li><b style="font-weight:600; color:var(--og-text)">3D cues (no rectangles, no strobing):</b> each satellite is a small mesh3d model — a gold bus with two blue solar wings, drawn about 300× true size. Status is a pin on a stem above the model (◆ / ○ / ✕ plus an ID label); nominal satellites have no pin. MANEUVER is a green burn plume pointing along the exhaust of the approved intent (behind for RAISE / PH BACK, ahead for LOWER / PH FWD, downward for RADIAL). SHIELD is a thin violet ring around the satellite. A cue animates once, only when a run starts (ring settles 1.7×→1 in 600 ms; plume extends in 300 ms), and then holds still.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">3D labels:</b> native Plotly <span style="font-family:var(--og-font-mono)">scene.annotations</span> — 12 px mono on a dark plate (90% void) with a coloured 1 px edge and a short leader to the pin. They show for flagged satellites, the selected one (ice edge) and all of them in label-mode “all”. Satellites within 1,100 km of each other merge into one plate (“S3 ○ ◇ · S11 ○ ◇”, max 4) instead of stacking. Labels are positioned by Plotly’s own projection, so the Dash port needs no overlay code.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Zoom:</b> scroll or pinch while playing — wheel gestures use the same direct-update path as drag, so the camera isn’t reset. There are also − / + buttons next to Orbits / View.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Banner:</b> names the satellites when there are 4 or fewer; otherwise “14 satellites”.</li>
+          </ul>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Shield OFF state</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>There are three independent choices: scenario × tab × <span style="font-family:var(--og-font-mono)">SHIELD ON | OFF</span>, which gives 12 recorded episodes. The shield control sits in the tab bar and defaults to ON. Switching it keeps scenario, tab and step.</li>
+            <li>A dashed, hatched indicator under the tabs reads “SHIELD OFF — nothing overrides the policy”, and the stage repeats it as a “SHIELD OFF” chip under the clock.</li>
+            <li>The Shield cell in the summary strip shows “—”, never 0. The legend’s shield items drop to 38% with a strikethrough and “(off)”. The timeline’s shield lane is hatched with the text “Shield off — no overrides recorded”. The step tally reads “◇ off”.</li>
+            <li>This step, empty: a dashed card listing “● All 15 satellites nominal / No maneuvers this step / ◇ No shield events — shield off”. With events present, a single dashed footer line keeps the off-state visible.</li>
+            <li>The remaining events keep colour + shape + label: ■ maneuver plume, ◆ / ○ status pins, ✕ collision (the capability scenario records one collision with the shield off, in both tabs).</li>
+            <li>Copy stays honest. The Collisions cell cites the reference runs (“10 runs: 1/10 · no action 1/10”), and nothing claims training makes the fleet safer. The visible difference is fuel and calm.</li>
+          </ul>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Fleet fuel gauge</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>15 rows × 360 steps of remaining Δv, on a void → ice ramp (dark = empty, bright = full 2.0 m/s). Retired satellites tint red; thruster-offline rows are flat grey. It sits above the timeline in every state.</li>
+            <li>Readout: “0.00 / 30.0 m/s left · 15 of 15 tanks empty”, plus a sentence such as “Every tank is empty from T+38 min — later proposed burns change nothing.”</li>
+            <li>A click selects a satellite (row) and jumps to a step (column). The playhead moves by transform. In Dash it is one go.Heatmap (z = remaining_dv_mps.T).</li>
+          </ul>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Data source &amp; playback</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>The UI reads a <span style="font-family:var(--og-font-mono)">ReplaySource</span>: <span style="font-family:var(--og-font-mono)">meta</span>, <span style="font-family:var(--og-font-mono)">frameAt(t)</span>, <span style="font-family:var(--og-font-mono)">summary</span> and <span style="font-family:var(--og-font-mono)">density[type][t]</span>. Today it wraps a pre-recorded trace per (scenario, tab); a live feed can implement the same interface later. Nothing runs live in the UI.</li>
+            <li>Speeds: 1× / 2× / 4× / 8× (250 → 31 ms per step).</li>
+            <li>Previous / next event jumps to conjunction entries and Δv-budget depletions. Event-run starts are included only when sparse, because in BEFORE every step is an event.</li>
+            <li>Keys: Space = play/pause · ←/→ = step · [ / ] = previous / next event. Ignored while typing.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 01 STATUS -->
+    <section style="display:flex; flex-direction:column; gap:16px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">01</span><h2 style="margin:0; font-size:24px; font-weight:500">Status vocabulary</h2></div>
+      <p style="margin:0; max-width:720px; color:var(--og-text-2)">Every state carries colour + marker + text label. The marker column is the exact Plotly <span style="font-family:var(--og-font-mono)">scatter3d</span> symbol; the glyph is what HTML shows. Two glyphs changed from <span style="font-family:var(--og-font-mono)">figures.py</span> so glyph and marker agree: HIGH RISK ▲→◆ (Plotly 3D has no triangle), INSIDE d_safe ◎→○.</p>
+      <div style="overflow-x:auto; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+        <table class="table" style="font-size:13px; min-width:720px">
+          <thead><tr><th style="padding:10px 14px">State</th><th style="padding:10px 14px">Token</th><th style="padding:10px 14px">Glyph</th><th style="padding:10px 14px">3D marker</th><th style="padding:10px 14px">Pair line</th><th style="padding:10px 14px">Contrast</th></tr></thead>
+          <tbody>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-collision); background:color-mix(in oklab, var(--og-collision) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-collision) 40%, transparent)">✕ COLLIDED / COLLISION</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-collision #ff5c7a</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-collision)">✕</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">x · 8 (ghost, 65%)</td><td style="padding:10px 14px; font-size:12px">none — pair retires</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">5.9:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-risk); background:color-mix(in oklab, var(--og-risk) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-risk) 40%, transparent)">◆ HIGH RISK</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-risk #ffb547</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-risk)">◆</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">diamond · 10</td><td style="padding:10px 14px; font-size:12px"><span style="display:inline-block; width:24px; border-top:2px dashed var(--og-risk); vertical-align:middle"></span> dash · 6</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">10.6:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-dsafe); background:color-mix(in oklab, var(--og-dsafe) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-dsafe) 40%, transparent)">○ INSIDE d_safe</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-dsafe #4fd8e8</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-dsafe)">○</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">circle-open · 9</td><td style="padding:10px 14px; font-size:12px"><span style="display:inline-block; width:24px; border-top:2px dotted var(--og-dsafe); vertical-align:middle"></span> dot · 4</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">10.9:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">● nominal</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-nominal #9397ab</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-nominal)">●</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">circle · 5, no label</td><td style="padding:10px 14px; font-size:12px">not drawn</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">6.0:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-shield); background:color-mix(in oklab, var(--og-shield) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-shield) 40%, transparent)">◇ SHIELD INTERVENTION</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-shield #bb9cf7</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-shield)">◇</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">diamond-open halo · 17</td><td style="padding:10px 14px; font-size:12px">event, not pair</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">7.5:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-maneuver); background:color-mix(in oklab, var(--og-maneuver) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-maneuver) 40%, transparent)">■ MANEUVER</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">--og-maneuver #5fe08f</td><td style="padding:10px 14px; font-family:var(--og-font-mono); color:var(--og-maneuver)">■</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">square-open halo · 17</td><td style="padding:10px 14px; font-size:12px">event, not pair</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">11.0:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-2); border:1px dashed var(--og-hair-hi)">⊘ THRUSTER OFFLINE</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">neutral-300</td><td style="padding:10px 14px; font-family:var(--og-font-mono)">⊘</td><td style="padding:10px 14px; font-size:12px">HTML only (picker, inspector)</td><td style="padding:10px 14px; font-size:12px">maneuver_enabled = false</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">12.0:1</td></tr>
+            <tr><td style="padding:10px 14px"><span style="display:inline-flex; gap:6px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-2); border:1px dashed var(--og-hair-hi)">◐ LIMITED Δv</span></td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">neutral-300</td><td style="padding:10px 14px; font-family:var(--og-font-mono)">◐</td><td style="padding:10px 14px; font-size:12px">HTML only</td><td style="padding:10px 14px; font-size:12px">Δv at step 0 &lt; 2.0 m/s</td><td style="padding:10px 14px; font-family:var(--og-font-mono); font-size:12px">12.0:1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin:0; max-width:720px; font-size:13px; color:var(--og-text-3)">Colour-blind check: red vs green differ in lightness (L 0.70 vs 0.82) as well as shape; amber vs cyan differ in hue and shape (filled ◆ vs open ○); violet events are always open diamonds and halo the satellite rather than replacing it. Ratios are against the ground #161826; glass panes are lighter by &lt;3%, so every pair stays above 4.5:1.</p>
+    </section>
+
+    <!-- 02 TOKENS -->
+    <section style="display:flex; flex-direction:column; gap:20px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">02</span><h2 style="margin:0; font-size:24px; font-weight:500">Tokens</h2></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:16px">
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Surfaces</span>
+          <div style="display:grid; grid-template-columns:44px minmax(0,1fr); gap:10px; align-items:center; font-family:var(--og-font-mono); font-size:12px">
+            <span style="height:28px; border-radius:4px; background:var(--og-void); border:1px solid var(--og-hair)"></span><span>--og-void · 3D well</span>
+            <span style="height:28px; border-radius:4px; background:var(--og-ground); border:1px solid var(--og-hair)"></span><span>--og-ground · Nocturne bg</span>
+            <span style="height:28px; border-radius:4px; background:var(--og-glass); border:1px solid var(--og-hair)"></span><span>--og-glass · surface 60% + blur 14</span>
+            <span style="height:28px; border-radius:4px; background:var(--og-glass-hi); border:1px solid var(--og-hair-hi)"></span><span>--og-glass-hi · tooltips, banner</span>
+            <span style="height:28px; border-radius:4px; background:var(--og-ice); box-shadow:var(--og-glow)"></span><span>--og-ice · chrome accent + glow</span>
+            <span style="height:1px; background:var(--og-hair-hi)"></span><span>--og-hair 12% / -hi 30%</span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Type</span>
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <span style="font-family:var(--og-font-mono); font-size:44px; font-weight:300; line-height:1">T+132</span>
+            <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">Martian Mono 300 · 44 hero / 34 display / 22 xl / 16 lg — telemetry, IDs, chips; tabular-nums</span>
+            <span style="font-size:17px; font-weight:500; margin-top:6px">Conjunction &amp; risk</span>
+            <span style="font-size:11px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--og-text-2)">Kicker label · 11 / 600 / .18em</span>
+            <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">Instrument Sans 400–600 · 14 body / 12 small / 11 floor — labels, prose</span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Space &amp; radius</span>
+          <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 12px; align-items:center; font-family:var(--og-font-mono); font-size:12px">
+            <span style="width:14px; height:14px; border:1px solid var(--og-ice); border-radius:14px 0 0 0; border-right:0; border-bottom:0"></span><span>--og-r-stage 14 — 3D stage only</span>
+            <span style="width:14px; height:14px; border:1px solid var(--og-ice); border-radius:8px 0 0 0; border-right:0; border-bottom:0"></span><span>--og-r-pane 8 — data panes, controls</span>
+            <span style="width:14px; height:14px; border:1px solid var(--og-ice); border-radius:4px 0 0 0; border-right:0; border-bottom:0"></span><span>--og-r-chip 4 — chips, ticks</span>
+            <span style="width:14px; height:14px; border:1px solid var(--og-ice); border-radius:50%"></span><span>round — play button only</span>
+          </div>
+          <span style="font-size:13px; color:var(--og-text-2)">Rhythm: 14 between panes, 14/16 inside panes, 10–12 inside clusters, 4 inside button groups. Nocturne <span style="font-family:var(--og-font-mono)">--space-*</span> for anything denser. Page gutter clamp(12, 2vw, 28).</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Motion</span>
+          <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 12px; font-family:var(--og-font-mono); font-size:12px">
+            <span style="color:var(--og-text-3)">90</span><span>--og-dur-press · button scale .94</span>
+            <span style="color:var(--og-text-3)">160</span><span>--og-dur-fast · tab, chip swap</span>
+            <span style="color:var(--og-text-3)">240</span><span>--og-dur-base · banner in</span>
+            <span style="color:var(--og-text-3)">420</span><span>--og-dur-count · count-up, line fade</span>
+            <span style="color:var(--og-text-3)">520</span><span>--og-dur-enter · panes, +70 stagger</span>
+            <span style="color:var(--og-text-3)">900</span><span>--og-dur-pulse · shield halo</span>
+            <span style="color:var(--og-text-3)">1400</span><span>--og-dur-flash · collision</span>
+            <span style="color:var(--og-text-3)">250</span><span>--og-step-ms · 1× = 4 steps/s</span>
+          </div>
+          <span style="font-size:13px; color:var(--og-text-2)">ease-out cubic-bezier(.16,1,.3,1) for arrivals; ease-flash (.2,.8,.2,1) for flashes. Transform / opacity only. Under prefers-reduced-motion every duration token is 0 ms.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 ANIMATIONS -->
+    <section style="display:flex; flex-direction:column; gap:16px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">03</span><h2 style="margin:0; font-size:24px; font-weight:500">The five highest-impact animations</h2></div>
+      <div style="display:flex; flex-direction:column; border-top:1px solid var(--og-hair)">
+        <div style="display:grid; grid-template-columns:48px minmax(0,1fr) minmax(0, 300px); gap:8px 20px; padding:16px 0; border-bottom:1px solid var(--og-hair)">
+          <span style="font-family:var(--og-font-mono); font-size:28px; font-weight:300; color:var(--og-collision)">1</span>
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:16px; font-weight:500">Collision flash + retire</span><span style="color:var(--og-text-2); font-size:13px; text-wrap:pretty">Stage-edge inset glow 0→1→0 (peak at 10%); 3D ✕ ring grows 24→58 px and fades; satellites become 65% ghost ✕ frozen at the impact point; the table row locks to “—  impact T+179”.</span></div>
+          <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">flash 1400 ms ease-flash · ring 800 ms ease-out · reduced: static red frame while on that step</span>
+        </div>
+        <div style="display:grid; grid-template-columns:48px minmax(0,1fr) minmax(0, 300px); gap:8px 20px; padding:16px 0; border-bottom:1px solid var(--og-hair)">
+          <span style="font-family:var(--og-font-mono); font-size:28px; font-weight:300; color:var(--og-shield)">2</span>
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:16px; font-weight:500">Shield intervention pulse (once)</span><span style="color:var(--og-text-2); font-size:13px; text-wrap:pretty">An open ◇ halo expands 17→39 px and fades out exactly once per event step; the static halo stays while the step is on screen. The banner (“◇ SHIELD INTERVENTION · S0 · S8”) drops in 6 px.</span></div>
+          <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">halo 900 ms ease-out · banner 240 ms · fires on play, step-forward and event-jump, never on scrub</span>
+        </div>
+        <div style="display:grid; grid-template-columns:48px minmax(0,1fr) minmax(0, 300px); gap:8px 20px; padding:16px 0; border-bottom:1px solid var(--og-hair)">
+          <span style="font-family:var(--og-font-mono); font-size:28px; font-weight:300; color:var(--og-ice)">3</span>
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:16px; font-weight:500">Continuous playhead</span><span style="color:var(--og-text-2); font-size:13px; text-wrap:pretty">Satellites interpolate between stored steps (chord error &lt;4 km at this altitude); the scrubber thumb, the timeline playhead and the past-shade all move by translateX/scaleX from one float. Status changes on integer steps only, so nothing flickers.</span></div>
+          <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">rAF · 3D redraw ≤ 33 fps · 1×–8× = 250–31 ms/step · reduced: snap per step</span>
+        </div>
+        <div style="display:grid; grid-template-columns:48px minmax(0,1fr) minmax(0, 300px); gap:8px 20px; padding:16px 0; border-bottom:1px solid var(--og-hair)">
+          <span style="font-family:var(--og-font-mono); font-size:28px; font-weight:300; color:var(--og-risk)">4</span>
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:16px; font-weight:500">Conjunction line appears</span><span style="color:var(--og-text-2); font-size:13px; text-wrap:pretty">When a pair enters HIGH RISK or INSIDE d_safe, that line trace fades 25%→100%; the satellite gains its glow halo, and the rail row appears in severity order.</span></div>
+          <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">420 ms ease-out · per-trace opacity (Plotly has no per-segment opacity)</span>
+        </div>
+        <div style="display:grid; grid-template-columns:48px minmax(0,1fr) minmax(0, 300px); gap:8px 20px; padding:16px 0; border-bottom:1px solid var(--og-hair)">
+          <span style="font-family:var(--og-font-mono); font-size:28px; font-weight:300; color:var(--og-text-2)">5</span>
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:16px; font-weight:500">Metric count-up</span><span style="color:var(--og-text-2); font-size:13px; text-wrap:pretty">Running metrics chase their new value with exponential ease (τ 110 ms ≈ settles in 420). Tabular figures, so width never changes. Scrubbing snaps instantly.</span></div>
+          <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">~420 ms · text only, no layout · pane slide-in on load: 520 ms, 12 px, +70 ms stagger</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 COMPONENTS -->
+    <section style="display:flex; flex-direction:column; gap:16px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">04</span><h2 style="margin:0; font-size:24px; font-weight:500">Component notes</h2></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:16px">
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Legend</span>
+          <div style="display:flex; flex-wrap:wrap; gap:4px 12px; font-size:11px"><span><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span> COLLIDED</span><span><span style="font-family:var(--og-font-mono); color:var(--og-risk)">◆</span> HIGH RISK</span><span><span style="font-family:var(--og-font-mono); color:var(--og-dsafe)">○</span> INSIDE d_safe</span><span><span style="font-family:var(--og-font-mono); color:var(--og-nominal)">●</span> nominal</span></div>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Always visible. Desktop: glass overlay at the stage’s bottom-left, three rows (Satellite / Event / Pair line + capability). Phone: a wrapping strip inside the sticky block.</li>
+            <li>Plotly’s legend stays off; this is html.Div, so it can show the dashed/dotted line samples and capability glyphs.</li>
+            <li>pointer-events: none — it never blocks camera drag.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Status chip</span>
+          <div style="display:flex; flex-wrap:wrap; gap:6px"><span style="display:inline-flex; gap:5px; padding:2px 6px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-risk); background:color-mix(in oklab, var(--og-risk) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-risk) 40%, transparent)">◆ HIGH RISK</span><span style="display:inline-flex; gap:5px; padding:2px 6px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; color:var(--og-shield); background:color-mix(in oklab, var(--og-shield) 14%, transparent); border:1px solid color-mix(in oklab, var(--og-shield) 40%, transparent)">◇ SHIELD</span><span style="display:inline-flex; gap:5px; padding:2px 6px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">· nominal</span></div>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Glyph + UPPERCASE label in mono 11 · padding 2/6 · radius 4 · fill status 14% · edge status 40%. Nominal has no fill and no edge, so it recedes.</li>
+            <li>Capability chips use a dashed neutral edge, never a status hue.</li>
+            <li>white-space: nowrap; the label is never truncated to the glyph alone.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Conjunction table</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>4 columns that fit 390 px: Pair · Status chip · d_min (16 mono, d_safe beneath in 11) · Risk (value + 3 px bar, scaleX).</li>
+            <li>Order: collision → high risk → inside → nominal, then risk ↓, d_min ↑. Top 8 of the live pairs.</li>
+            <li><b style="font-weight:600; color:var(--og-text)">Collided pair:</b> d_min “—” in red, sub-line “impact T+179”, risk “—”. Pairs with a retired satellite (not the collided pair itself) drop out of the ranking.</li>
+            <li>Rows involving the selected satellite render their pair ID in ice. Clicking a row selects the other satellite if one is already selected.</li>
+            <li>Built on Nocturne <span style="font-family:var(--og-font-mono)">.table</span>: fading row rules, hover tint.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Inspector</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Placement: docked inside the 3D stage on the right, in a 330 px glass column under “Tracked this step”, whenever the stage is ≥780 px wide. The scene domain shrinks to 1 − 352/W, so Earth stays centred in the free area. Narrower than that it drops below the timeline, and on phone it becomes the Inspect tab.</li>
+            <li>One header line: ‹ S8 › stepper (30 mono, ice glow), status / event / capability chips, then three inline readouts on the right: Δv left (with a 2 px budget bar), mission deviation, and closest d_min with partner and d_safe.</li>
+            <li>A 15-cell selector strip (36 px desktop, 44 px phone): a live status glyph per cell and a ⊘/◐ corner mark. 3D clicks, table rows, timeline marks and rail rows select too.</li>
+            <li>One 210 px Plotly figure, three stacked rows sharing x: Δv (hv steps with ■/◇ marks), deviation, closest d_min vs dotted cyan d_safe (log).</li>
+            <li>A decision line under a hairline: this step’s proposed → approved (six intents: COAST, RAISE, LOWER, PH FWD, PH BACK, RADIAL), with a violet ◇ when the shield overrode it. Up to three “earlier” chips jump to those steps.</li>
+            <li>Retired: a red strip, “RETIRED · collided with S1 at T+179”.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Event timeline</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Two views behind a Counts / By satellite toggle. Counts: three 42 px lanes (MANEUVER ■ / SHIELD ◇ / COLLISION ✕), where bar height is the number of satellites with that event per step (0–15). Shield bars are hollow with a solid cap, so they differ by shape too.</li>
+            <li>Only the selected satellite gets in-lane marks: a thin glowing line over its run plus a small “S9 ×3” in text-2. Runs within 24 steps merge, and marks closer than 18 steps are dropped, so labels never stack. Hover anywhere for the step’s satellite IDs.</li>
+            <li>By satellite: 15 rows × 360 steps, where tall cell = maneuver and short centred cell = shield. Click a row to inspect that satellite; click a column to jump to that step.</li>
+            <li>The lane header shows a running count over the total and the shield peak (“43 / 57 · peak 3”). With the shield OFF, the shield lane is hatched: “Shield off — no overrides recorded”.</li>
+            <li>Canvas in the prototype; in Dash it is go.Bar (Counts) and go.Heatmap (By satellite) with displayModeBar off. Only the playhead moves (transform).</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Key metrics → summary strip</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Key metrics live in the summary strip under the BEFORE / AFTER tabs (see 00). Each cell shows the episode total plus its running value at the current step (“T+250: 25.10”).</li>
+            <li>Values count to their new totals when the tab, scenario or shield setting changes (~420 ms). Collisions turn red once above 0. Shield interventions show “—” when the shield is off.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Playback controls</span>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Controls left to right: ⏮ previous event · ‹ step · ▶ 54 px round play (glows while playing) · › step · ⏭ next event · scrubber · 1/2/4/8× segmented · Loop. On phone the scrubber moves to its own row, and speed becomes one cycling button.</li>
+            <li>Scrubber: density bars above the track (shield row, maneuver row) plus amber ◆ ticks at conjunction entries. Hover preview shows step, event counts with IDs, and pair-risk counts. Global keys: Space = play/pause, ←/→ = step, [ / ] = previous / next event. On the slider itself (role=slider): arrows ±1, Shift ±10, PgUp/PgDn ±30, Home/End, Space to play.</li>
+            <li>Dragging pauses playback and resumes it on release. Events do not pulse while scrubbing.</li>
+            <li>States: hover = ice 8% fill + hair-hi edge · active = scale .94 · focus-visible = Nocturne 2 px ice ring · disabled (no prev/next event) = 45%.</li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+          <span style="font-size:15px; font-weight:500">Empty &amp; loading states</span>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:8px; padding:18px; border-radius:var(--og-r-pane); background:var(--og-void); border:1px solid var(--og-hair)">
+            <span style="width:140px; height:1px; background:linear-gradient(90deg, transparent, var(--og-ice), transparent)"></span>
+            <span style="font-family:var(--og-font-mono); font-size:11px; letter-spacing:.2em; color:var(--og-text-2)">LOADING TRACE</span>
+          </div>
+          <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--og-text-2); display:flex; flex-direction:column; gap:4px">
+            <li>Loading: the stage shows a hairline and “LOADING TRACE · episode.npz”, and panes keep their size (no layout jump).</li>
+            <li>No trace file: the stage reads “No episode loaded — pass --trace episode.npz”, and controls are disabled.</li>
+            <li>All nominal: the rail reads “● All 15 satellites nominal”.</li>
+            <li>Step 0: the inspector reads “Step 0 is the initial state — actions exist for steps 1–360”.</li>
+            <li>No actions for a satellite: “No actions proposed for S3 in this episode.” No collisions: the lane reads “No collisions in this episode”.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 PLOTLY -->
+    <section style="display:flex; flex-direction:column; gap:16px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">05</span><h2 style="margin:0; font-size:24px; font-weight:500">What Plotly’s 3D view can’t do — and the workaround</h2></div>
+      <div style="overflow-x:auto; border-radius:var(--og-r-pane); border:1px solid var(--og-hair); background:var(--og-glass)">
+        <table class="table" style="font-size:13px; min-width:680px">
+          <thead><tr><th style="padding:10px 14px; width:34%">Limitation</th><th style="padding:10px 14px">Workaround (used in the prototype)</th></tr></thead>
+          <tbody>
+            <tr><td style="padding:10px 14px">No label collision avoidance, leader lines or label backgrounds</td><td style="padding:10px 14px; color:var(--og-text-2)">In-scene text is the ID only (S8), and only for non-nominal or selected satellites. Status words live in the HTML “Tracked this step” rail.</td></tr>
+            <tr><td style="padding:10px 14px">No CSS glow, blur or bloom on WebGL markers</td><td style="padding:10px 14px; color:var(--og-text-2)">A second marker trace at 24 px with rgba colour at 20% sits behind each non-nominal satellite.</td></tr>
+            <tr><td style="padding:10px 14px">Scatter3d ignores Plotly.animate transitions (no easing, no tween)</td><td style="padding:10px 14px; color:var(--og-text-2)">A Dash clientside_callback drives a rAF loop that calls Plotly.react with interpolated positions and pulse sizes. Server callbacks are too slow above 1×.</td></tr>
+            <tr><td style="padding:10px 14px">Only 8 symbols: circle(-open), square(-open), diamond(-open), cross, x</td><td style="padding:10px 14px; color:var(--og-text-2)">No triangle, so HIGH RISK = diamond and the HTML glyph becomes ◆. Events are open halos so they don’t hide the status marker.</td></tr>
+            <tr><td style="padding:10px 14px">Opacity is per trace, not per point or segment</td><td style="padding:10px 14px; color:var(--og-text-2)">One trace per status / event type, and fades apply to the whole trace. Ghosts use rgba colours instead of opacity.</td></tr>
+            <tr><td style="padding:10px 14px">No atmosphere shader or day/night texture</td><td style="padding:10px 14px; color:var(--og-text-2)">Earth is a mesh3d sphere (64×128) whose <span style="font-family:var(--og-font-mono)">vertexcolor</span> is baked from day + night-lights maps (assets/earth-*-1k.jpg, shipped locally so it works offline), blended across the n·sun terminator and kept unlit. A 3.5%-larger shell at 9% opacity with fresnel 4 adds the rim, plus a faint graticule and orbit rings for scale. The stars are a CSS layer behind the transparent canvas, with parallax driven by the camera azimuth from plotly_relayouting. If the textures fail to load, it falls back to the stylised surface.</td></tr>
+            <tr><td style="padding:10px 14px">No public 3D→screen projection for HTML overlays</td><td style="padding:10px 14px; color:var(--og-text-2)">HTML overlays never track points. The collision flash is a stage-edge glow, and callouts sit in the rail.</td></tr>
+            <tr><td style="padding:10px 14px">Unstyled modebar; scroll-zoom hijacks the page</td><td style="padding:10px 14px; color:var(--og-text-2)">Use displayModeBar: false everywhere, with our own “Orbits” and “View” (reset camera via a uirevision bump) buttons. scrollZoom only on the stage.</td></tr>
+            <tr><td style="padding:10px 14px">Transparent surfaces z-sort badly</td><td style="padding:10px 14px; color:var(--og-text-2)">Only one transparent surface (the shell), kept very faint. Earth stays opaque.</td></tr>
+            <tr><td style="padding:10px 14px">Hover isn’t available on touch and isn’t accessible</td><td style="padding:10px 14px; color:var(--og-text-2)">Hover only repeats what the rail, table and inspector already show.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 06 DASH -->
+    <section style="display:flex; flex-direction:column; gap:12px; max-width:820px">
+      <div style="display:flex; align-items:baseline; gap:14px"><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text-3)">06</span><h2 style="margin:0; font-size:24px; font-weight:500">Porting to Dash</h2></div>
+      <ol style="margin:0; padding-left:20px; display:flex; flex-direction:column; gap:8px; color:var(--og-text-2)">
+        <li><span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text)">assets/00_nocturne.css, 01_tokens.css, 02_og.css</span> — Dash auto-loads them in order. Turn the prototype’s inline styles into .og-* classes in 02_og.css (pane, chip, kicker, btn-icon, scrub…).</li>
+        <li>Serialise the trace once into <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text)">dcc.Store</span>: positions (float32, km), statuses / events as uint8, and the precomputed runs, ticks and metrics. That’s about 1.5 MB for N=15. It all derives from frame_at, so it works from a saved .npz with no ML.</li>
+        <li>Keep step and playhead state client-side: one <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text)">clientside_callback</span> owns the rAF loop, the 3D Plotly.react, the scrubber and the playhead transforms. A dcc.Interval at 450 ms can’t feel continuous.</li>
+        <li>Server callbacks only on <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text)">step</span> (throttled, or on pause) for the table, rail and inspector — or build them client-side too, which the prototype’s renderVals shows is cheap.</li>
+        <li>Scrubber: dcc.Slider can carry marks, but not density bars or a hover preview. Use a small custom html.Div with a clientside pointer handler, or dash-extensions EventListener.</li>
+        <li>Responsive: one CSS breakpoint at 760 px switches to sticky stage + tabs (dcc.Tabs styled as the tab strip). The desktop grid is flex-wrap 999:1, so the right column never leaves dead space and the stage grows to match it.</li>
+      </ol>
+    </section>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

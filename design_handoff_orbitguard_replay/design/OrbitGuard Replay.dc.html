@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&amp;family=Martian+Mono:wght@300;400;500&amp;display=swap">
+<link rel="stylesheet" href="_ds/nocturne-e3069b91-3078-45ac-b541-9b3bc2c183a7/styles.css">
+<link rel="stylesheet" href="orbitguard-tokens.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<script src="_ds/nocturne-e3069b91-3078-45ac-b541-9b3bc2c183a7/_ds_bundle.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="orbitguard-data.js"></script>
+<style>
+html, body { margin: 0; background: #161826; }
+body { overflow-x: hidden; }
+a { color: #dbe6f3; } a:hover { color: #f3f5fe; }
+button { font: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 10px; background: linear-gradient(180deg, rgba(219,230,243,.30), rgba(219,230,243,.12)) padding-box; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, rgba(219,230,243,.55), rgba(219,230,243,.28)) padding-box; box-shadow: 0 0 10px rgba(219,230,243,.35); }
+::-webkit-scrollbar-thumb:active { background: rgba(219,230,243,.7) padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+html::-webkit-scrollbar-track { background: #0e1019; box-shadow: inset 1px 0 0 rgba(219,230,243,.08); }
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: rgba(219,230,243,.28) transparent; } }
+</style>
+</helmet>
+
+<div ref="{{ R.root }}" style="position:relative; min-height:100vh; color:var(--og-text); font-family:var(--og-font-sans); font-size:14px; background:radial-gradient(1100px 680px at 28% 18%, color-mix(in oklab, var(--color-section) 26%, transparent), transparent 70%), radial-gradient(900px 600px at 100% 100%, color-mix(in oklab, var(--color-surface) 55%, transparent), transparent 70%), var(--og-ground); overflow-x:clip">
+  <div aria-hidden="true" style="position:fixed; inset:0; pointer-events:none; z-index:60; background:repeating-linear-gradient(0deg, color-mix(in oklab, var(--og-ice) 3%, transparent) 0 1px, transparent 1px 3px); opacity:.55"></div>
+
+  <div role="note" style="padding:6px var(--og-gutter); font-family:var(--og-font-mono); font-size:11px; letter-spacing:.08em; color:#161826; background:#ffb547">DESIGN PROTOTYPE · SYNTHETIC DEMO DATA — not real OrbitGuard results. Production must load recorded EpisodeTrace files.</div>
+  <header data-og-enter style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 28px; padding:16px var(--og-gutter) 14px">
+    <div style="display:flex; align-items:baseline; gap:12px; min-width:0">
+      <span style="font-family:var(--og-font-mono); font-size:14px; font-weight:500; letter-spacing:.34em; color:var(--og-ice); text-shadow:0 0 14px color-mix(in oklab, var(--og-ice) 40%, transparent)">ORBITGUARD</span>
+      <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-3)">Episode replay</span>
+    </div>
+    <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); color:var(--og-text-3)">SCENARIO</span>
+    <div role="group" aria-label="Scenario" style="display:flex; flex-wrap:wrap; gap:4px; padding:3px; border:1px solid var(--og-hair); border-radius:var(--radius-md); background:var(--og-glass)">
+      <sc-for list="{{ episodes }}" as="e" hint-placeholder-count="3">
+        <button aria-pressed="{{ e.pressed }}" onClick="{{ e.onClick }}" style="display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-height:40px; padding:5px 12px; border-radius:6px; border:1px solid {{ e.bd }}; background:{{ e.bg }}; box-shadow:{{ e.sh }}; color:{{ e.fg }}; cursor:pointer; transition:transform var(--og-dur-press) var(--og-ease-out)" style-hover="background:color-mix(in oklab, var(--og-ice) 6%, transparent)" style-active="transform:scale(.97)">
+          <span style="font-size:13px; font-weight:500">{{ e.label }}</span>
+          <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ e.sub }}</span>
+        </button>
+      </sc-for>
+    </div>
+    <div style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px 14px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3); min-width:0">
+      <span>{{ model }}</span>
+      <span>{{ condition }}</span>
+      <span>seed {{ seed }} · 15 sats · 360 × 60 s</span>
+      <span style="display:inline-flex; align-items:center; gap:6px; padding:3px 8px; white-space:nowrap; border-radius:var(--og-r-chip); color:{{ outC }}; background:{{ outTint }}; border:1px solid {{ outEdge }}">{{ outG }} {{ outcome }}</span>
+    </div>
+  </header>
+
+  <div data-og-enter style="display:flex; flex-direction:column; gap:10px; padding:0 var(--og-gutter) 14px">
+    <div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:6px 16px; border-bottom:1px solid var(--og-hair)">
+      <div role="tablist" aria-label="Policy" style="display:flex">
+        <sc-for list="{{ ptabs }}" as="t" hint-placeholder-count="2">
+          <button role="tab" aria-selected="{{ t.sel }}" onClick="{{ t.onClick }}" style="display:flex; flex-direction:column; align-items:flex-start; gap:3px; min-height:52px; padding:10px 20px 9px; margin-bottom:-1px; background:{{ t.bg }}; border:0; border-bottom:2px solid {{ t.line }}; border-radius:8px 8px 0 0; color:{{ t.fg }}; cursor:pointer; transition:transform var(--og-dur-press) var(--og-ease-out)" style-hover="background:color-mix(in oklab, var(--og-ice) 6%, transparent)" style-active="transform:scale(.98)">
+            <span style="font-size:13px; font-weight:600; letter-spacing:.16em; white-space:nowrap">{{ t.label }}</span>
+            <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3); white-space:nowrap">{{ t.sub }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding-bottom:8px">
+        <span style="font-size:11px; color:var(--og-text-3)">Switching keeps {{ scenLabel }} at T+{{ tmin }}</span>
+        <div role="group" aria-label="Safety shield" style="display:flex; align-items:center; gap:8px">
+          <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">SHIELD</span>
+          <div style="display:flex; gap:2px; padding:2px; border:1px solid var(--og-hair); border-radius:var(--radius-md)">
+            <sc-for list="{{ shOpts }}" as="o" hint-placeholder-count="2">
+              <button aria-pressed="{{ o.pressed }}" onClick="{{ o.onClick }}" style="display:inline-flex; align-items:center; gap:5px; min-width:52px; min-height:32px; padding:0 10px; border-radius:6px; border:1px solid {{ o.bd }}; background:{{ o.bg }}; color:{{ o.fg }}; font-family:var(--og-font-mono); font-size:12px; cursor:pointer" style-hover="background:color-mix(in oklab, var(--og-ice) 8%, transparent)" style-active="transform:scale(.96)"><span style="color:{{ o.gc }}">{{ o.g }}</span>{{ o.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+    <sc-if value="{{ shieldOff }}" hint-placeholder-val="{{ false }}">
+      <div role="status" style="display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:9px 14px; border-radius:var(--og-r-pane); border:1px dashed color-mix(in oklab, var(--og-ice) 34%, transparent); background:repeating-linear-gradient(135deg, color-mix(in oklab, var(--og-ice) 4%, transparent) 0 8px, transparent 8px 16px)">
+        <span style="display:inline-flex; align-items:center; gap:8px; font-family:var(--og-font-mono); font-size:12px; font-weight:500; letter-spacing:.08em; color:var(--og-ice)"><span style="position:relative; display:inline-block; width:11px; height:11px; border:1.5px solid var(--og-text-3); transform:rotate(45deg)"><span style="position:absolute; left:-4px; top:4px; width:16px; height:1.5px; background:var(--og-ice); transform:rotate(-90deg)"></span></span>SHIELD OFF — nothing overrides the policy</span>
+        <span style="font-size:12px; color:var(--og-text-2)">Every proposed action is applied as-is. Remaining events: ■ maneuver · ◆ high risk · ○ inside d_safe · ✕ collision.</span>
+      </div>
+    </sc-if>
+    <div style="display:grid; grid-template-columns:{{ stripCols }}; gap:1px; border-radius:var(--og-r-pane); overflow:hidden; border:1px solid var(--og-hair); background:var(--og-hair)">
+      <sc-for list="{{ strip }}" as="c" hint-placeholder-count="5">
+        <div style="display:flex; flex-direction:column; gap:6px; min-width:0; padding:{{ stripPad }}; background:color-mix(in oklab, var(--color-surface) 78%, var(--og-ground))">
+          <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ c.label }}</span>
+          <div style="display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 6px; min-width:0">
+            <span style="font-family:var(--og-font-mono); font-size:{{ stripFs }}; font-weight:300; line-height:1; font-variant-numeric:tabular-nums; color:{{ c.fg }}">{{ c.val }}</span>
+            <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ c.unit }}</span>
+          </div>
+          <sc-if value="{{ stripBars }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; gap:3px 8px; font-family:var(--og-font-mono); font-size:11px">
+              <span style="color:{{ c.bC }}">BEFORE</span>
+              <div style="position:relative; height:3px; background:var(--og-hair); overflow:hidden"><div style="position:absolute; inset:0; transform-origin:left center; transform:{{ c.bX }}; background:{{ c.bBar }}"></div></div>
+              <span style="color:{{ c.bC }}; font-variant-numeric:tabular-nums">{{ c.bV }}</span>
+              <span style="color:{{ c.aC }}">AFTER</span>
+              <div style="position:relative; height:3px; background:var(--og-hair); overflow:hidden"><div style="position:absolute; inset:0; transform-origin:left center; transform:{{ c.aX }}; background:{{ c.aBar }}"></div></div>
+              <span style="color:{{ c.aC }}; font-variant-numeric:tabular-nums">{{ c.aV }}</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 8px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)"><span style="color:var(--og-text-2)">{{ c.note }}</span><span>{{ c.sofar }}</span></div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <main style="display:flex; flex-wrap:wrap; align-items:stretch; gap:var(--og-gap-pane); padding:0 var(--og-gutter) 32px">
+    <section style="flex:999 1 600px; min-width:0; display:flex; flex-direction:column; gap:var(--og-gap-pane)">
+      <div style="position:{{ stickyPos }}; top:0; z-index:20; flex:1 1 auto; display:flex; flex-direction:column; gap:10px; background:{{ stickyBg }}; padding:{{ stickyPad }}">
+
+        <div data-og-enter style="position:relative; flex:0 0 auto; height:{{ stageH }}; border-radius:var(--og-r-stage); overflow:hidden; border:1px solid var(--og-hair); background:radial-gradient(ellipse 60% 55% at 40% 50%, color-mix(in oklab, var(--color-section) 30%, transparent), transparent 70%), var(--og-void); box-shadow:inset 0 0 90px rgba(0,0,0,.55), 0 18px 50px rgba(0,0,0,.35)">
+          <div aria-hidden="true" style="position:absolute; inset:-120px; pointer-events:none; overflow:hidden">
+            <div ref="{{ R.starsFar }}" style="position:absolute; left:0; top:0; width:1px; height:1px; border-radius:50%; box-shadow:{{ starsFar }}; opacity:.75"></div>
+            <div ref="{{ R.starsNear }}" style="position:absolute; left:0; top:0; width:1.6px; height:1.6px; border-radius:50%; box-shadow:{{ starsNear }}"></div>
+          </div>
+          <div ref="{{ R.scene }}" style="position:absolute; inset:0"></div>
+          <span aria-hidden="true" style="position:absolute; top:8px; left:8px; width:14px; height:14px; border-top:1px solid var(--og-ice); border-left:1px solid var(--og-ice); opacity:.6; pointer-events:none"></span>
+          <span aria-hidden="true" style="position:absolute; top:8px; right:8px; width:14px; height:14px; border-top:1px solid var(--og-ice); border-right:1px solid var(--og-ice); opacity:.6; pointer-events:none"></span>
+          <span aria-hidden="true" style="position:absolute; bottom:8px; left:8px; width:14px; height:14px; border-bottom:1px solid var(--og-ice); border-left:1px solid var(--og-ice); opacity:.6; pointer-events:none"></span>
+          <span aria-hidden="true" style="position:absolute; bottom:8px; right:8px; width:14px; height:14px; border-bottom:1px solid var(--og-ice); border-right:1px solid var(--og-ice); opacity:.6; pointer-events:none"></span>
+
+          <sc-if value="{{ loading }}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute; inset:0; display:grid; place-items:center; pointer-events:none">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:10px">
+                <div style="width:160px; height:1px; background:linear-gradient(90deg, transparent, var(--og-ice), transparent)"></div>
+                <span style="font-family:var(--og-font-mono); font-size:11px; letter-spacing:.2em; color:var(--og-text-2)">LOADING TRACE</span>
+                <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">pre-recorded episode · 361 frames · 105 pairs</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="position:absolute; top:16px; left:18px; display:flex; flex-direction:column; gap:3px; pointer-events:none">
+            <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-3)">Mission elapsed</span>
+            <div style="display:flex; align-items:baseline; gap:6px; font-family:var(--og-font-mono); font-weight:300; line-height:1; color:var(--og-text); font-variant-numeric:tabular-nums">
+              <span style="font-size:clamp(18px, 2.2vw, 26px); color:var(--og-text-3)">T+</span>
+              <span style="font-size:clamp(28px, 4vw, 44px); text-shadow:0 0 22px color-mix(in oklab, var(--og-ice) 30%, transparent)">{{ tmin }}</span>
+              <span style="font-size:12px; color:var(--og-text-3)">min</span>
+            </div>
+            <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-2)">STEP {{ stepStr }}/360 · {{ hms }}</span>
+            <sc-if value="{{ shieldOff }}" hint-placeholder-val="{{ false }}">
+              <span style="align-self:flex-start; margin-top:6px; padding:2px 7px; border-radius:var(--og-r-chip); border:1px dashed var(--og-hair-hi); font-family:var(--og-font-mono); font-size:11px; letter-spacing:.08em; color:var(--og-text-2)">SHIELD OFF</span>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ bannerShow }}" hint-placeholder-val="{{ false }}">
+            <div ref="{{ R.banner }}" role="status" aria-live="polite" style="position:absolute; left:{{ bannerLeft }}; top:{{ bTop }}; bottom:{{ bBottom }}; transform:{{ bannerShift }}; max-width:{{ bannerMax }}; display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:var(--radius-md); background:var(--og-glass-hi); backdrop-filter:blur(var(--og-blur)); border:1px solid {{ bannerEdge }}; box-shadow:0 0 24px {{ bannerGlow }}; pointer-events:none; white-space:nowrap">
+              <span style="font-family:var(--og-font-mono); font-size:16px; color:{{ bannerC }}">{{ bannerG }}</span>
+              <span style="font-family:var(--og-font-mono); font-size:12px; font-weight:500; letter-spacing:.06em; color:{{ bannerC }}">{{ bannerL }}</span>
+              <span style="font-family:var(--og-font-mono); font-size:12px; color:var(--og-text)">{{ bannerSats }}</span>
+              <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ bannerMore }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showRail }}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute; top:12px; right:12px; bottom:12px; width:{{ dockW }}; display:flex; flex-direction:column; gap:8px; pointer-events:none">
+            <div style="flex:0 1 auto; min-height:0; max-height:36%; display:flex; flex-direction:column; border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair); box-shadow:inset 0 1px 0 color-mix(in oklab, var(--og-ice) 8%, transparent); overflow:hidden; pointer-events:auto">
+              <div style="display:flex; align-items:center; gap:8px; padding:10px 12px 8px">
+                <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+                <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Tracked this step</span>
+                <span style="margin-left:auto; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ railCount }}</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:3px; padding:0 12px 8px">
+                <div role="group" aria-label="This step, per satellite" style="display:grid; grid-template-columns:repeat(15, minmax(0,1fr)); gap:2px">
+                  <sc-for list="{{ stepCells }}" as="q" hint-placeholder-count="15">
+                    <button onClick="{{ q.onClick }}" title="{{ q.title }}" aria-label="{{ q.title }}" style="display:grid; place-items:center; height:20px; padding:0; border-radius:3px; border:1px solid {{ q.bd }}; background:{{ q.bg }}; color:{{ q.fg }}; font-family:var(--og-font-mono); font-size:11px; line-height:1; cursor:pointer" style-hover="border-color:var(--og-hair-hi)">{{ q.g }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)"><span>S0</span><span>{{ stepTally }}</span><span>S14</span></div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:2px; padding:0 6px 8px; overflow-y:auto; overflow-x:hidden">
+                <sc-if value="{{ railEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; flex-direction:column; gap:6px; margin:2px 6px 4px; padding:10px; border-radius:6px; border:1px dashed var(--og-hair-hi)">
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--og-text-2)"><span style="font-family:var(--og-font-mono); color:var(--og-nominal)">●</span>All 15 satellites nominal</span>
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--og-text-3)"><span style="width:8px; height:8px; border:1px solid var(--og-maneuver); opacity:.6"></span>No maneuvers this step</span>
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--og-text-3)"><span style="font-family:var(--og-font-mono); color:var(--og-text-3)">◇</span>{{ emptyShield }}</span>
+                  </div>
+                </sc-if>
+                <sc-for list="{{ rail }}" as="r" hint-placeholder-count="2">
+                  <button onClick="{{ r.onClick }}" style="display:grid; grid-template-columns:18px minmax(0,1fr); gap:2px 8px; align-items:center; width:100%; text-align:left; padding:7px 6px; border-radius:6px; border:1px solid {{ r.selBd }}; background:{{ r.selBg }}; color:var(--og-text); cursor:pointer" style-hover="background:color-mix(in oklab, var(--og-ice) 6%, transparent)">
+                    <span style="font-family:var(--og-font-mono); font-size:14px; color:{{ r.c }}; text-align:center">{{ r.g }}</span>
+                    <span style="display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+                      <span style="font-family:var(--og-font-mono); font-size:13px; font-weight:500">{{ r.id }}</span>
+                      <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ r.c }}">{{ r.l }}</span>
+                      <sc-if value="{{ r.hasEv }}" hint-placeholder-val="{{ false }}">
+                        <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ r.ec }}; padding:1px 5px; border-radius:var(--og-r-chip); background:{{ r.etint }}">{{ r.eg }} {{ r.el }}</span>
+                      </sc-if>
+                    </span>
+                    <span></span>
+                    <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ r.sub }}{{ r.evDetail }}</span>
+                  </button>
+                </sc-for>
+                <sc-if value="{{ railShieldNote }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; align-items:center; gap:8px; margin:4px 6px 0; padding:6px 8px; border-radius:5px; border:1px dashed var(--og-hair); font-size:11px; color:var(--og-text-3)"><span style="font-family:var(--og-font-mono)">◇</span>No shield events — shield off, nothing overrides the policy</div>
+                </sc-if>
+                <sc-if value="{{ railMoreShow }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ toggleRailExpand }}" style="align-self:flex-start; margin:2px 6px 0; padding:3px 8px; border-radius:4px; border:1px solid var(--og-hair); background:transparent; color:var(--og-text-2); font-family:var(--og-font-mono); font-size:11px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)">{{ railMore }}</button>
+                </sc-if>
+              </div>
+            </div>
+            <sc-if value="{{ inDock }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:10px; padding:10px 12px 12px; border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair); box-shadow:inset 0 1px 0 color-mix(in oklab, var(--og-ice) 8%, transparent); overflow-y:auto; overflow-x:hidden; pointer-events:auto">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+                  <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Inspector</span>
+                  <div style="margin-left:auto; display:flex; align-items:center; gap:2px">
+                    <button onClick="{{ selPrev }}" aria-label="Previous satellite" style="display:inline-grid; place-items:center; width:28px; height:28px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--og-text-3); font-size:14px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-left"></i></button>
+                    <span style="min-width:44px; text-align:center; font-family:var(--og-font-mono); font-size:20px; font-weight:300; line-height:1; color:var(--og-ice); text-shadow:0 0 14px color-mix(in oklab, var(--og-ice) 35%, transparent)">{{ iId }}</span>
+                    <button onClick="{{ selNext }}" aria-label="Next satellite" style="display:inline-grid; place-items:center; width:28px; height:28px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--og-text-3); font-size:14px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-right"></i></button>
+                  </div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:5px">
+                  <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:{{ iC }}; background:{{ iTint }}; border:1px solid {{ iEdge }}">{{ iG }} {{ iL }}</span>
+                  <sc-if value="{{ iEvShow }}" hint-placeholder-val="{{ false }}">
+                    <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:{{ iEvC }}; background:{{ iEvTint }}; border:1px solid {{ iEvEdge }}">{{ iEvG }} {{ iEvL }}</span>
+                  </sc-if>
+                  <sc-if value="{{ capShow }}" hint-placeholder-val="{{ false }}">
+                    <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:var(--og-text-2); border:1px dashed var(--og-hair-hi)">{{ capG }} {{ capL }}</span>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ retShow }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:5px 8px; border-radius:5px; background:color-mix(in oklab, var(--og-collision) 10%, transparent); border:1px solid color-mix(in oklab, var(--og-collision) 35%, transparent); font-family:var(--og-font-mono); font-size:11px; color:var(--og-collision)">✕ {{ retText }}</div>
+                </sc-if>
+                <div style="display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,.7fr) minmax(0,1.4fr); gap:8px">
+                  <div style="display:flex; flex-direction:column; gap:3px; min-width:0">
+                    <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">Δv LEFT</span>
+                    <span style="font-family:var(--og-font-mono); font-size:16px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums">{{ dvVal }}</span>
+                    <div style="position:relative; height:2px; background:var(--og-hair); overflow:hidden"><div style="position:absolute; inset:0; transform-origin:left center; transform:{{ dvX }}; background:var(--og-ice)"></div></div>
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:3px; min-width:0">
+                    <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">DEV</span>
+                    <span style="font-family:var(--og-font-mono); font-size:16px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums">{{ devVal }}</span>
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:3px; min-width:0">
+                    <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">CLOSEST</span>
+                    <span style="font-family:var(--og-font-mono); font-size:16px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums; white-space:nowrap; color:{{ cC }}">{{ cVal }}</span>
+                    <span style="font-family:var(--og-font-mono); font-size:11px; line-height:1.35; color:var(--og-text-3)">{{ cSub }}</span>
+                  </div>
+                </div>
+                <div role="group" aria-label="Satellite" style="display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:3px">
+                  <sc-for list="{{ pick }}" as="p" hint-placeholder-count="15">
+                    <button aria-pressed="{{ p.pressed }}" aria-label="{{ p.label }}" onClick="{{ p.onClick }}" style="position:relative; display:flex; align-items:center; justify-content:center; gap:4px; height:28px; border-radius:4px; border:1px solid {{ p.bd }}; background:{{ p.bg }}; box-shadow:{{ p.sh }}; color:{{ p.fg }}; font-family:var(--og-font-mono); font-size:11px; line-height:1; cursor:pointer" style-hover="border-color:var(--og-hair-hi)" style-active="transform:scale(.95)">
+                      <span style="color:{{ p.c }}; font-size:10px">{{ p.g }}</span>{{ p.id }}
+                      <span style="position:absolute; top:1px; right:2px; font-size:10px; line-height:1; color:var(--og-text-2)">{{ p.cap }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+                <div ref="{{ R.chart }}" style="flex:0 0 auto; height:190px; min-width:0; margin:0 -4px"></div>
+                <div style="display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--og-hair)">
+                  <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">DECISION</span>
+                  <sc-if value="{{ step0 }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:12px; color:var(--og-text-2)">Step 0 — initial state. Actions exist for steps 1–360.</span>
+                  </sc-if>
+                  <sc-if value="{{ nowShow }}" hint-placeholder-val="{{ false }}">
+                    <span style="display:inline-flex; flex-wrap:wrap; align-items:center; gap:5px; font-family:var(--og-font-mono); font-size:11px">{{ nowPr }} <span style="color:var(--og-text-3)">→</span> <span style="color:{{ nowC }}">{{ nowAp }}</span> <span style="color:{{ nowC }}">{{ nowNote }}</span></span>
+                  </sc-if>
+                  <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px">
+                    <span style="font-size:11px; color:var(--og-text-3); margin-right:2px">{{ recentLabel }}</span>
+                    <sc-for list="{{ recent }}" as="l" hint-placeholder-count="0">
+                      <button onClick="{{ l.onClick }}" title="{{ l.title }}" style="display:inline-flex; align-items:center; gap:4px; min-height:24px; padding:0 6px; border-radius:4px; border:1px solid var(--og-hair); background:transparent; color:var(--og-text-2); font-family:var(--og-font-mono); font-size:11px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)"><span style="color:{{ l.gc }}">{{ l.g }}</span>{{ l.t }} <span style="color:{{ l.apC }}">{{ l.ap }}</span></button>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ desktop }}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute; left:12px; bottom:12px; max-width:{{ legendMax }}; display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--radius-md); background:var(--og-glass); backdrop-filter:blur(var(--og-blur)); border:1px solid var(--og-hair); pointer-events:none">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:11px">
+                <span style="width:76px; font-weight:600; letter-spacing:.14em; white-space:nowrap; color:var(--og-text-3)">STATUS PIN</span>
+                <span style="display:inline-flex; gap:5px; align-items:center"><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span>COLLIDED</span>
+                <span style="display:inline-flex; gap:5px; align-items:center"><span style="font-family:var(--og-font-mono); color:var(--og-risk)">◆</span>HIGH RISK</span>
+                <span style="display:inline-flex; gap:5px; align-items:center"><span style="font-family:var(--og-font-mono); color:var(--og-dsafe)">○</span>INSIDE d_safe</span>
+                <span style="display:inline-flex; gap:5px; align-items:center; color:var(--og-text-2)"><span style="display:inline-block; width:14px; height:4px; background:linear-gradient(90deg, #2c5293 0 38%, #c9a14a 38% 62%, #2c5293 62%)"></span>nominal · no pin</span>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:11px">
+                <span style="width:76px; font-weight:600; letter-spacing:.14em; white-space:nowrap; color:var(--og-text-3)">EVENT</span>
+                <span style="display:inline-flex; gap:6px; align-items:center"><span style="width:16px; height:3px; border-radius:2px; background:linear-gradient(90deg, var(--og-maneuver), color-mix(in oklab, var(--og-maneuver) 30%, transparent))"></span>■ MANEUVER · burn plume = exhaust</span>
+                <span style="display:inline-flex; gap:6px; align-items:center; opacity:{{ shOp }}; text-decoration:{{ shDeco }}"><span style="width:11px; height:11px; border-radius:50%; border:1.5px solid var(--og-shield)"></span>◇ SHIELD · ring{{ shSuffix }}</span>
+                <span style="display:inline-flex; gap:5px; align-items:center"><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span>COLLISION</span>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:11px">
+                <span style="width:76px; font-weight:600; letter-spacing:.14em; white-space:nowrap; color:var(--og-text-3)">PAIR LINE</span>
+                <span style="display:inline-flex; gap:6px; align-items:center"><span style="width:18px; height:0; border-top:2px dashed var(--og-risk)"></span>high risk</span>
+                <span style="display:inline-flex; gap:6px; align-items:center"><span style="width:18px; height:0; border-top:2px dotted var(--og-dsafe)"></span>inside d_safe</span>
+                <span style="display:inline-flex; gap:5px; align-items:center; color:var(--og-text-2)"><span style="font-family:var(--og-font-mono)">⊘</span>THRUSTER OFFLINE</span>
+                <span style="display:inline-flex; gap:5px; align-items:center; color:var(--og-text-2)"><span style="font-family:var(--og-font-mono)">◐</span>LIMITED Δv</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="position:absolute; right:{{ viewRight }}; bottom:12px; display:flex; gap:6px">
+            <button aria-pressed="{{ orbitsPressed }}" onClick="{{ toggleOrbits }}" title="Show orbit rings" style="display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 10px; border-radius:var(--radius-md); border:1px solid {{ orbitsBd }}; background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); color:{{ orbitsFg }}; font-size:12px; cursor:pointer" style-hover="border-color:var(--og-hair-hi)" style-active="transform:scale(.96)"><i class="ph ph-planet" style="font-size:16px"></i>Orbits</button>
+            <div style="display:flex; border-radius:var(--radius-md); border:1px solid var(--og-hair); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); overflow:hidden">
+              <button onClick="{{ zoomOut }}" aria-label="Zoom out" title="Zoom out (or scroll / pinch)" style="display:inline-grid; place-items:center; width:36px; height:36px; border:0; background:transparent; color:var(--og-text-2); font-size:16px; cursor:pointer" style-hover="color:var(--og-text); background:color-mix(in oklab, var(--og-ice) 8%, transparent)" style-active="transform:scale(.94)"><i class="ph ph-minus"></i></button>
+              <button onClick="{{ zoomIn }}" aria-label="Zoom in" title="Zoom in (or scroll / pinch)" style="display:inline-grid; place-items:center; width:36px; height:36px; border:0; border-left:1px solid var(--og-hair); background:transparent; color:var(--og-text-2); font-size:16px; cursor:pointer" style-hover="color:var(--og-text); background:color-mix(in oklab, var(--og-ice) 8%, transparent)" style-active="transform:scale(.94)"><i class="ph ph-plus"></i></button>
+            </div>
+            <button onClick="{{ resetView }}" title="Reset camera" style="display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 10px; border-radius:var(--radius-md); border:1px solid var(--og-hair); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); color:var(--og-text-2); font-size:12px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.96)"><i class="ph ph-arrow-counter-clockwise" style="font-size:16px"></i>View</button>
+          </div>
+
+          <div ref="{{ R.flash }}" aria-hidden="true" style="position:absolute; inset:0; pointer-events:none; opacity:{{ flashStatic }}; border-radius:var(--og-r-stage); box-shadow:inset 0 0 0 2px var(--og-collision), inset 0 0 140px color-mix(in oklab, var(--og-collision) 45%, transparent)"></div>
+        </div>
+
+        <sc-if value="{{ phone }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-wrap:wrap; gap:4px 12px; padding:0 2px; font-size:11px; color:var(--og-text-2)">
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span>COLLIDED</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono); color:var(--og-risk)">◆</span>HIGH RISK</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono); color:var(--og-dsafe)">○</span>INSIDE d_safe</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono); color:var(--og-nominal)">●</span>nominal</span>
+            <span style="display:inline-flex; gap:4px; align-items:center"><span style="width:12px; height:3px; background:var(--og-maneuver)"></span>■ MANEUVER plume</span>
+            <span style="display:inline-flex; gap:4px; align-items:center; opacity:{{ shOp }}; text-decoration:{{ shDeco }}"><span style="width:9px; height:9px; border-radius:50%; border:1.5px solid var(--og-shield)"></span>◇ SHIELD ring{{ shSuffix }}</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span>COLLISION</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono)">⊘</span>OFFLINE</span>
+            <span style="display:inline-flex; gap:4px"><span style="font-family:var(--og-font-mono)">◐</span>LIMITED Δv</span>
+          </div>
+        </sc-if>
+
+        <div data-og-enter style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:10px 14px; border-radius:var(--radius-md); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair); box-shadow:inset 0 1px 0 color-mix(in oklab, var(--og-ice) 7%, transparent)">
+          <div style="display:flex; align-items:center; gap:4px">
+            <button onClick="{{ prevEvent }}" disabled="{{ prevDisabled }}" aria-label="Previous event" title="Previous event" style="display:inline-grid; place-items:center; width:44px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-2); font-size:18px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-skip-back"></i></button>
+            <button onClick="{{ stepBack }}" aria-label="Step back" title="Step back" style="display:inline-grid; place-items:center; width:44px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-2); font-size:18px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-left"></i></button>
+            <button onClick="{{ togglePlay }}" aria-label="{{ playLabel }}" aria-pressed="{{ playPressed }}" style="display:inline-grid; place-items:center; width:54px; height:54px; border-radius:50%; border:1px solid var(--og-ice); background:color-mix(in oklab, var(--og-ice) 8%, transparent); color:var(--og-ice); font-size:22px; cursor:pointer; box-shadow:{{ playShadow }}; transition:transform var(--og-dur-press) var(--og-ease-out)" style-hover="background:color-mix(in oklab, var(--og-ice) 16%, transparent)" style-active="transform:scale(.93)"><i class="{{ playIcon }}"></i></button>
+            <button onClick="{{ stepFwd }}" aria-label="Step forward" title="Step forward" style="display:inline-grid; place-items:center; width:44px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-2); font-size:18px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-right"></i></button>
+            <button onClick="{{ nextEvent }}" disabled="{{ nextDisabled }}" aria-label="Next event" title="Next event" style="display:inline-grid; place-items:center; width:44px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-2); font-size:18px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-skip-forward"></i></button>
+          </div>
+
+          <div style="flex:1 1 {{ scrubBasis }}; order:{{ scrubOrder }}; min-width:0; display:flex; flex-direction:column; gap:2px">
+            <div ref="{{ R.scrub }}" role="slider" tabindex="0" aria-label="Episode step" aria-valuemin="0" aria-valuemax="360" aria-valuenow="{{ step }}" aria-valuetext="{{ ariaStep }}" onPointerDown="{{ onScrubDown }}" onPointerMove="{{ onScrubMove }}" onPointerUp="{{ onScrubUp }}" onPointerCancel="{{ onScrubUp }}" onPointerLeave="{{ onScrubLeave }}" onKeyDown="{{ onScrubKey }}" style="position:relative; height:48px; cursor:pointer; touch-action:none; border-radius:var(--og-r-chip)">
+              <canvas ref="{{ R.scrubDens }}" aria-hidden="true" style="position:absolute; left:0; top:2px; width:100%; height:28px; pointer-events:none"></canvas>
+              <div style="position:absolute; left:0; right:0; top:35px; height:3px; border-radius:2px; background:var(--og-hair); overflow:hidden; pointer-events:none">
+                <div ref="{{ R.fill }}" style="position:absolute; inset:0; transform-origin:left center; background:linear-gradient(90deg, color-mix(in oklab, var(--og-ice) 25%, transparent), var(--og-ice))"></div>
+              </div>
+              <div ref="{{ R.thumb }}" style="position:absolute; left:0; right:0; top:28px; height:17px; pointer-events:none">
+                <div style="position:absolute; left:-8px; top:0; width:17px; height:17px; border-radius:50%; background:var(--og-void); border:2px solid var(--og-ice); box-shadow:0 0 14px color-mix(in oklab, var(--og-ice) 55%, transparent)"></div>
+              </div>
+              <sc-if value="{{ hoverShow }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute; left:{{ hoverLeft }}; top:0; bottom:0; width:1px; background:var(--og-hair-hi); pointer-events:none"></div>
+                <div style="position:absolute; left:{{ hoverLeft }}; bottom:calc(100% + 6px); transform:{{ hoverShift }}; z-index:40; display:flex; flex-direction:column; gap:3px; padding:8px 10px; border-radius:var(--radius-md); background:var(--og-glass-hi); backdrop-filter:blur(var(--og-blur)); border:1px solid var(--og-hair-hi); box-shadow:0 10px 30px rgba(0,0,0,.45); pointer-events:none; white-space:nowrap">
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text)">{{ hoverTitle }}</span>
+                  <sc-for list="{{ hoverLines }}" as="h" hint-placeholder-count="1">
+                    <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ h.c }}">{{ h.g }} {{ h.t }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+            <div style="position:relative; height:14px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3); pointer-events:none">
+              <span style="position:absolute; left:0">0</span>
+              <span style="position:absolute; left:16.667%; transform:translateX(-50%)">60</span>
+              <span style="position:absolute; left:33.333%; transform:translateX(-50%)">120</span>
+              <span style="position:absolute; left:50%; transform:translateX(-50%)">180</span>
+              <span style="position:absolute; left:66.667%; transform:translateX(-50%)">240</span>
+              <span style="position:absolute; left:83.333%; transform:translateX(-50%)">300</span>
+              <span style="position:absolute; right:0">360</span>
+            </div>
+          </div>
+
+          <sc-if value="{{ desktop }}" hint-placeholder-val="{{ true }}">
+            <div role="group" aria-label="Playback speed" style="display:flex; gap:2px; padding:2px; border:1px solid var(--og-hair); border-radius:var(--radius-md)">
+              <sc-for list="{{ speeds }}" as="v" hint-placeholder-count="4">
+                <button aria-pressed="{{ v.pressed }}" onClick="{{ v.onClick }}" style="min-width:42px; min-height:36px; padding:0 6px; border-radius:6px; border:1px solid {{ v.bd }}; background:{{ v.bg }}; color:{{ v.fg }}; font-family:var(--og-font-mono); font-size:12px; cursor:pointer" style-hover="background:color-mix(in oklab, var(--og-ice) 8%, transparent)" style-active="transform:scale(.95)">{{ v.label }}</button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ phone }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ cycleSpeed }}" aria-label="Playback speed" style="min-width:52px; min-height:44px; border-radius:var(--radius-md); border:1px solid var(--og-hair); background:transparent; color:var(--og-text); font-family:var(--og-font-mono); font-size:12px; cursor:pointer" style-active="transform:scale(.95)">{{ speedLabel }}</button>
+          </sc-if>
+          <button aria-pressed="{{ loopPressed }}" onClick="{{ toggleLoop }}" aria-label="Loop" title="Loop" style="display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 10px; border-radius:var(--radius-md); border:1px solid {{ loopBd }}; background:transparent; color:{{ loopFg }}; font-size:12px; cursor:pointer" style-hover="border-color:var(--og-hair-hi)" style-active="transform:scale(.95)"><i class="ph ph-repeat" style="font-size:16px"></i>Loop</button>
+        </div>
+
+        <sc-if value="{{ phone }}" hint-placeholder-val="{{ false }}">
+          <div role="tablist" style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); border-bottom:1px solid var(--og-hair)">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+              <button role="tab" aria-selected="{{ t.sel }}" onClick="{{ t.onClick }}" style="min-height:44px; background:transparent; border:0; border-bottom:2px solid {{ t.line }}; color:{{ t.fg }}; font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; cursor:pointer" style-hover="color:var(--og-text)">{{ t.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ showTimeline }}" hint-placeholder-val="{{ true }}">
+        <div data-og-enter style="padding:var(--og-pad-pane); border-radius:var(--og-r-pane); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair)">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-bottom:12px">
+            <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+            <h2 style="margin:0; font-size:11px; line-height:1.3; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Maneuver &amp; shield timeline</h2>
+            <span style="margin-left:auto; font-size:11px; color:var(--og-text-3)">{{ tlHint }}</span>
+            <div role="group" aria-label="Timeline view" style="display:flex; gap:2px; padding:2px; border:1px solid var(--og-hair); border-radius:var(--radius-md)">
+              <sc-for list="{{ tlModes }}" as="mo" hint-placeholder-count="2">
+                <button aria-pressed="{{ mo.pressed }}" onClick="{{ mo.onClick }}" style="min-height:30px; padding:0 10px; border-radius:6px; border:1px solid {{ mo.bd }}; background:{{ mo.bg }}; color:{{ mo.fg }}; font-size:12px; cursor:pointer" style-hover="background:color-mix(in oklab, var(--og-ice) 8%, transparent)">{{ mo.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:max-content minmax(0,1fr); column-gap:14px">
+            <sc-if value="{{ tlCounts }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid; grid-template-rows:repeat(3, 42px); align-items:center">
+                <div style="display:flex; flex-direction:column; gap:1px">
+                  <span style="display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.06em"><span style="width:8px; height:8px; background:var(--og-maneuver)"></span>MANEUVER</span>
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ cntM }}</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:1px">
+                  <span style="display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.06em; opacity:{{ shOp }}"><span style="width:7px; height:7px; border:1.5px solid var(--og-shield); transform:rotate(45deg)"></span>SHIELD</span>
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ cntS }}</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:1px">
+                  <span style="display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.06em"><span style="font-family:var(--og-font-mono); color:var(--og-collision)">✕</span>COLLISION</span>
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ cntC }}</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ tlBySat }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-rows:repeat(15, 13px); align-items:center">
+                <sc-for list="{{ tlRows }}" as="rw" hint-placeholder-count="15">
+                  <button onClick="{{ rw.onClick }}" style="height:13px; padding:0 4px 0 0; border:0; background:transparent; color:{{ rw.fg }}; font-family:var(--og-font-mono); font-size:11px; line-height:13px; text-align:right; cursor:pointer" style-hover="color:var(--og-text)">{{ rw.g }} {{ rw.id }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="position:relative; min-width:0">
+              <div style="position:relative; height:{{ tlH }}; overflow:hidden">
+                <div ref="{{ R.tlPast }}" aria-hidden="true" style="position:absolute; inset:0; transform-origin:left center; background:color-mix(in oklab, var(--og-ice) 4%, transparent); pointer-events:none"></div>
+                <canvas ref="{{ R.tlCanvas }}" onClick="{{ onTlClick }}" onMouseMove="{{ onTlMove }}" onMouseLeave="{{ onTlLeave }}" style="position:absolute; inset:0; width:100%; height:100%; cursor:crosshair"></canvas>
+                <sc-if value="{{ tlCounts }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute; left:0; right:0; top:0; height:42px; pointer-events:none">
+                    <sc-for list="{{ tlM }}" as="m" hint-placeholder-count="0">
+                      <button onClick="{{ m.onClick }}" title="{{ m.title }}" style="position:absolute; left:{{ m.left }}; top:0; display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:0; border:0; background:transparent; color:var(--og-ice); font-family:var(--og-font-mono); font-size:11px; line-height:1; white-space:nowrap; cursor:pointer; pointer-events:auto; opacity:.85" style-hover="opacity:1">
+                        <span style="display:block; width:{{ m.w }}; min-width:2px; height:2px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+                        <span style="padding-left:1px; color:var(--og-text-2)">{{ m.label }}</span>
+                      </button>
+                    </sc-for>
+                  </div>
+                  <div style="position:absolute; left:0; right:0; top:42px; height:42px; pointer-events:none">
+                    <sc-if value="{{ shieldOff }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute; inset:6px 0; display:flex; align-items:center; padding-left:10px; border-radius:4px; background:repeating-linear-gradient(135deg, color-mix(in oklab, var(--og-ice) 4%, transparent) 0 6px, transparent 6px 12px); font-size:11px; color:var(--og-text-3)">Shield off — no overrides recorded</div>
+                    </sc-if>
+                    <sc-for list="{{ tlS }}" as="m" hint-placeholder-count="0">
+                      <button onClick="{{ m.onClick }}" title="{{ m.title }}" style="position:absolute; left:{{ m.left }}; top:0; display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:0; border:0; background:transparent; color:var(--og-ice); font-family:var(--og-font-mono); font-size:11px; line-height:1; white-space:nowrap; cursor:pointer; pointer-events:auto; opacity:.85" style-hover="opacity:1">
+                        <span style="display:block; width:{{ m.w }}; min-width:2px; height:2px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+                        <span style="padding-left:1px; color:var(--og-text-2)">{{ m.label }}</span>
+                      </button>
+                    </sc-for>
+                    <sc-if value="{{ shieldPeakShow }}" hint-placeholder-val="{{ false }}">
+                      <span style="position:absolute; left:{{ shieldPeakLeft }}; top:2px; transform:{{ shieldPeakShift }}; padding:1px 5px; border-radius:3px; background:var(--og-glass-hi); font-family:var(--og-font-mono); font-size:11px; color:var(--og-shield); white-space:nowrap">peak {{ shieldPeak }}/15 · T+{{ shieldPeakAt }}</span>
+                    </sc-if>
+                  </div>
+                  <div style="position:absolute; left:0; right:0; top:84px; height:42px; pointer-events:none">
+                    <sc-for list="{{ tlC }}" as="m" hint-placeholder-count="0">
+                      <button onClick="{{ m.onClick }}" title="{{ m.title }}" style="position:absolute; left:{{ m.left }}; top:4px; display:flex; align-items:center; gap:4px; margin-left:-6px; padding:0; border:0; background:transparent; color:var(--og-collision); font-family:var(--og-font-mono); font-size:11px; line-height:1; white-space:nowrap; cursor:pointer; pointer-events:auto"><span style="font-size:13px; text-shadow:0 0 8px var(--og-collision)">✕</span>{{ m.label }}</button>
+                    </sc-for>
+                    <sc-if value="{{ noColl }}" hint-placeholder-val="{{ true }}">
+                      <span style="position:absolute; left:0; top:13px; font-size:11px; color:var(--og-text-3)">None — shield caught all</span>
+                    </sc-if>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ tlHoverShow }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute; left:{{ tlHoverLeft }}; top:0; bottom:0; width:1px; background:var(--og-hair-hi); pointer-events:none"></div>
+                </sc-if>
+                <div ref="{{ R.tlHead }}" aria-hidden="true" style="position:absolute; inset:0; pointer-events:none">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:1px; background:var(--og-ice); box-shadow:0 0 8px var(--og-ice)"></div>
+                </div>
+              </div>
+              <sc-if value="{{ tlHoverShow }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute; left:{{ tlHoverLeft }}; bottom:calc(100% - 4px); transform:{{ tlHoverShift }}; z-index:30; display:flex; flex-direction:column; gap:3px; padding:7px 10px; border-radius:var(--radius-md); background:var(--og-glass-hi); backdrop-filter:blur(var(--og-blur)); border:1px solid var(--og-hair-hi); box-shadow:0 10px 30px rgba(0,0,0,.45); pointer-events:none; white-space:nowrap">
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text)">{{ tlHoverTitle }}</span>
+                  <sc-for list="{{ tlHoverLines }}" as="hl" hint-placeholder-count="2">
+                    <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ hl.c }}">{{ hl.g }} {{ hl.t }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <div style="position:relative; height:16px; margin-top:4px; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">
+                <span style="position:absolute; left:0">0</span>
+                <span style="position:absolute; left:33.333%; transform:translateX(-50%)">120</span>
+                <span style="position:absolute; left:66.667%; transform:translateX(-50%)">240</span>
+                <span style="position:absolute; right:0; white-space:nowrap">360 min</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showInspPanel }}" hint-placeholder-val="{{ false }}">
+        <div data-og-enter style="display:flex; flex-direction:column; gap:12px; padding:var(--og-pad-pane); border-radius:var(--og-r-pane); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair)">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px 22px">
+            <div style="display:flex; align-items:center; gap:4px">
+              <button onClick="{{ selPrev }}" aria-label="Previous satellite" style="display:inline-grid; place-items:center; width:36px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-3); font-size:16px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-left"></i></button>
+              <div style="display:flex; flex-direction:column; gap:2px; min-width:64px; align-items:center">
+                <span style="font-size:11px; font-weight:600; letter-spacing:var(--og-track-kicker); color:var(--og-text-3)">INSPECT</span>
+                <span style="font-family:var(--og-font-mono); font-size:30px; font-weight:300; line-height:1; color:var(--og-ice); text-shadow:0 0 18px color-mix(in oklab, var(--og-ice) 35%, transparent)">{{ iId }}</span>
+              </div>
+              <button onClick="{{ selNext }}" aria-label="Next satellite" style="display:inline-grid; place-items:center; width:36px; height:44px; border-radius:var(--radius-md); border:1px solid transparent; background:transparent; color:var(--og-text-3); font-size:16px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)" style-active="transform:scale(.94)"><i class="ph ph-caret-right"></i></button>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+              <span style="display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:{{ iC }}; background:{{ iTint }}; border:1px solid {{ iEdge }}">{{ iG }} {{ iL }}</span>
+              <sc-if value="{{ iEvShow }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:{{ iEvC }}; background:{{ iEvTint }}; border:1px solid {{ iEvEdge }}">{{ iEvG }} {{ iEvL }}</span>
+              </sc-if>
+              <sc-if value="{{ capShow }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; color:var(--og-text-2); border:1px dashed var(--og-hair-hi)">{{ capG }} {{ capL }}</span>
+              </sc-if>
+            </div>
+            <div style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 22px">
+              <div style="display:flex; flex-direction:column; gap:3px; min-width:84px">
+                <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">Δv LEFT</span>
+                <span style="font-family:var(--og-font-mono); font-size:18px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums">{{ dvVal }}<span style="font-size:11px; color:var(--og-text-3)"> {{ dvBudget }}</span></span>
+                <div style="position:relative; height:2px; background:var(--og-hair); overflow:hidden"><div style="position:absolute; inset:0; transform-origin:left center; transform:{{ dvX }}; background:var(--og-ice)"></div></div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:3px">
+                <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">MISSION DEV</span>
+                <span style="font-family:var(--og-font-mono); font-size:18px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums">{{ devVal }}</span>
+                <span style="height:2px"></span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:3px">
+                <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">CLOSEST</span>
+                <span style="font-family:var(--og-font-mono); font-size:18px; font-weight:300; line-height:1; font-variant-numeric:tabular-nums; color:{{ cC }}">{{ cVal }}<span style="font-size:11px; color:var(--og-text-3)"> {{ cSub }}</span></span>
+                <span style="height:2px"></span>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ retShow }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; background:color-mix(in oklab, var(--og-collision) 10%, transparent); border:1px solid color-mix(in oklab, var(--og-collision) 35%, transparent); font-family:var(--og-font-mono); font-size:11px; color:var(--og-collision)">✕ {{ retText }}</div>
+          </sc-if>
+
+          <div role="group" aria-label="Satellite" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(44px, 1fr)); gap:3px">
+            <sc-for list="{{ pick }}" as="p" hint-placeholder-count="15">
+              <button aria-pressed="{{ p.pressed }}" aria-label="{{ p.label }}" onClick="{{ p.onClick }}" style="position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; height:{{ cellH }}; border-radius:4px; border:1px solid {{ p.bd }}; background:{{ p.bg }}; box-shadow:{{ p.sh }}; color:{{ p.fg }}; font-family:var(--og-font-mono); font-size:11px; line-height:1; cursor:pointer" style-hover="border-color:var(--og-hair-hi)" style-active="transform:scale(.95)">
+                <span style="color:{{ p.c }}; font-size:10px">{{ p.g }}</span>{{ p.id }}
+                <span style="position:absolute; top:2px; right:3px; font-size:11px; line-height:1; color:var(--og-text-2)">{{ p.cap }}</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div ref="{{ R.chart }}" style="height:210px; min-width:0; margin:0 -6px"></div>
+
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding-top:10px; border-top:1px solid var(--og-hair)">
+            <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">DECISION</span>
+            <sc-if value="{{ step0 }}" hint-placeholder-val="{{ false }}">
+              <span style="font-size:12px; color:var(--og-text-2)">Step 0 — initial state. Actions exist for steps 1–360.</span>
+            </sc-if>
+            <sc-if value="{{ nowShow }}" hint-placeholder-val="{{ false }}">
+              <span style="display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; font-family:var(--og-font-mono); font-size:12px">{{ nowPr }} <span style="color:var(--og-text-3)">→</span> <span style="color:{{ nowC }}">{{ nowAp }}</span> <span style="font-size:11px; color:{{ nowC }}">{{ nowNote }}</span></span>
+            </sc-if>
+            <div style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:4px">
+              <span style="font-size:11px; color:var(--og-text-3); margin-right:4px">{{ recentLabel }}</span>
+              <sc-for list="{{ recent }}" as="l" hint-placeholder-count="0">
+                <button onClick="{{ l.onClick }}" title="{{ l.title }}" style="display:inline-flex; align-items:center; gap:5px; min-height:28px; padding:0 7px; border-radius:4px; border:1px solid var(--og-hair); background:transparent; color:var(--og-text-2); font-family:var(--og-font-mono); font-size:11px; cursor:pointer" style-hover="border-color:var(--og-hair-hi); color:var(--og-text)">
+                  <span style="color:{{ l.gc }}">{{ l.g }}</span>{{ l.t }} <span style="color:{{ l.apC }}">{{ l.ap }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </section>
+
+    <aside style="flex:1 1 380px; min-width:0; display:flex; flex-direction:column; gap:var(--og-gap-pane); position:{{ asidePos }}; top:14px; align-self:{{ asideAlign }}">
+      <sc-if value="{{ showFeed }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:var(--og-pad-pane); border-radius:var(--og-r-pane); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair)">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
+            <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+            <h2 style="margin:0; font-size:11px; line-height:1.3; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Tracked this step</h2>
+            <span style="margin-left:auto; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ railCount }}</span>
+          </div>
+          <sc-if value="{{ railEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 0; font-size:12px; color:var(--og-text-3)"><span style="font-family:var(--og-font-mono); color:var(--og-nominal)">●</span>All 15 satellites nominal</div>
+          </sc-if>
+          <div style="display:flex; flex-direction:column; gap:2px">
+            <sc-for list="{{ rail }}" as="r" hint-placeholder-count="2">
+              <button onClick="{{ r.onClick }}" style="display:grid; grid-template-columns:18px minmax(0,1fr); gap:2px 8px; align-items:center; width:100%; min-height:44px; text-align:left; padding:6px; border-radius:6px; border:1px solid {{ r.selBd }}; background:{{ r.selBg }}; color:var(--og-text); cursor:pointer">
+                <span style="font-family:var(--og-font-mono); font-size:14px; color:{{ r.c }}; text-align:center">{{ r.g }}</span>
+                <span style="display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+                  <span style="font-family:var(--og-font-mono); font-size:13px; font-weight:500">{{ r.id }}</span>
+                  <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ r.c }}">{{ r.l }}</span>
+                  <sc-if value="{{ r.hasEv }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-family:var(--og-font-mono); font-size:11px; color:{{ r.ec }}; padding:1px 5px; border-radius:var(--og-r-chip); background:{{ r.etint }}">{{ r.eg }} {{ r.el }}</span>
+                  </sc-if>
+                </span>
+                <span></span>
+                <span style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)">{{ r.sub }}{{ r.evDetail }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showTimeline }}" hint-placeholder-val="{{ true }}">
+        <div data-og-enter style="display:flex; flex-direction:column; gap:10px; padding:var(--og-pad-pane); border-radius:var(--og-r-pane); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair)">
+          <div style="display:flex; align-items:center; gap:10px">
+            <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+            <h2 style="margin:0; font-size:11px; line-height:1.3; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Fleet fuel</h2>
+            <span style="margin-left:auto; font-family:var(--og-font-mono); font-size:11px; color:{{ fuelEmptyC }}">{{ fuelEmpty }}</span>
+          </div>
+          <div style="display:flex; align-items:baseline; gap:8px; font-family:var(--og-font-mono)">
+            <span style="font-size:var(--og-fs-xl); font-weight:300; line-height:1; font-variant-numeric:tabular-nums">{{ fuelLeft }}</span>
+            <span style="font-size:11px; color:var(--og-text-3)">of {{ fuelStart }} m/s left · T+{{ tmin }}</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:3px">
+            <span style="font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)">FLEET Δv OVER THE EPISODE</span>
+            <div style="position:relative; height:52px; border-radius:3px; overflow:hidden; background:color-mix(in oklab, var(--og-void) 70%, transparent)">
+              <canvas ref="{{ R.fuelCanvas }}" onClick="{{ onFuelClick }}" style="position:absolute; inset:0; width:100%; height:100%; cursor:pointer"></canvas>
+              <div ref="{{ R.fuelHead }}" aria-hidden="true" style="position:absolute; inset:0; pointer-events:none">
+                <div style="position:absolute; left:0; top:0; bottom:0; width:1px; background:var(--og-ice); box-shadow:0 0 8px var(--og-ice)"></div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3)"><span>0</span><span>{{ fuelNote }}</span><span>360</span></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:3px">
+            <div style="display:grid; grid-template-columns:48px minmax(0,1fr) 44px; gap:8px; font-size:11px; font-weight:600; letter-spacing:.12em; color:var(--og-text-3)"><span>SAT</span><span>REMAINING Δv · track = own budget</span><span style="text-align:right">m/s</span></div>
+            <sc-for list="{{ fuelBars }}" as="f" hint-placeholder-count="15">
+              <button onClick="{{ f.onClick }}" aria-label="{{ f.aria }}" style="display:grid; grid-template-columns:48px minmax(0,1fr) 44px; align-items:center; gap:8px; width:100%; height:16px; padding:0; border:0; background:transparent; color:{{ f.fg }}; font-family:var(--og-font-mono); font-size:11px; cursor:pointer; text-align:left" style-hover="color:var(--og-text)">
+                <span style="white-space:nowrap">{{ f.id }}</span>
+                <span style="position:relative; display:block; height:8px">
+                  <span style="position:absolute; left:0; top:0; bottom:0; width:{{ f.track }}; border-radius:2px; border:1px {{ f.trackStyle }} {{ f.trackC }}"></span>
+                  <span style="position:absolute; left:0; top:0; bottom:0; width:{{ f.track }}; border-radius:2px; transform-origin:left center; transform:{{ f.x }}; background:{{ f.bar }}; box-shadow:{{ f.glow }}; transition:transform var(--og-dur-count) var(--og-ease-out)"></span>
+                </span>
+                <span style="text-align:right; font-variant-numeric:tabular-nums; color:{{ f.vc }}">{{ f.v }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showRiskPane }}" hint-placeholder-val="{{ true }}">
+        <div data-og-enter style="padding:var(--og-pad-pane); border-radius:var(--og-r-pane); background:color-mix(in oklab, var(--color-surface) 60%, var(--og-ground)); border:1px solid var(--og-hair)">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px">
+            <span style="width:10px; height:1px; background:var(--og-ice); box-shadow:0 0 6px var(--og-ice)"></span>
+            <h2 style="margin:0; font-size:11px; line-height:1.3; font-weight:600; letter-spacing:var(--og-track-kicker); text-transform:uppercase; color:var(--og-text-2)">Conjunction &amp; risk</h2>
+            <span style="margin-left:auto; font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3); white-space:nowrap">top 8 of {{ livePairs }} pairs</span>
+          </div>
+          <table class="table" style="font-size:12px; table-layout:fixed">
+            <thead>
+              <tr>
+                <th style="width:26%; padding:6px 4px">Pair</th>
+                <th style="width:32%; padding:6px 4px">Status</th>
+                <th style="width:24%; padding:6px 4px; text-align:right; text-transform:none; letter-spacing:.04em">d_min (m)</th>
+                <th style="width:18%; padding:6px 4px; text-align:right">Risk 0–1</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+                <tr onClick="{{ r.onClick }}" style="cursor:pointer">
+                  <td style="padding:7px 4px; font-family:var(--og-font-mono); font-size:12px; color:{{ r.pairC }}; font-weight:{{ r.pairW }}; white-space:nowrap">{{ r.pair }}</td>
+                  <td style="padding:7px 4px">
+                    <span style="display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:2px 6px; border-radius:var(--og-r-chip); font-family:var(--og-font-mono); font-size:11px; white-space:nowrap; overflow:hidden; color:{{ r.c }}; background:{{ r.tint }}; border:1px solid {{ r.edge }}">{{ r.g }} {{ r.l }}</span>
+                  </td>
+                  <td style="padding:7px 4px; text-align:right">
+                    <div style="font-family:var(--og-font-mono); font-size:14px; line-height:1.2; font-variant-numeric:tabular-nums; color:{{ r.dC }}">{{ r.dmin }}</div>
+                    <div style="font-family:var(--og-font-mono); font-size:11px; color:var(--og-text-3); white-space:nowrap">{{ r.dsub }}</div>
+                  </td>
+                  <td style="padding:7px 4px; text-align:right">
+                    <div style="font-family:var(--og-font-mono); font-size:12px; font-variant-numeric:tabular-nums">{{ r.risk }}</div>
+                    <div style="position:relative; height:3px; margin-top:4px; margin-left:auto; width:100%; max-width:56px; background:var(--og-hair); border-radius:2px; overflow:hidden">
+                      <div style="position:absolute; inset:0; transform-origin:left center; transform:{{ r.riskX }}; background:{{ r.c }}"></div>
+                    </div>
+                  </td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </sc-if>
+
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startScenario&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;normal&quot;,&quot;simul&quot;,&quot;capability&quot;],&quot;default&quot;:&quot;simul&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Replay&quot;},&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;before&quot;,&quot;after&quot;],&quot;default&quot;:&quot;before&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Replay&quot;},&quot;startShield&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;on&quot;,&quot;off&quot;],&quot;default&quot;:&quot;on&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Replay&quot;},&quot;stepMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:60,&quot;max&quot;:600,&quot;step&quot;:10,&quot;unit&quot;:&quot;ms&quot;,&quot;default&quot;:250,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Replay&quot;},&quot;labelMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;risk&quot;,&quot;all&quot;],&quot;default&quot;:&quot;risk&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;3D view&quot;},&quot;orbitRings&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;3D view&quot;},&quot;reducedMotion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Accessibility&quot;}}">
+const ICE = '#dbe6f3';
+const HEX = { nominal: '#9397ab', dsafe: '#4fd8e8', risk: '#ffb547', coll: '#ff5c7a', shield: '#bb9cf7', man: '#5fe08f' };
+const SAT = [
+  { c: 'var(--og-nominal)', hex: HEX.nominal, g: '●', l: 'NOMINAL', pl: 'nominal', sym: 'circle' },
+  { c: 'var(--og-dsafe)', hex: HEX.dsafe, g: '○', l: 'INSIDE d_safe', pl: 'INSIDE d_safe', sym: 'circle-open' },
+  { c: 'var(--og-risk)', hex: HEX.risk, g: '◆', l: 'HIGH RISK', pl: 'HIGH RISK', sym: 'diamond' },
+  { c: 'var(--og-collision)', hex: HEX.coll, g: '✕', l: 'COLLIDED', pl: 'COLLISION', sym: 'x' },
+];
+const EVT = [null,
+  { c: 'var(--og-maneuver)', hex: HEX.man, g: '■', l: 'MANEUVER', s: 'MANEUVER', sym: 'square-open' },
+  { c: 'var(--og-shield)', hex: HEX.shield, g: '◇', l: 'SHIELD INTERVENTION', s: 'SHIELD', sym: 'diamond-open' },
+  { c: 'var(--og-collision)', hex: HEX.coll, g: '✕', l: 'COLLISION', s: 'COLLISION', sym: 'x' },
+];
+const EPIS = [
+  { id: 'shield', label: 'Shield intervention', sub: 'normal · 111080' },
+  { id: 'collision', label: 'Collision', sub: 'simult. conj · 10' },
+  { id: 'capability', label: 'Capability reduction', sub: 'cap_reduction · 10' },
+];
+const tint = (c, p) => `color-mix(in oklab, ${c} ${p || 14}%, transparent)`;
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+const easeOut = (u) => 1 - Math.pow(1 - u, 3);
+const pad2 = (n) => String(n).padStart(2, '0');
+const AX = { visible: false, range: [-7700, 7700], showspikes: false, showbackground: false };
+const MONO = 'Martian Mono, ui-monospace, monospace';
+const DEFAULT_CAM = { eye: { x: 1.3, y: 1.05, z: 0.55 }, center: { x: 0, y: 0, z: -0.02 }, up: { x: 0, y: 0, z: 1 } };
+const EMPTY3 = { type: 'scatter3d', mode: 'lines', x: [], y: [], z: [], hoverinfo: 'skip' };
+
+class Component extends DCLogic {
+  state = { ready: false, ep: '', scen: 'simul', pt: 'before', sh: 'on', tlMode: 'counts', railExpand: false, step: 0, playing: false, speed: 1, loop: false, sel: 0, tab: 'risk', phone: false, rail: true, hover: null, orbits: true,
+    mv: { c: '0', u: '0', m: '0', sh: '0', dv: '0.00', dev: '0.000' } };
+  R = { root: React.createRef(), scene: React.createRef(), chart: React.createRef(), flash: React.createRef(), banner: React.createRef(),
+    thumb: React.createRef(), fill: React.createRef(), tlHead: React.createRef(), tlPast: React.createRef(), scrub: React.createRef(),
+    starsFar: React.createRef(), starsNear: React.createRef(), scrubDens: React.createRef(), tlCanvas: React.createRef(), fuelCanvas: React.createRef(), fuelHead: React.createRef() };
+  stars = (() => {
+    let a = 7919; const r = () => { a = (a * 16807) % 2147483647; return a / 2147483647; };
+    const tones = ['219,230,243', '207,211,229', '255,236,214', '198,214,255'];
+    const layer = (n, minA, maxA, big) => Array.from({ length: n }, () => {
+      const x = Math.round(r() * 2200), y = Math.round(r() * 1100), al = (minA + r() * (maxA - minA)).toFixed(2), t = tones[Math.floor(r() * tones.length)];
+      const glow = big && r() < 0.25 ? ' 2px 0.5px' : '';
+      return `${x}px ${y}px${glow} rgba(${t},${al}),${x + 2200}px ${y}px${glow} rgba(${t},${al})`;
+    }).join(',');
+    return { far: layer(420, 0.15, 0.55, false), near: layer(110, 0.35, 0.9, true) };
+  })();
+  cam = null;
+  p = 0; cur = 0; pulse = {}; lineFade = {}; camRev = 0; dirty = true;
+
+  get reduced() { return !!this.props.reducedMotion || !!(this.mq && this.mq.matches); }
+  stepMs() { return this.props.stepMs || 250; }
+
+  componentDidMount() {
+    this.mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.onMq = () => { this.dirty = true; this.forceUpdate(); };
+    if (this.mq.addEventListener) this.mq.addEventListener('change', this.onMq);
+    this.ro = new ResizeObserver(() => this.measure());
+    if (this.R.root.current) this.ro.observe(this.R.root.current);
+    this.measure();
+    this.enter();
+    this.raf = requestAnimationFrame(this.tick);
+    this.waitReady();
+    window.addEventListener('keydown', this.onKey);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { this.layout = null; this.dirty = true; });
+    if (this.props.orbitRings === false) this.setState({ orbits: false });
+  }
+  componentWillUnmount() {
+    cancelAnimationFrame(this.raf); clearTimeout(this.wt); clearTimeout(this.ct); clearTimeout(this.rt);
+    if (this.ro) this.ro.disconnect();
+    window.removeEventListener('keydown', this.onKey);
+    if (this._unbind) this._unbind();
+    if (this.mq && this.mq.removeEventListener) this.mq.removeEventListener('change', this.onMq);
+    try { if (window.Plotly && this.R.scene.current) window.Plotly.purge(this.R.scene.current); } catch (e) {}
+  }
+  componentDidUpdate() {
+    const pp = this._pp || {}, ps = this._ps || {};
+    this._pp = Object.assign({}, this.props); this._ps = Object.assign({}, this.state);
+    if (!this.E) return;
+    const st = this.state;
+    if (ps.sel !== st.sel || ps.ep !== st.ep || this.R.chart.current !== this._chartEl) this.buildChart();
+    if (ps.sel !== st.sel || ps.orbits !== st.orbits || pp.labelMode !== this.props.labelMode || pp.reducedMotion !== this.props.reducedMotion) this.dirty = true;
+    if (ps.rail !== st.rail) { this.layout = null; this.dirty = true; }
+    if (ps.phone !== st.phone || ps.tab !== st.tab) setTimeout(this.measure, 40);
+    const dk = [st.ep, st.sel, st.tlMode, st.phone, st.tab, st.rail, (this.R.tlCanvas.current || {}).clientWidth, (this.R.scrubDens.current || {}).clientWidth, (this.R.fuelCanvas.current || {}).clientWidth].join('|');
+    if (dk !== this.densKey) { this.densKey = dk; this.drawDensity(); }
+    this.syncHeads();
+    if (ps.step !== st.step && !this.reduced && this.R.banner.current && this.R.banner.current.animate) {
+      const sig = (t) => (this.E.stepEvents[t] || []).map((e) => e.type + ':' + e.sat).join(',');
+      if (sig(st.step) && sig(st.step) !== sig(ps.step))
+        this.R.banner.current.animate([{ opacity: 0, transform: `translate(${this.state.rail && !this.state.phone ? '0' : '-50%'}, -6px)` }, { opacity: 1, transform: `translate(${this.state.rail && !this.state.phone ? '0' : '-50%'}, 0)` }], { duration: 240, easing: 'cubic-bezier(.16,1,.3,1)' });
+    }
+  }
+
+  enter() {
+    if (this.reduced || !this.R.root.current) return;
+    this.R.root.current.querySelectorAll('[data-og-enter]').forEach((el, i) => {
+      if (el.animate) el.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 520, delay: i * 70, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' });
+    });
+  }
+  waitReady = () => { if (window.Plotly && window.OGData) this.loadSource(this.props.startScenario || 'simul', this.props.startTab || 'before', this.props.startShield || 'on', false); else this.wt = setTimeout(this.waitReady, 60); };
+  // keepStep: tab switch keeps scenario, step, selection and camera; scenario switch jumps to its start step
+  loadSource(scen, pt, sh, keepStep) {
+    const E = window.OGData.source(scen, pt, sh), first = !this.E;
+    const step = keepStep ? this.cur : E.startStep, sel = keepStep ? this.state.sel : E.focusSat;
+    const sameScenario = this.E && this.E.scenario === E.scenario && this.E.shield === E.shield;
+    this.E = E; this.p = step; this.cur = step; this.pulse = {}; this.lineFade = {};
+    this.mvTarget = this.target(step); if (first || this.reduced) this.mvRaw = this.mvTarget;
+    if (!sameScenario) this.buildStatic();
+    this.densKey = null;
+    this.setState({ ready: true, ep: E.id, scen: E.scenario, pt: E.tab, sh: E.shield, step, sel, hover: null, railExpand: false, mv: this.fmtM(this.mvRaw), playing: keepStep ? this.state.playing : false }, () => {
+      this.dirty = true; this.drawScene(performance.now()); this.buildChart(); this.syncHeads(); this.drawDensity();
+    });
+  }
+  // canvases: scrubber density bars + timeline (counts lanes or per-satellite matrix)
+  drawDensity() {
+    const E = this.E; if (!E) return;
+    const dpr = window.devicePixelRatio || 1, T = 360;
+    const fit = (cv) => { if (!cv) return null; const w = cv.clientWidth, hh = cv.clientHeight; if (!w || !hh) return null; if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hh * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); } const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, hh); return { g, w, h: hh }; };
+    const sd = fit(this.R.scrubDens.current);
+    if (sd) {
+      const { g, w } = sd, bw = Math.max(1, w / T);
+      for (let t = 1; t <= T; t++) {
+        const x = (t / T) * w, s = E.density[2][t], m = E.density[1][t];
+        if (s) { g.fillStyle = HEX.shield; g.globalAlpha = 0.85; const hh = 2 + (s / 15) * 11; g.fillRect(x - bw / 2, 13 - hh, bw, hh); }
+        if (m) { g.fillStyle = HEX.man; g.globalAlpha = 0.9; const hh = 2 + (m / 15) * 11; g.fillRect(x - bw / 2, 28 - hh, bw, hh); }
+      }
+      g.globalAlpha = 1; g.fillStyle = HEX.risk;
+      for (const k of E.keySteps) { let isConj = false; for (let q = 0; q < E.P; q++) if (E.pairStatus[k * E.P + q] > E.pairStatus[(k - 1) * E.P + q]) { isConj = true; break; } if (isConj) { const x = (k / T) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 3, 3); g.lineTo(x, 6); g.lineTo(x - 3, 3); g.closePath(); g.fill(); } }
+    }
+    const fc = fit(this.R.fuelCanvas.current);
+    if (fc) {
+      const { g, w, h: H } = fc; let f0 = 0; for (let i = 0; i < 15; i++) if (E.maneuver_enabled[i]) f0 += E.budget[i];
+      const tot = []; for (let t = 0; t <= T; t++) { let x = 0; for (let i = 0; i < 15; i++) if (E.maneuver_enabled[i] && E.alive[t * 15 + i]) x += E.remaining_dv_mps[t * 15 + i]; tot.push(x); }
+      const y = (v) => H - 3 - (v / Math.max(f0, 1e-9)) * (H - 8);
+      g.strokeStyle = 'rgba(219,230,243,0.08)'; g.lineWidth = 1; for (const q of [0.5, 1]) { g.beginPath(); g.moveTo(0, y(f0 * q) + 0.5); g.lineTo(w, y(f0 * q) + 0.5); g.stroke(); }
+      const grd = g.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, 'rgba(219,230,243,0.45)'); grd.addColorStop(1, 'rgba(219,230,243,0.02)');
+      g.beginPath(); g.moveTo(0, H); for (let t = 0; t <= T; t++) g.lineTo((t / T) * w, y(tot[t])); g.lineTo(w, H); g.closePath(); g.fillStyle = grd; g.fill();
+      g.beginPath(); for (let t = 0; t <= T; t++) { const X = (t / T) * w; t ? g.lineTo(X, y(tot[t])) : g.moveTo(X, y(tot[t])); } g.strokeStyle = '#dbe6f3'; g.lineWidth = 1.5; g.stroke();
+      const z = tot.findIndex((v) => v <= 1e-6); if (z >= 0) { const X = (z / T) * w; g.fillStyle = '#dbe6f3'; g.beginPath(); g.arc(X, y(0), 3, 0, Math.PI * 2); g.fill(); }
+    }
+    const tc = fit(this.R.tlCanvas.current);
+    if (tc) {
+      const { g, w, h: H } = tc, bw = Math.max(1, w / T);
+      if (this.state.tlMode === 'counts') {
+        const lane = (row, arr, col, shape) => {
+          const y0 = row * 42, base = y0 + 38, top = y0 + 4;
+          g.fillStyle = 'rgba(219,230,243,0.06)'; g.fillRect(0, base, w, 1);
+          for (let t = 1; t <= T; t++) { const c = arr[t]; if (!c) continue; const x = (t / T) * w, hh = Math.max(3, (c / 15) * (base - top));
+            g.fillStyle = col; g.globalAlpha = shape === 'open' ? 0.55 : 0.9; g.fillRect(x - bw / 2, base - hh, bw, hh);
+            if (shape === 'open') { g.globalAlpha = 1; g.fillRect(x - bw / 2, base - hh, bw, 1.5); } }
+          g.globalAlpha = 1;
+        };
+        lane(0, E.density[1], HEX.man, 'fill'); lane(1, E.density[2], HEX.shield, 'open');
+        g.fillStyle = 'rgba(219,230,243,0.06)'; g.fillRect(0, 2 * 42 + 38, w, 1);
+        for (let t = 1; t <= T; t++) if (E.density[3][t]) { const x = (t / T) * w; g.fillStyle = HEX.coll; g.fillRect(x - 1.5, 2 * 42 + 20, 3, 18); }
+      } else {
+        const rh = H / 15, sel = this.state.sel;
+        for (let i = 0; i < 15; i++) {
+          if (i === sel) { g.fillStyle = 'rgba(219,230,243,0.08)'; g.fillRect(0, i * rh, w, rh); }
+          for (let t = 1; t <= T; t++) { const e = E.satEvent[t * 15 + i]; if (!e) continue; const x = (t / T) * w;
+            if (e === 1) { g.fillStyle = HEX.man; g.fillRect(x - bw / 2, i * rh + 1, bw, rh - 2); }
+            else if (e === 2) { g.fillStyle = HEX.shield; g.fillRect(x - bw / 2, i * rh + rh * 0.3, bw, rh * 0.4); }
+            else if (e === 3) { g.fillStyle = HEX.coll; g.fillRect(x - 1.5, i * rh, 3, rh); } }
+        }
+      }
+    }
+  }
+  onFuelClick = (e) => {
+    const cv = this.R.fuelCanvas.current; if (!cv || !this.E) return;
+    const r = cv.getBoundingClientRect(), t = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360);
+    this.setState({ playing: false }); this.goStep(t, 'jump');
+  };
+  onTlMove = (e) => {
+    const cv = this.R.tlCanvas.current; if (!cv || !this.E) return;
+    const r = cv.getBoundingClientRect(), t = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360);
+    if (!this.state.tlHover || this.state.tlHover.step !== t) this.setState({ tlHover: { step: t } });
+  };
+  onTlLeave = () => { if (this.state.tlHover) this.setState({ tlHover: null }); };
+  onTlClick = (e) => {
+    const cv = this.R.tlCanvas.current; if (!cv || !this.E) return;
+    const r = cv.getBoundingClientRect(), t = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360);
+    if (this.state.tlMode === 'bysat') { const i = Math.max(0, Math.min(14, Math.floor(((e.clientY - r.top) / r.height) * 15))); this.setState({ sel: i }); }
+    this.setState({ playing: false }); this.goStep(t, 'jump');
+  };
+  onKey = (e) => {
+    const tg = e.target, tag = tg && tg.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) return;
+    if (this.R.scrub.current && tg === this.R.scrub.current) return; // slider handles its own keys
+    if (e.key === ' ' || e.code === 'Space') { if (tag === 'BUTTON') return; e.preventDefault(); this.togglePlay(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); this.stepFwd(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); this.stepBack(); }
+    else if (e.key === ']') this.nextEvent(); else if (e.key === '[') this.prevEvent();
+  };
+  measure = () => {
+    const root = this.R.root.current, sc = this.R.scene.current; if (!root) return;
+    const w = root.clientWidth, phone = w < 760, scW = sc ? sc.clientWidth : w, rail = !phone && scW >= 780;
+    const domR = Math.max(0.5, 1 - 352 / Math.max(1, scW));
+    if (Math.abs(domR - (this.domR || 0)) > 0.01) { this.domR = domR; this.layout = null; this.dirty = true; }
+    const aside = root.querySelector('main > aside'), sec = root.querySelector('main > section');
+    const wide = !phone && !!aside && !!sec && aside.getBoundingClientRect().left > sec.getBoundingClientRect().left + 10;
+    if (phone !== this.state.phone || rail !== this.state.rail || wide !== this.state.wide) this.setState({ phone, rail, wide });
+    clearTimeout(this.rt);
+    this.rt = setTimeout(() => {
+      try {
+        if (!window.Plotly) return;
+        if (sc && sc.data) window.Plotly.Plots.resize(sc);
+        const ch = this.R.chart.current; if (ch && ch.data) window.Plotly.Plots.resize(ch);
+      } catch (e) {}
+    }, 80);
+  };
+
+  // ---------- playback ----------
+  tick = (ts) => {
+    this.raf = requestAnimationFrame(this.tick);
+    const dt = this.lastTs ? Math.min(100, ts - this.lastTs) : 16; this.lastTs = ts;
+    if (!this.E) return;
+    if (this.state.playing && !this.dragging) {
+      this.p += dt / (this.stepMs() / this.state.speed);
+      if (this.p >= 360) {
+        if (this.state.loop) { this.p = 0; this.onStep(0, 'loop'); }
+        else { this.p = 360; this.setState({ playing: false }); }
+      }
+      const s = Math.min(360, Math.floor(this.p));
+      if (s !== this.cur) this.onStep(s, 'play');
+      this.syncHeads();
+      if (!this.reduced) this.dirty = true;
+    }
+    this.tweenMetrics(dt);
+    const anim = this.animating(ts);
+    const holding = false;
+    const gap = this.interacting ? 45 : 30;
+    if (!holding && (this.dirty || anim) && ts - (this.lastDraw || 0) > gap) { this.lastDraw = ts; this.dirty = false; this.drawScene(ts); }
+  };
+  onStep(s, source) {
+    const prev = this.cur; this.cur = s;
+    const d = s - prev;
+    if (!this.reduced) {
+      if ((source === 'play' || source === 'step') && d >= 1 && d <= 3) for (let t = prev + 1; t <= s; t++) this.fire(t);
+      else if (source === 'jump' && s > 0) this.fire(s);
+    }
+    this.mvTarget = this.target(s);
+    if (this.reduced) this.mvRaw = this.mvTarget;
+    this.setState({ step: s, mv: this.fmtM(this.mvRaw) });
+    this.queueChartHead(); this.dirty = true;
+  }
+  fire(t) {
+    const E = this.E, now = performance.now();
+    for (const ev of E.stepEvents[t]) {
+      if (ev.type === 3) this.pulse[3] = now;
+      const prevE = E.satEvent[(t - 1) * E.N + ev.sat];
+      if (ev.type === 2 && prevE !== 2) { (this.ringStart = this.ringStart || {})[ev.sat] = now; this.cueAt = now; }
+      if (ev.type === 1 && prevE !== 1) { (this.plumeStart = this.plumeStart || {})[ev.sat] = now; this.cueAt = now; }
+    }
+    if (E.stepEvents[t].some((e) => e.type === 3)) this.flash();
+    for (let k = 0; k < E.P; k++) {
+      const a = E.pairStatus[(t - 1) * E.P + k], b = E.pairStatus[t * E.P + k];
+      if (b !== a && (b === 1 || b === 2)) this.lineFade[b] = now;
+    }
+  }
+  flash() {
+    const el = this.R.flash.current;
+    if (el && el.animate) el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 0 }], { duration: 1400, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
+  animating(ts) {
+    for (const k in this.pulse) if (ts - this.pulse[k] < 1000) return true;
+    for (const k in this.lineFade) if (ts - this.lineFade[k] < 450) return true;
+    if (this.cueAt && ts - this.cueAt < 650) return true;
+    return false;
+  }
+  goStep(s, source) {
+    s = Math.max(0, Math.min(360, Math.round(s)));
+    this.p = s; this.syncHeads();
+    if (s !== this.cur) this.onStep(s, source);
+    this.dirty = true;
+  }
+  syncHeads() {
+    const u = Math.max(0, Math.min(1, this.p / 360));
+    const tx = `translateX(${(u * 100).toFixed(3)}%)`, sx = `scaleX(${u.toFixed(4)})`, R = this.R;
+    if (R.thumb.current) R.thumb.current.style.transform = tx;
+    if (R.tlHead.current) R.tlHead.current.style.transform = tx;
+    if (R.fill.current) R.fill.current.style.transform = sx;
+    if (R.tlPast.current) R.tlPast.current.style.transform = sx;
+    if (R.fuelHead.current) R.fuelHead.current.style.transform = tx;
+  }
+  target() { const S = this.E.summary; return { c: S.collisions, u: this.E.metrics.unsafe[360], m: S.maneuvers, sh: S.shield, dv: S.total_dv, dev: S.mean_dev }; }
+  fmtM(m) { return { c: fmt(m.c), u: fmt(m.u), m: fmt(m.m), sh: fmt(m.sh), dv: m.dv.toFixed(2), dev: m.dev.toFixed(3) }; }
+  tweenMetrics(dt) {
+    if (!this.mvTarget || !this.mvRaw) return;
+    const k = 1 - Math.exp(-dt / 110), r = {}; let changed = false;
+    for (const key in this.mvTarget) {
+      const a = this.mvRaw[key], b = this.mvTarget[key];
+      let v = a + (b - a) * k;
+      if (Math.abs(b - v) < (key === 'dev' ? 0.0004 : key === 'dv' ? 0.004 : 0.02)) v = b;
+      r[key] = v; if (v !== a) changed = true;
+    }
+    if (!changed) return;
+    this.mvRaw = r;
+    const f = this.fmtM(r), o = this.state.mv;
+    if (f.c !== o.c || f.u !== o.u || f.m !== o.m || f.sh !== o.sh || f.dv !== o.dv || f.dev !== o.dev) this.setState({ mv: f });
+  }
+
+  togglePlay = () => {
+    if (!this.E) return;
+    if (this.state.playing) { this.p = this.cur; this.dirty = true; this.setState({ playing: false }); return; }
+    if (this.p >= 360) this.goStep(0, 'scrub');
+    this.setState({ playing: true });
+  };
+  stepBack = () => { if (!this.E) return; this.setState({ playing: false }); this.goStep(this.cur - 1, 'scrub'); };
+  stepFwd = () => { if (!this.E) return; this.setState({ playing: false }); this.goStep(this.cur + 1, 'step'); };
+  prevEvent = () => { if (!this.E) return; const k = [...this.E.keySteps].reverse().find((x) => x < this.cur); if (k !== undefined) { this.setState({ playing: false }); this.goStep(k, 'jump'); } };
+  nextEvent = () => { if (!this.E) return; const k = this.E.keySteps.find((x) => x > this.cur); if (k !== undefined) { this.setState({ playing: false }); this.goStep(k, 'jump'); } };
+  toggleLoop = () => this.setState((s) => ({ loop: !s.loop }));
+  toggleOrbits = () => this.setState((s) => ({ orbits: !s.orbits }));
+  cycleSpeed = () => this.setState((s) => { const L = [1, 2, 4, 8]; return { speed: L[(L.indexOf(s.speed) + 1) % L.length] }; });
+  zoomBy = (f) => {
+    const el = this.R.scene.current, scn = el && el._fullLayout && el._fullLayout.scene && el._fullLayout.scene._scene; if (!scn) return;
+    const c = JSON.parse(JSON.stringify(scn.getCamera())), d = Math.hypot(c.eye.x - c.center.x, c.eye.y - c.center.y, c.eye.z - c.center.z), nd = Math.max(0.35, Math.min(4, d * f)), k = nd / d;
+    c.eye = { x: c.center.x + (c.eye.x - c.center.x) * k, y: c.center.y + (c.eye.y - c.center.y) * k, z: c.center.z + (c.eye.z - c.center.z) * k };
+    this.cam = c; if (el.layout && el.layout.scene) el.layout.scene.camera = c; window.Plotly.relayout(el, { 'scene.camera': c }); this.dirty = true;
+  };
+  zoomIn = () => this.zoomBy(0.8);
+  zoomOut = () => this.zoomBy(1.25);
+  resetView = () => { this.camRev++; this.cam = null; this.camReset = true; this.layout = null; this.dirty = true; this.parallax(); };
+  select = (i) => this.setState({ sel: i });
+  selPrev = () => this.setState((s) => ({ sel: (s.sel + 14) % 15 }));
+  selNext = () => this.setState((s) => ({ sel: (s.sel + 1) % 15 }));
+
+  scrubAt(e) { const el = this.R.scrub.current; if (!el) return this.cur; const r = el.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360); }
+  onScrubDown = (e) => {
+    if (!this.E) return;
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+    this.dragging = true; this.wasPlaying = this.state.playing;
+    if (this.wasPlaying) this.setState({ playing: false });
+    this.goStep(this.scrubAt(e), 'scrub');
+  };
+  onScrubMove = (e) => {
+    if (!this.E) return;
+    const s = this.scrubAt(e);
+    if (this.dragging) this.goStep(s, 'scrub');
+    if (e.pointerType !== 'touch' && (!this.state.hover || this.state.hover.step !== s)) this.setState({ hover: { step: s } });
+  };
+  onScrubUp = () => { if (!this.dragging) return; this.dragging = false; if (this.wasPlaying) this.setState({ playing: true }); };
+  onScrubLeave = () => { if (this.state.hover) this.setState({ hover: null }); };
+  onScrubKey = (e) => {
+    if (!this.E) return;
+    const m = { ArrowLeft: -1, ArrowRight: 1, ArrowDown: -1, ArrowUp: 1, PageDown: -30, PageUp: 30 };
+    let t = null;
+    if (e.key in m) t = this.cur + m[e.key] * (e.shiftKey ? 10 : 1);
+    else if (e.key === 'Home') t = 0; else if (e.key === 'End') t = 360;
+    else if (e.key === ' ') { e.preventDefault(); this.togglePlay(); return; }
+    if (t === null) return;
+    e.preventDefault(); this.setState({ playing: false });
+    this.goStep(t, t === this.cur + 1 ? 'step' : 'scrub');
+  };
+
+  // ---------- 3D scene ----------
+  buildStatic() {
+    const E = this.E, RE = window.OGData.RE;
+    if (!this.earth) {
+      const sun = [0.83, 0.45, 0.33], X = [], Y = [], Z = [], C = [];
+      for (let a = 0; a < 33; a++) {
+        const v = Math.PI * a / 32, rx = [], ry = [], rz = [], rc = [];
+        for (let b = 0; b < 65; b++) {
+          const u = 2 * Math.PI * b / 64, nx = Math.sin(v) * Math.cos(u), ny = Math.sin(v) * Math.sin(u), nz = Math.cos(v);
+          rx.push(RE * nx); ry.push(RE * ny); rz.push(RE * nz); rc.push(nx * sun[0] + ny * sun[1] + nz * sun[2]);
+        }
+        X.push(rx); Y.push(ry); Z.push(rz); C.push(rc);
+      }
+      this.earth = { type: 'surface', x: X, y: Y, z: Z, surfacecolor: C, cmin: -1, cmax: 1, showscale: false, hoverinfo: 'skip',
+        colorscale: [[0, '#0a0c15'], [0.44, '#0d1120'], [0.52, '#17203a'], [0.7, '#1f2c4b'], [1, '#2b3c62']],
+        lighting: { ambient: 1, diffuse: 0, specular: 0, roughness: 1, fresnel: 0 }, contours: { x: { highlight: false }, y: { highlight: false }, z: { highlight: false } } };
+      const AX2 = [], AY = [], AZ = [], AC = [], RA = RE * 1.035;
+      for (let a = 0; a < 17; a++) {
+        const v = Math.PI * a / 16, rx = [], ry = [], rz = [], rc = [];
+        for (let b = 0; b < 33; b++) { const u = 2 * Math.PI * b / 32; rx.push(RA * Math.sin(v) * Math.cos(u)); ry.push(RA * Math.sin(v) * Math.sin(u)); rz.push(RA * Math.cos(v)); rc.push(0); }
+        AX2.push(rx); AY.push(ry); AZ.push(rz); AC.push(rc);
+      }
+      this.atmo = { type: 'surface', x: AX2, y: AY, z: AZ, surfacecolor: AC, showscale: false, hoverinfo: 'skip', opacity: 0.09,
+        colorscale: [[0, '#9fc2ee'], [1, '#9fc2ee']], lighting: { ambient: 0.2, diffuse: 0.1, specular: 0.9, roughness: 0.25, fresnel: 4 },
+        contours: { x: { highlight: false }, y: { highlight: false }, z: { highlight: false } } };
+      const gx = [], gy = [], gz = [], RG = RE + 8;
+      for (const lat of [-60, -30, 0, 30, 60]) { const la = lat * Math.PI / 180; for (let lo = 0; lo <= 360; lo += 6) { const l = lo * Math.PI / 180; gx.push(RG * Math.cos(la) * Math.cos(l)); gy.push(RG * Math.cos(la) * Math.sin(l)); gz.push(RG * Math.sin(la)); } gx.push(null); gy.push(null); gz.push(null); }
+      for (let lo = 0; lo < 360; lo += 30) { const l = lo * Math.PI / 180; for (let lat = -90; lat <= 90; lat += 6) { const la = lat * Math.PI / 180; gx.push(RG * Math.cos(la) * Math.cos(l)); gy.push(RG * Math.cos(la) * Math.sin(l)); gz.push(RG * Math.sin(la)); } gx.push(null); gy.push(null); gz.push(null); }
+      this.grat = { type: 'scatter3d', mode: 'lines', x: gx, y: gy, z: gz, line: { color: ICE, width: 1 }, opacity: 0.08, hoverinfo: 'skip' };
+      this.loadEarthTexture(RE, sun);
+    }
+    const rx = [], ry = [], rz = [];
+    for (const ring of E.rings) { for (const p of ring) { rx.push(p[0]); ry.push(p[1]); rz.push(p[2]); } rx.push(null); ry.push(null); rz.push(null); }
+    this.ringsTrace = { type: 'scatter3d', mode: 'lines', x: rx, y: ry, z: rz, line: { color: ICE, width: 1 }, opacity: 0.1, hoverinfo: 'skip' };
+    this.selRing = {};
+  }
+  // Textured Earth: day + night-lights maps baked into mesh3d vertex colours, terminator blended per vertex
+  loadEarthTexture(RE, sun) {
+    const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+    Promise.all([load('assets/earth-day-1k.jpg'), load('assets/earth-night-1k.jpg')]).then(([day, night]) => {
+      const W = 1024, H = 512, px = (im) => { const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.drawImage(im, 0, 0, W, H); return g.getImageData(0, 0, W, H).data; };
+      const D = px(day), Nn = px(night);
+      const nv = 96, nu = 192, x = [], y = [], z = [], col = [], I = [], J = [], K = [];
+      const sm = (a, b, t) => { const u = Math.max(0, Math.min(1, (t - a) / (b - a))); return u * u * (3 - 2 * u); };
+      for (let a = 0; a <= nv; a++) {
+        const v = Math.PI * a / nv, ty = Math.min(H - 1, Math.floor((a / nv) * H));
+        for (let b = 0; b <= nu; b++) {
+          const u = 2 * Math.PI * b / nu, nx = Math.sin(v) * Math.cos(u), ny = Math.sin(v) * Math.sin(u), nz = Math.cos(v);
+          x.push(RE * nx); y.push(RE * ny); z.push(RE * nz);
+          const tx = Math.min(W - 1, Math.floor((b / nu) * W)), o = (ty * W + tx) * 4;
+          const w = sm(-0.12, 0.25, nx * sun[0] + ny * sun[1] + nz * sun[2]);
+          const OCEAN = [16, 38, 78], NIGHT = [18, 24, 44];
+          const ch = (k) => {
+            const lifted = Math.max(OCEAN[k], 255 * Math.pow(D[o + k] / 255, 0.65) * 1.05);
+            const nightC = NIGHT[k] + Nn[o + k] * 0.95;
+            return Math.round(Math.min(255, lifted * w + nightC * (1 - w)));
+          };
+          col.push(`rgb(${ch(0)},${ch(1)},${ch(2)})`);
+        }
+      }
+      const row = nu + 1;
+      for (let a = 0; a < nv; a++) for (let b = 0; b < nu; b++) { const p = a * row + b; I.push(p, p + 1); J.push(p + row, p + row); K.push(p + 1, p + row + 1); }
+      this.earth = { type: 'mesh3d', x, y, z, i: I, j: J, k: K, vertexcolor: col, flatshading: false, hoverinfo: 'skip',
+        lighting: { ambient: 1, diffuse: 0, specular: 0, roughness: 1, fresnel: 0 } };
+      this.dirty = true;
+    }).catch(() => {});
+  }
+  makeLayout() {
+    return {
+      paper_bgcolor: 'rgba(0,0,0,0)', margin: { l: 0, r: 0, t: 0, b: 0 }, showlegend: false, uirevision: 'og' + this.camRev, hovermode: 'closest',
+      hoverlabel: { bgcolor: '#232532', bordercolor: '#595d6c', font: { family: MONO, size: 11, color: '#e9e9ed' } },
+      scene: { domain: { x: [0, this.state.rail ? (this.domR || 0.66) : 1], y: [0, this.state.phone ? 1 : 0.9] }, bgcolor: 'rgba(0,0,0,0)', aspectmode: 'cube', dragmode: 'turntable',
+        xaxis: AX, yaxis: AX, zaxis: AX, camera: this.cam || DEFAULT_CAM },
+    };
+  }
+  onCamera = (e) => {
+    const c = e && e['scene.camera'];
+    if (!c || !c.eye) return;
+    this.cam = JSON.parse(JSON.stringify(c));
+    this.parallax();
+  };
+  parallax() {
+    const c = this.cam || DEFAULT_CAM, az = Math.atan2(c.eye.y, c.eye.x), el = Math.atan2(c.eye.z, Math.hypot(c.eye.x, c.eye.y));
+    const W = 2200, H = 1100;
+    const fx = (k) => -(((((az / (2 * Math.PI)) * W * k) % W) + W) % W), fy = (k) => Math.max(-400, Math.min(0, el * 220 * k - 200));
+    const set = (ref, k) => { const n = ref.current; if (n) n.style.transform = `translate(${fx(k).toFixed(1)}px, ${fy(k).toFixed(1)}px)`; };
+    set(this.R.starsFar, 0.5); set(this.R.starsNear, 1);
+  }
+  drawScene(ts) {
+    const el = this.R.scene.current, E = this.E, Pl = window.Plotly;
+    if (!el || !E || !Pl) return;
+    const N = E.N, P = E.P, s = Math.min(360, Math.floor(this.p)), s1 = Math.min(360, s + 1), ps = E.positions_km;
+    const f = this.state.playing && !this.reduced ? Math.min(1, this.p - s) : 0;
+    const sel = this.state.sel, labelAll = this.props.labelMode === 'all';
+    const pts = [];
+    for (let i = 0; i < N; i++) { const a = (s * N + i) * 3, b = (s1 * N + i) * 3; pts.push([ps[a] + (ps[b] - ps[a]) * f, ps[a + 1] + (ps[b + 1] - ps[a + 1]) * f, ps[a + 2] + (ps[b + 2] - ps[a + 2]) * f]); }
+    const mk = (idx) => ({ x: idx.map((i) => pts[i][0]), y: idx.map((i) => pts[i][1]), z: idx.map((i) => pts[i][2]) });
+    const stat = (i) => E.satStatus[s * N + i], evt = (i) => E.satEvent[s * N + i], alive = (i) => !!E.alive[s * N + i];
+    const hov = (i) => { const S = SAT[stat(i)], V = EVT[evt(i)]; return `S${i} · ${S.l}${V ? ' · ' + V.l : ''}<br>Δv left ${E.remaining_dv_mps[s * N + i].toFixed(2)} m/s<br>mission dev ${E.mission_deviation[s * N + i].toFixed(3)}`; };
+    const data = [this.earth, this.atmo, this.grat, this.state.orbits ? this.ringsTrace : EMPTY3];
+    if (!this.selRing[sel]) { const r = E.rings[sel]; this.selRing[sel] = { type: 'scatter3d', mode: 'lines', x: r.map((p) => p[0]), y: r.map((p) => p[1]), z: r.map((p) => p[2]), line: { color: ICE, width: 2 }, opacity: 0.45, hoverinfo: 'skip' }; }
+    data.push(alive(sel) ? this.selRing[sel] : EMPTY3);
+    // trails
+    const tx = [], ty = [], tz = [], tc = [];
+    for (let i = 0; i < N; i++) {
+      if (!alive(i) || (!stat(i) && !evt(i) && i !== sel)) continue;
+      const c = stat(i) ? SAT[stat(i)].hex : ICE;
+      for (let t = Math.max(0, s - 10); t <= s; t++) { const a = (t * N + i) * 3; tx.push(ps[a]); ty.push(ps[a + 1]); tz.push(ps[a + 2]); tc.push(c); }
+      tx.push(pts[i][0]); ty.push(pts[i][1]); tz.push(pts[i][2]); tc.push(c);
+      tx.push(null); ty.push(null); tz.push(null); tc.push(c);
+    }
+    data.push({ type: 'scatter3d', mode: 'lines', x: tx, y: ty, z: tz, line: { color: tc, width: 3 }, opacity: 0.55, hoverinfo: 'skip' });
+    // conjunction lines
+    for (const sc of [2, 1]) {
+      const X = [], Y = [], Z = [];
+      for (let k = 0; k < P; k++) if (E.pairStatus[s * P + k] === sc) { const [i, j] = E.pair_index[k]; X.push(pts[i][0], pts[j][0], null); Y.push(pts[i][1], pts[j][1], null); Z.push(pts[i][2], pts[j][2], null); }
+      const t0 = this.lineFade[sc], u = t0 && !this.reduced ? Math.min(1, (ts - t0) / 420) : 1;
+      data.push({ type: 'scatter3d', mode: 'lines', x: X, y: Y, z: Z, line: { color: SAT[sc].hex, width: sc === 2 ? 6 : 4, dash: sc === 2 ? 'dash' : 'dot' }, opacity: 0.25 + 0.75 * easeOut(u), hoverinfo: 'skip' });
+    }
+    // ---- realistic satellites: body + two solar wings (mesh3d), status pins, event cues ----
+    const sN = s >= 360 ? 359 : s, sN1 = sN + 1, basis = [];
+    for (let i = 0; i < N; i++) {
+      const p = pts[i], rl = Math.hypot(p[0], p[1], p[2]) || 1, r = [p[0] / rl, p[1] / rl, p[2] / rl];
+      const a0 = (sN * N + i) * 3, a1 = (sN1 * N + i) * 3; let v = [ps[a1] - ps[a0], ps[a1 + 1] - ps[a0 + 1], ps[a1 + 2] - ps[a0 + 2]];
+      const vr = v[0] * r[0] + v[1] * r[1] + v[2] * r[2]; v = [v[0] - vr * r[0], v[1] - vr * r[1], v[2] - vr * r[2]];
+      const vl = Math.hypot(v[0], v[1], v[2]) || 1; v = [v[0] / vl, v[1] / vl, v[2] / vl];
+      basis.push({ r, v, n: [r[1] * v[2] - r[2] * v[1], r[2] * v[0] - r[0] * v[2], r[0] * v[1] - r[1] * v[0]] });
+    }
+    const at = (i, dv, dn, dr) => { const p = pts[i], B = basis[i]; return [0, 1, 2].map((k) => p[k] + B.v[k] * dv + B.n[k] * dn + B.r[k] * dr); };
+    const MX = [], MY = [], MZ = [], MI = [], MJ = [], MK = [], MC = [];
+    const box = (i, cv, cn, cr, hv, hn, hr, col) => {
+      const base = MX.length;
+      for (const sa of [-1, 1]) for (const sb of [-1, 1]) for (const sd of [-1, 1]) { const q = at(i, cv + sa * hv, cn + sb * hn, cr + sd * hr); MX.push(q[0]); MY.push(q[1]); MZ.push(q[2]); MC.push(col); }
+      const f = (p0, p1, p2, p3) => { MI.push(base + p0, base + p0); MJ.push(base + p1, base + p2); MK.push(base + p2, base + p3); };
+      f(0, 1, 3, 2); f(4, 6, 7, 5); f(0, 4, 5, 1); f(2, 3, 7, 6); f(0, 2, 6, 4); f(1, 5, 7, 3);
+    };
+    for (let i = 0; i < N; i++) {
+      if (!alive(i)) continue;
+      const st = stat(i), body = st ? SAT[st].hex : '#c9a14a';
+      const K = 1.6;                                      // models drawn ~×300 true size so they read at constellation scale
+      box(i, 0, 0, 0, 30 * K, 18 * K, 18 * K, body);       // bus (gold foil, or tinted by status)
+      box(i, 0, 0, 22 * K, 6 * K, 6 * K, 5 * K, '#e3e7ef'); // antenna mast
+      for (const sg of [-1, 1]) {
+        box(i, 0, sg * 27 * K, 0, 4 * K, 9 * K, 3 * K, '#9aa0b0');                     // yoke
+        box(i, 0, sg * 100 * K, 0, 26 * K, 68 * K, 2.5 * K, '#5d8ee6');                 // solar wing (bright cell blue)
+        box(i, 0, sg * 100 * K, 0, 27 * K, 2 * K, 3 * K, '#c9d6f2');                    // wing hinge line
+      }
+    }
+    data.push({ type: 'mesh3d', x: MX, y: MY, z: MZ, i: MI, j: MJ, k: MK, vertexcolor: MC, flatshading: true, hoverinfo: 'skip',
+      lighting: { ambient: 0.5, diffuse: 0.9, specular: 0.55, roughness: 0.35, fresnel: 0.15 }, lightposition: { x: 83000, y: 45000, z: 33000 } });
+    // pick/hover core (tiny nav light at each bus)
+    const all = []; for (let i = 0; i < N; i++) if (alive(i)) all.push(i);
+    data.push(Object.assign({ type: 'scatter3d', mode: 'markers', customdata: all, hovertext: all.map(hov), hoverinfo: 'text', marker: { size: 4, color: '#f6ead0', line: { width: 0 } } }, mk(all)));
+    // status pins on a stem above the satellite (shape + colour + ID label)
+    const PIN = 300, sx = [], sy = [], sz = [], scol = [];
+    for (let i = 0; i < N; i++) { if (!alive(i) || !stat(i)) continue; const c = SAT[stat(i)].hex, q0 = at(i, 0, 0, 22), q1 = at(i, 0, 0, PIN);
+      sx.push(q0[0], q1[0], null); sy.push(q0[1], q1[1], null); sz.push(q0[2], q1[2], null); scol.push(c, c, c); }
+    data.push({ type: 'scatter3d', mode: 'lines', x: sx, y: sy, z: sz, line: { color: scol.length ? scol : ICE, width: 1.5 }, opacity: 0.8, hoverinfo: 'skip' });
+    for (const sc of [1, 2, 3]) {
+      const idx = []; for (let i = 0; i < N; i++) if (stat(i) === sc && (alive(i) || sc === 3)) idx.push(i);
+      const S = SAT[sc], q = idx.map((i) => at(i, 0, 0, PIN));
+      data.push({ type: 'scatter3d', mode: 'markers', x: q.map((p) => p[0]), y: q.map((p) => p[1]), z: q.map((p) => p[2]), customdata: idx, hovertext: idx.map(hov), hoverinfo: 'text',
+        marker: { symbol: S.sym, size: sc === 2 ? 10 : 9, color: S.hex, line: { color: S.hex, width: sc === 1 ? 2 : 0 } } });
+    }
+    // ID label for the selected (or all, in label mode) nominal satellites
+    data.push(EMPTY3);
+    // Labels = Plotly scene annotations: real text on a dark plate with a coloured edge + short leader,
+    // projected by Plotly itself (no custom overlay), so they stay legible over Earth and stars.
+    // gather labelled satellites, then merge the ones that sit close together into ONE plate (no stacking)
+    const items = [];
+    for (let i = 0; i < N; i++) {
+      const st = stat(i), ev = evt(i), isSel = i === sel;
+      if (!(st || isSel || labelAll) || (!alive(i) && st !== 3)) continue;
+      const S = SAT[st], c = st ? S.hex : isSel ? ICE : HEX.nominal;
+      const evG = ev === 1 ? ` <span style="color:${HEX.man}">■</span>` : ev === 2 ? ` <span style="color:${HEX.shield}">◇</span>` : '';
+      items.push({ i, st, isSel, c, q: at(i, 0, 0, st ? PIN : 60), html: `<span style="color:${isSel ? ICE : c}"><b>S${i}</b>${st ? ' ' + S.g : ''}</span>${evG}` });
+    }
+    items.sort((x, y) => y.st - x.st || (y.isSel ? 1 : 0) - (x.isSel ? 1 : 0));
+    const groups = [];
+    for (const it of items) {
+      const g = groups.find((G) => Math.hypot(G.q[0] - it.q[0], G.q[1] - it.q[1], G.q[2] - it.q[2]) < 1100 && G.m.length < 4);
+      if (g) g.m.push(it); else groups.push({ q: it.q, m: [it] });
+    }
+    const anns = groups.map((G, n) => {
+      const lead = G.m[0], anySel = G.m.some((x) => x.isSel), text = G.m.map((x) => x.html).join('<span style="color:#595d6c">  ·  </span>');
+      const chars = text.replace(/<[^>]+>/g, '').length;
+      return { x: G.q[0], y: G.q[1], z: G.q[2], text, width: Math.ceil(chars * 7.8) + 10, height: 18, align: 'center', valign: 'middle',
+        showarrow: true, arrowhead: 0, arrowwidth: 1, arrowcolor: lead.c, ax: (n % 2 ? 1 : -1) * 18, ay: -(26 + (n % 3) * 10),
+        bgcolor: 'rgba(14,16,25,0.9)', bordercolor: anySel ? ICE : lead.c, borderwidth: anySel ? 1.5 : 1, borderpad: 4,
+        font: { family: MONO, size: 12, color: lead.c } };
+    });
+    this.anns = anns;
+    // MANEUVER = burn plume along the exhaust direction of the approved intent (prograde / retrograde / radial)
+    const px = [], py = [], pz = [];
+    for (let i = 0; i < N; i++) {
+      if (!alive(i) || evt(i) !== 1 || s < 1) continue;
+      const ap = E.approved[(s - 1) * N + i], dir = ap === 1 || ap === 4 ? [-1, 0, 0] : ap === 2 || ap === 3 ? [1, 0, 0] : [0, 0, -1];
+      const t0 = this.plumeStart && this.plumeStart[i], g = t0 && !this.reduced ? easeOut(Math.min(1, (ts - t0) / 300)) : 1, L = 34 + 300 * g;
+      const q0 = at(i, dir[0] * 34, 0, dir[2] * 34), q1 = at(i, dir[0] * L, 0, dir[2] * L);
+      px.push(q0[0], q1[0], null); py.push(q0[1], q1[1], null); pz.push(q0[2], q1[2], null);
+    }
+    data.push({ type: 'scatter3d', mode: 'lines', x: px, y: py, z: pz, line: { color: HEX.man, width: 7 }, opacity: 0.9, hoverinfo: 'skip' });
+    // SHIELD INTERVENTION = thin protective ring around the satellite (one gentle settle when a run starts; no strobing)
+    const rx = [], ry = [], rz = [];
+    for (let i = 0; i < N; i++) {
+      if (!alive(i) || evt(i) !== 2) continue;
+      const t0 = this.ringStart && this.ringStart[i], u = t0 && !this.reduced ? Math.min(1, (ts - t0) / 600) : 1, rad = 150 * (1 + 0.7 * (1 - easeOut(u)));
+      for (let k = 0; k <= 24; k++) { const th = (k / 24) * Math.PI * 2, q = at(i, Math.cos(th) * rad, Math.sin(th) * rad, 0); rx.push(q[0]); ry.push(q[1]); rz.push(q[2]); }
+      rx.push(null); ry.push(null); rz.push(null);
+    }
+    data.push({ type: 'scatter3d', mode: 'lines', x: rx, y: ry, z: rz, line: { color: HEX.shield, width: 2.5 }, opacity: 0.85, hoverinfo: 'skip' });
+    // COLLISION halo (kept for live feeds; recorded episodes have none with the shield ON)
+    const ce = []; for (let i = 0; i < N; i++) if (evt(i) === 3) ce.push(i);
+    data.push(Object.assign({ type: 'scatter3d', mode: 'markers', hoverinfo: 'skip', marker: { symbol: 'x', size: 24, color: HEX.coll, line: { color: HEX.coll, width: 2 } } }, mk(ce)));
+    // selection ring
+    data.push({ type: 'scatter3d', mode: 'markers', x: [pts[sel][0]], y: [pts[sel][1]], z: [pts[sel][2]], hoverinfo: 'skip', marker: { symbol: 'circle-open', size: 26, color: ICE, line: { color: ICE, width: 1.5 } } });
+    // The live WebGL camera is the source of truth: copy it into layout before every update so
+    // no redraw can snap the view back to a stale camera (mid-drag, mid-zoom, or right after release).
+    const scn = el._fullLayout && el._fullLayout.scene && el._fullLayout.scene._scene;
+    if (scn && scn.getCamera && !this.camReset) {
+      try { const live = scn.getCamera(); if (live && live.eye) { this.cam = JSON.parse(JSON.stringify(live)); if (el.layout && el.layout.scene) el.layout.scene.camera = this.cam; } } catch (e) {}
+    }
+    this.camReset = false;
+    const gesture = this.interacting || performance.now() < (this.wheelUntil || 0);
+    if (gesture && scn && scn.traces && el._fullData && el._fullData.length === data.length) {
+      // Mid-gesture: every Plotly.react/restyle runs scene.plot → setViewport → camera.lookAt, which
+      // cancels the drag. So update the WebGL trace objects directly and redraw — no camera touch.
+      for (let n = 4; n < data.length; n++) {
+        const ft = el._fullData[n], d = data[n], tw = ft && scn.traces[ft.uid];
+        if (!tw || !d.x || !ft.x) continue;
+        if (d.x.length !== ft.x.length && d.type !== 'scatter3d') continue;
+        ft.x = d.x; ft.y = d.y; ft.z = d.z; ft._length = d.x.length;
+        if (d.type === 'mesh3d') { ft.i = d.i; ft.j = d.j; ft.k = d.k; ft.vertexcolor = d.vertexcolor; }
+        if (d.text) ft.text = d.text; if (d.line && d.line.color && ft.line) ft.line.color = d.line.color;
+        try { tw.update(ft); } catch (e) {}
+      }
+      try { if (scn.glplot.redraw) scn.glplot.redraw(); else scn.glplot.dirty = true; } catch (e) {}
+      this.dirty = true; // full react (with the live camera) once the gesture ends
+      return;
+    }
+    // fresh layout each draw carrying the live camera, so react never snaps the view back
+    this.layout = this.makeLayout();
+    this.layout.scene.annotations = this.anns || [];
+    Pl.react(el, data, this.layout, { displayModeBar: false, responsive: true, scrollZoom: true, doubleClick: false });
+    if (!this.boundV2 && el.on) {
+      el.on('plotly_click', (e) => { const pt = e && e.points && e.points[0]; if (pt && pt.customdata !== undefined && pt.customdata !== null) this.select(+pt.customdata); });
+      el.on('plotly_relayouting', this.onCamera);
+      el.on('plotly_relayout', this.onCamera);
+      // While the user drags/zooms the camera, hold 3D redraws so Plotly.react never interrupts the gesture
+      const down = () => { this.interacting = true; };
+      const up = () => { if (this.interacting) { this.interacting = false; this.dirty = true; } };
+      el.addEventListener('pointerdown', down, true);
+      el.addEventListener('touchstart', down, { capture: true, passive: true });
+      el.addEventListener('wheel', () => { this.wheelUntil = performance.now() + 450; this.dirty = true; }, { capture: true, passive: true });
+      window.addEventListener('pointerup', up, true);
+      window.addEventListener('pointercancel', up, true);
+      window.addEventListener('touchend', up, true);
+      this._unbind = () => { window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); window.removeEventListener('touchend', up, true); };
+      this.boundV2 = true;
+      this.parallax();
+    }
+  }
+
+  // ---------- inspector chart ----------
+  buildChart() {
+    const el = this.R.chart.current, E = this.E, Pl = window.Plotly;
+    this._chartEl = el;
+    if (!el || !E || !Pl) return;
+    const i = this.state.sel, N = E.N, xs = [], dv = [], dev = [], cd = [], cds = [], mx = [], my = [], sx = [], sy = [];
+    for (let t = 0; t <= 360; t++) {
+      xs.push(t); dv.push(E.remaining_dv_mps[t * N + i]); dev.push(E.mission_deviation[t * N + i]);
+      const v = E.closestD[t * N + i], w = E.closestDs[t * N + i];
+      cd.push(isNaN(v) ? null : Math.max(25, v)); cds.push(isNaN(w) ? null : w);
+      const e = E.satEvent[t * N + i]; if (e === 1) { mx.push(t); my.push(dv[t]); } if (e === 2) { sx.push(t); sy.push(dv[t]); }
+    }
+    const G = rgba(ICE, 0.07), F = { family: MONO, size: 10, color: '#9397ab' };
+    const data = [
+      { x: xs, y: dv, yaxis: 'y3', type: 'scatter', mode: 'lines', line: { color: ICE, width: 1.6, shape: 'hv' }, hovertemplate: 'Δv left %{y:.2f} m/s<extra></extra>' },
+      { x: mx, y: my, yaxis: 'y3', type: 'scatter', mode: 'markers', marker: { symbol: 'square', size: 7, color: HEX.man }, hovertemplate: '■ MANEUVER · T+%{x}<extra></extra>' },
+      { x: sx, y: sy, yaxis: 'y3', type: 'scatter', mode: 'markers', marker: { symbol: 'diamond-open', size: 9, color: HEX.shield, line: { width: 1.6, color: HEX.shield } }, hovertemplate: '◇ SHIELD · T+%{x}<extra></extra>' },
+      { x: xs, y: dev, yaxis: 'y2', type: 'scatter', mode: 'lines', line: { color: '#b2b6ca', width: 1.1 }, hovertemplate: 'deviation %{y:.3f}<extra></extra>' },
+      { x: xs, y: cds, yaxis: 'y', type: 'scatter', mode: 'lines', line: { color: HEX.dsafe, width: 1.3, dash: 'dot' }, hovertemplate: 'd_safe %{y:,.0f} m<extra></extra>' },
+      { x: xs, y: cd, yaxis: 'y', type: 'scatter', mode: 'lines', line: { color: ICE, width: 1.5 }, connectgaps: false, hovertemplate: 'closest d_min %{y:,.0f} m<extra></extra>' },
+    ];
+    const dead = E.death[i] <= 360 ? E.death[i] : null;
+    if (dead !== null) data.push({ x: [dead], y: [60], yaxis: 'y', type: 'scatter', mode: 'markers+text', marker: { symbol: 'x', size: 10, color: HEX.coll }, text: ['  COLLIDED'], textposition: 'middle right', textfont: { family: MONO, size: 10, color: HEX.coll }, hoverinfo: 'skip' });
+    const axis = (o) => Object.assign({ gridcolor: G, zeroline: false, fixedrange: true, tickfont: F, showline: false }, o);
+    const ann = (y, text) => ({ xref: 'paper', yref: 'paper', x: 0, y, xanchor: 'left', yanchor: 'bottom', showarrow: false, text, font: { family: 'Instrument Sans, sans-serif', size: 11, color: '#cfd3e5' } });
+    const layout = {
+      height: el.clientHeight || 210, margin: { l: 40, r: 10, t: 16, b: 20 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', showlegend: false, dragmode: false, hovermode: 'x', font: F,
+      hoverlabel: { bgcolor: '#232532', bordercolor: '#595d6c', font: { family: MONO, size: 11, color: '#e9e9ed' } },
+      xaxis: axis({ range: [0, 360], tickvals: [0, 60, 120, 180, 240, 300, 360], anchor: 'y' }),
+      yaxis: axis({ domain: [0, 0.27], type: 'log', range: [1.3, 6.2], tickvals: [100, 1000, 10000, 100000, 1000000], ticktext: ['100', '1k', '10k', '100k', '1M'] }),
+      yaxis2: axis({ domain: [0.39, 0.61], range: [0, 0.47], tickvals: [0, 0.2, 0.4], anchor: 'x' }),
+      yaxis3: axis({ domain: [0.73, 1], range: [0, Math.max(0.6, E.budget[i] * 1.08)], nticks: 3, anchor: 'x' }),
+      annotations: [ann(1.0, 'Δv LEFT · m/s'), ann(0.62, 'MISSION DEVIATION'), ann(0.28, 'CLOSEST d_min  ·  ┄ d_safe   (m, log)')],
+      shapes: [{ type: 'line', xref: 'x', yref: 'paper', x0: this.cur, x1: this.cur, y0: 0, y1: 1, line: { color: rgba(ICE, 0.75), width: 1 } }],
+    };
+    Pl.react(el, data, layout, { displayModeBar: false, responsive: true });
+  }
+  queueChartHead() {
+    if (this.ct) return;
+    this.ct = setTimeout(() => {
+      this.ct = null;
+      const el = this.R.chart.current;
+      if (el && el.layout && window.Plotly) window.Plotly.relayout(el, { 'shapes[0].x0': this.cur, 'shapes[0].x1': this.cur });
+    }, 100);
+  }
+
+  // ---------- view model ----------
+  renderVals() {
+    const st = this.state, E = this.E, ready = st.ready && !!E, phone = st.phone, s = st.step, sel = st.sel;
+    const on = (t) => !phone || st.tab === t;
+    const v = {
+      R: this.R, loading: !ready, phone, desktop: !phone,
+      stickyPos: phone ? 'sticky' : 'relative', stickyBg: phone ? 'color-mix(in oklab, var(--og-ground) 94%, transparent)' : 'transparent', stickyPad: phone ? '8px 0 0' : '0',
+      scrubBasis: phone ? '100%' : '300px', scrubOrder: phone ? '-1' : '0', bTop: phone ? 'auto' : st.rail ? (st.sh === 'off' ? '152px' : '118px') : '16px', bBottom: phone ? '10px' : 'auto',
+      togglePlay: this.togglePlay, stepBack: this.stepBack, stepFwd: this.stepFwd, prevEvent: this.prevEvent, nextEvent: this.nextEvent,
+      toggleLoop: this.toggleLoop, toggleOrbits: this.toggleOrbits, resetView: this.resetView, cycleSpeed: this.cycleSpeed,
+      onScrubDown: this.onScrubDown, onScrubMove: this.onScrubMove, onScrubUp: this.onScrubUp, onScrubLeave: this.onScrubLeave, onScrubKey: this.onScrubKey,
+      showTimeline: on('timeline'), showRiskPane: on('risk'), showInspector: on('inspector'), showMetrics: on('metrics'),
+      inDock: !phone && st.rail, showInspPanel: on('inspector') && (phone || !st.rail),
+      stageH: !phone && st.rail ? 'clamp(580px, 50vw, 740px)' : 'clamp(270px, 40vw, 520px)', dockW: '330px',
+      bannerMax: !phone && st.rail ? 'calc(100% - 380px)' : 'calc(100% - 24px)',
+      bannerLeft: !phone && st.rail ? '18px' : '50%', bannerShift: !phone && st.rail ? 'none' : 'translateX(-50%)',
+      viewRight: !phone && st.rail ? '354px' : '12px', legendMax: !phone && st.rail ? 'calc(100% - 560px)' : 'calc(100% - 140px)',
+      showRail: ready && st.rail && !phone, showFeed: ready && on('risk') && (phone || !st.rail),
+      playIcon: st.playing ? 'ph-fill ph-pause' : 'ph-fill ph-play', playLabel: st.playing ? 'Pause' : 'Play', playPressed: st.playing ? 'true' : 'false',
+      playShadow: st.playing ? 'var(--og-glow)' : 'none',
+      loopPressed: st.loop ? 'true' : 'false', loopBd: st.loop ? 'var(--og-ice)' : 'var(--og-hair)', loopFg: st.loop ? 'var(--og-ice)' : 'var(--og-text-2)',
+      orbitsPressed: st.orbits ? 'true' : 'false', orbitsBd: st.orbits ? 'var(--og-hair-hi)' : 'var(--og-hair)', orbitsFg: st.orbits ? 'var(--og-ice)' : 'var(--og-text-3)',
+      speedLabel: (st.speed === 0.5 ? '0.5' : String(st.speed)) + '×',
+      step: s, stepStr: String(s), tmin: String(s), hms: `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}:00`, ariaStep: `Step ${s} of 360, T plus ${s} minutes`,
+      selPrev: this.selPrev, selNext: this.selNext, zoomIn: this.zoomIn, zoomOut: this.zoomOut, cellH: phone ? '44px' : '36px',
+      asidePos: st.wide ? 'sticky' : 'relative', asideAlign: st.wide ? 'flex-start' : 'stretch',
+      selId: 'S' + sel, starsFar: this.stars.far, starsNear: this.stars.near,
+    };
+    v.episodes = window.OGData ? window.OGData.scenarios.map((e) => { const a = e.id === st.scen; return { label: e.label, sub: e.sub, onClick: () => { if (!a) this.loadSource(e.id, st.pt, st.sh, false); }, pressed: a ? 'true' : 'false', fg: a ? 'var(--og-ice)' : 'var(--og-text-2)', bd: a ? 'var(--og-hair-hi)' : 'transparent', bg: a ? tint('var(--og-ice)', 8) : 'transparent', sh: a ? 'var(--og-glow)' : 'none' }; }) : [];
+    v.ptabs = [['before', 'BEFORE TRAINING', 'untrained policy · shield ' + (st.sh === 'off' ? 'OFF' : 'ON')], ['after', 'AFTER TRAINING', 'trained policy · shield ' + (st.sh === 'off' ? 'OFF' : 'ON')]].map(([id, label, sub]) => { const a = st.pt === id; return { label, sub, sel: a ? 'true' : 'false', onClick: () => { if (!a && this.E) this.loadSource(st.scen, id, st.sh, true); }, fg: a ? 'var(--og-ice)' : 'var(--og-text-3)', line: a ? 'var(--og-ice)' : 'transparent', bg: a ? 'linear-gradient(180deg, color-mix(in oklab, var(--og-ice) 7%, transparent), transparent)' : 'transparent' }; });
+    v.tlModes = [['counts', 'Counts'], ['bysat', 'By satellite']].map(([id, label]) => { const a = st.tlMode === id; return { label, pressed: a ? 'true' : 'false', onClick: () => this.setState({ tlMode: id }), fg: a ? 'var(--og-ice)' : 'var(--og-text-3)', bd: a ? 'var(--og-ice)' : 'transparent', bg: a ? tint('var(--og-ice)', 10) : 'transparent' }; });
+    v.tlCounts = st.tlMode === 'counts'; v.tlBySat = st.tlMode === 'bysat'; v.tlH = st.tlMode === 'counts' ? '126px' : '195px'; v.onTlClick = this.onTlClick;
+    const shOff = st.sh === 'off';
+    v.shieldOff = shOff; v.shOp = shOff ? '0.38' : '1'; v.shDeco = shOff ? 'line-through' : 'none'; v.shSuffix = shOff ? ' (off)' : '';
+    v.shOpts = [['on', 'ON', '◇'], ['off', 'OFF', '⊘']].map(([id, label, g]) => { const a = st.sh === id; return { label, g, gc: a ? (id === 'on' ? 'var(--og-shield)' : 'var(--og-ice)') : 'var(--og-text-3)', pressed: a ? 'true' : 'false',
+      onClick: () => { if (!a && this.E) this.loadSource(st.scen, st.pt, id, true); }, fg: a ? 'var(--og-ice)' : 'var(--og-text-3)', bd: a ? 'var(--og-ice)' : 'transparent', bg: a ? tint('var(--og-ice)', 10) : 'transparent' }; });
+    v.onFuelClick = this.onFuelClick;
+    v.toggleRailExpand = () => this.setState((x) => ({ railExpand: !x.railExpand }));
+    v.stripCols = phone ? 'repeat(5, minmax(0,1fr))' : 'repeat(auto-fit, minmax(170px, 1fr))'; v.stripPad = phone ? '8px 6px' : '12px 14px'; v.stripFs = phone ? '15px' : '26px'; v.stripBars = !phone;
+    v.speeds = [1, 2, 4, 8].map((x) => { const a = st.speed === x; return { label: x + '×', onClick: () => this.setState({ speed: x }), pressed: a ? 'true' : 'false', fg: a ? 'var(--og-ice)' : 'var(--og-text-3)', bd: a ? 'var(--og-ice)' : 'transparent', bg: a ? tint('var(--og-ice)', 10) : 'transparent' }; });
+    v.tabs = [['risk', 'Risk'], ['timeline', 'Timeline'], ['inspector', 'Inspect']].map(([id, label]) => { const a = st.tab === id; return { label, onClick: () => this.setState({ tab: id }), sel: a ? 'true' : 'false', fg: a ? 'var(--og-ice)' : 'var(--og-text-3)', line: a ? 'var(--og-ice)' : 'transparent' }; });
+    const blank = { model: '', condition: '', seed: '', outcome: '', outG: '', outC: 'var(--og-text-3)', outTint: 'transparent', outEdge: 'var(--og-hair)', rail: [], railEmpty: false, railMore: '', railCount: '',
+      bannerShow: false, tickM: [], tickS: [], tickC: [], hoverShow: false, tlM: [], tlS: [], tlC: [], noColl: false, cntM: '', cntS: '', cntC: '', rows: [], livePairs: '105',
+      mC: '0', mU: '0', mM: '0', mS: '0', mDv: '0.00', mDev: '0.000', mcC: 'var(--og-text)', mcG: '', muC: 'var(--og-text)', muG: '', pick: [], iId: '', iG: '', iL: '', iC: '', iTint: 'transparent', iEdge: 'var(--og-hair)',
+      iEvShow: false, capShow: false, retShow: false, dvVal: '', dvX: 'scaleX(0)', dvBudget: '', devVal: '', cVal: '', cSub: '', cC: 'var(--og-text)', log: [], logCount: '', step0: false, nowShow: false, logEmpty: false,
+      prevDisabled: true, nextDisabled: true, flashStatic: 0, recent: [], recentLabel: '', strip: [], stepCells: [], stepTally: '', shieldOff: false, shOp: '1', shDeco: 'none', shSuffix: '', shOpts: [], emptyShield: '', railShieldNote: false, fuelLeft: '', fuelStart: '', fuelEmpty: '', fuelEmptyC: 'var(--og-text-3)', fuelNote: '', fuelBars: [], railMoreShow: false, tlRows: [], shieldPeakShow: false, scenLabel: '', tlHint: '' };
+    if (!ready) return Object.assign(v, blank);
+    const N = E.N, P = E.P, ACT = window.OGData.ACTIONS, M = E.metrics;
+    const coll = M.collisions[360] > 0;
+    Object.assign(v, { model: E.model, condition: E.condition, seed: String(E.seedLabel), outcome: coll ? 'COLLISION' : 'NO COLLISION', outG: coll ? '✕' : '●',
+      outC: coll ? 'var(--og-collision)' : 'var(--og-text-2)', outTint: coll ? tint('var(--og-collision)') : 'transparent', outEdge: coll ? tint('var(--og-collision)', 40) : 'var(--og-hair)' });
+    v.prevDisabled = !E.keySteps.some((k) => k < s); v.nextDisabled = !E.keySteps.some((k) => k > s);
+    v.flashStatic = this.reduced && E.stepEvents[s].some((e) => e.type === 3) ? 0.7 : 0;
+
+    // rail
+    const items = [];
+    for (let i = 0; i < N; i++) {
+      const a = s * N + i, sc = E.satStatus[a], ev = E.satEvent[a]; if (!sc && !ev) continue;
+      const S = SAT[sc], V = EVT[ev];
+      let sub = '';
+      if (sc === 3) sub = `retired · impact T+${E.death[i]}`;
+      else { const j = E.closestJ[a]; if (j >= 0) sub = `closest S${j} · ${fmt(E.closestD[a])} m`; }
+      let evDetail = '';
+      if (s >= 1 && (ev === 1 || ev === 2)) { const x = (s - 1) * N + i; evDetail = ` · ${ACT[E.proposed[x]].short} → ${ACT[E.approved[x]].short}`; }
+      items.push({ i, id: 'S' + i, g: S.g, c: S.c, l: S.l, hasEv: !!ev && sc !== 3, eg: V ? V.g : '', el: V ? V.s : '', ec: V ? V.c : '', etint: V ? tint(V.c) : 'transparent', evDetail, sub,
+        rank: sc * 10 + ev, onClick: () => this.select(i), selBg: i === sel ? tint('var(--og-ice)', 8) : 'transparent', selBd: i === sel ? 'var(--og-hair-hi)' : 'transparent' });
+    }
+    items.sort((a, b) => b.rank - a.rank || a.i - b.i);
+    // Aggregate: status rows stay individual; an event type with >3 satellites collapses into one group row
+    const stat = items.filter((x) => x.rank >= 10), evOnly = items.filter((x) => x.rank < 10), rows = stat.slice();
+    for (const et of [3, 2, 1]) {
+      const grp = evOnly.filter((x) => x.rank === et);
+      if (grp.length <= 3 || st.railExpand) { rows.push(...grp); continue; }
+      const V = EVT[et], outs = {};
+      for (const x of grp) { const k = (s - 1) * N + x.i, a = ACT[E.approved[k]].short; outs[a] = (outs[a] || 0) + 1; }
+      const blocked = et === 2 ? Object.entries(outs).map(([a, n]) => (a === 'COAST' ? `${n} blocked → COAST` : `${n} → ${a}`)).join(' · ') : '';
+      rows.push({ i: grp[0].i, id: '×' + grp.length, g: V.g, c: V.c, l: V.l, hasEv: false, eg: '', el: '', ec: '', etint: 'transparent', sub: grp.map((x) => x.id).join(' '), evDetail: blocked ? ' · ' + blocked : '',
+        rank: et, onClick: () => this.setState({ railExpand: true }), selBg: 'transparent', selBd: 'var(--og-hair)' });
+    }
+    v.rail = rows.slice(0, st.railExpand ? 15 : 6); v.railEmpty = items.length === 0; v.railCount = items.length ? `${items.length} of 15 flagged` : '';
+    const hidden = rows.length - v.rail.length;
+    v.railMoreShow = st.railExpand || hidden > 0 || evOnly.length > 3;
+    v.railMore = st.railExpand ? 'Collapse groups' : hidden > 0 ? `+${hidden} more` : 'Expand groups';
+    if (!v.railMoreShow) v.railMore = '';
+    v.emptyShield = st.sh === 'off' ? 'No shield events — shield off, nothing overrides the policy' : 'No shield interventions this step';
+    v.railShieldNote = st.sh === 'off' && items.length > 0;
+    v.stepCells = Array.from({ length: N }, (_, i) => { const a = s * N + i, sc = E.satStatus[a], ev = E.satEvent[a], V = EVT[ev], S = SAT[sc];
+      const g = ev ? V.g : sc ? S.g : '·', c = ev ? V.c : sc ? S.c : 'var(--og-text-3)';
+      return { g, fg: c, bg: ev || sc ? tint(c, 16) : 'transparent', bd: i === sel ? 'var(--og-ice)' : ev || sc ? tint(c, 40) : 'var(--og-hair)', onClick: () => this.select(i),
+        title: `S${i}: ${S.l}${V ? ' · ' + V.l : ''}` }; });
+    const cS = E.density[2][s], cM = E.density[1][s];
+    v.stepTally = [st.sh === 'off' ? '◇ off' : cS ? `◇ ${cS}` : '', cM ? `■ ${cM}` : '', stat.length ? `◆○ ${stat.length}` : ''].filter(Boolean).join('  ') || 'no events';
+
+    // banner
+    const byType = {}; for (const e of E.stepEvents[s]) (byType[e.type] = byType[e.type] || []).push('S' + e.sat);
+    const top = [3, 2, 1].find((t) => byType[t]);
+    v.bannerShow = !!top;
+    if (top) {
+      const V = EVT[top];
+      Object.assign(v, { bannerG: V.g, bannerL: V.l, bannerC: V.c, bannerEdge: tint(V.c, 50), bannerGlow: tint(V.c, 22), bannerSats: byType[top].length > 4 ? `${byType[top].length} satellites` : byType[top].join(top === 3 ? ' × ' : ' · '),
+        bannerMore: [1, 2].filter((t) => t !== top && byType[t]).map((t) => `+ ${EVT[t].g} ${byType[t].length > 4 ? byType[t].length + ' sats' : byType[t].join(' · ')}`).join('  ') });
+    }
+
+    // scrubber ticks + hover
+
+    if (st.hover) {
+      const h = st.hover.step, pct = h / 3.6;
+      const g = {}; for (const e of E.stepEvents[h]) (g[e.type] = g[e.type] || []).push('S' + e.sat);
+      const lines = [3, 2, 1].filter((t) => g[t]).map((t) => ({ g: EVT[t].g, c: EVT[t].c, t: `${EVT[t].s} ×${g[t].length} · ${g[t].length > 5 ? g[t].slice(0, 5).join(', ') + ' +' + (g[t].length - 5) : g[t].join(', ')}` }));
+      const hp = E.pairStatus.subarray(h * P, h * P + P); let hr = 0, hi = 0; for (let k = 0; k < P; k++) { if (hp[k] === 2) hr++; else if (hp[k] === 1) hi++; }
+      if (hr) lines.push({ g: '◆', c: 'var(--og-risk)', t: `${hr} HIGH RISK pair${hr > 1 ? 's' : ''}` });
+      if (hi) lines.push({ g: '○', c: 'var(--og-dsafe)', t: `${hi} inside d_safe` });
+      if (!lines.length) lines.push({ g: '·', c: 'var(--og-text-3)', t: 'no events · all pairs nominal' });
+      Object.assign(v, { hoverShow: true, hoverLeft: pct.toFixed(3) + '%', hoverShift: `translateX(-${pct.toFixed(2)}%)`, hoverTitle: `STEP ${h} · T+${h} min`, hoverLines: lines });
+    }
+
+    // timeline
+    const marks = (type) => {
+      const out = [];
+      for (const r of E.runs[type]) {
+        if (!r.sats.includes(sel)) continue;
+        const last = out[out.length - 1];
+        if (last && r.start - last.end <= 24) { last.end = r.end; last.count += r.count; } else out.push({ start: r.start, end: r.end, count: r.count });
+      }
+      let prevPx = -1e9;
+      return out.filter((r) => { const keep = r.start - prevPx >= 18; if (keep) prevPx = r.start; return keep; }).map((r) => ({
+        left: (r.start / 3.6).toFixed(3) + '%', w: Math.max(0.4, (r.end - r.start) / 3.6).toFixed(3) + '%', label: `S${sel}${r.count > 1 ? ' ×' + r.count : ''}`,
+        title: `${EVT[type].l} · S${sel} · ${r.count} step${r.count > 1 ? 's' : ''} · T+${r.start}${r.end > r.start ? '–' + r.end : ''}`,
+        onClick: () => { this.setState({ playing: false }); this.goStep(r.start, 'jump'); } }));
+    };
+    const sparse = (t) => E.runs[t].length <= 30;
+    v.tlM = marks(1); v.tlS = marks(2);
+    v.cntM = `${fmt(M.maneuvers[s])} / ${fmt(M.maneuvers[360])}`; v.cntS = st.sh === 'off' ? '— · shield off' : `${fmt(M.shield[s])} / ${fmt(M.shield[360])} · peak ${E.maxShield}`; v.cntC = `${M.collisions[s]} / ${M.collisions[360]}`; v.tlC = E.runs[3].map((r) => ({ left: (r.start / 3.6).toFixed(3) + '%', w: '0.4%', label: `S${r.sats[0]}×S${r.sats[1]}`, title: `COLLISION · S${r.sats[0]}–S${r.sats[1]} · T+${r.start}`, onClick: () => { this.setState({ playing: false, sel: r.sats[0] }); this.goStep(r.start, 'jump'); } })); v.noColl = E.runs[3].length === 0;
+    v.shieldPeakShow = false; v.shieldPeak = String(E.maxShield); v.shieldPeakAt = String(E.maxShieldAt);
+    const pk = E.maxShieldAt / 3.6; v.shieldPeakLeft = pk.toFixed(2) + '%'; v.shieldPeakShift = `translateX(-${pk.toFixed(1)}%)`;
+    v.tlHint = st.tlMode === 'counts' ? `bars = satellites per step · ice marks = S${sel} · hover for IDs` : 'tall = maneuver · short = shield · click a row to inspect';
+    if (st.tlHover) {
+      const t = st.tlHover.step, pct = t / 3.6, g = {}; for (const e of E.stepEvents[t]) (g[e.type] = g[e.type] || []).push('S' + e.sat);
+      const lines = [2, 1].map((ty) => ({ g: EVT[ty].g, c: EVT[ty].c, t: g[ty] ? `${EVT[ty].s} ×${g[ty].length} · ${g[ty].length > 6 ? g[ty].slice(0, 6).join(' ') + ' +' + (g[ty].length - 6) : g[ty].join(' ')}` : `${EVT[ty].s} · none` }));
+      Object.assign(v, { tlHoverShow: true, tlHoverLeft: pct.toFixed(3) + '%', tlHoverShift: `translateX(-${pct.toFixed(2)}%)`, tlHoverTitle: `T+${t} min`, tlHoverLines: lines });
+    } else v.tlHoverShow = false;
+    v.onTlMove = this.onTlMove; v.onTlLeave = this.onTlLeave;
+    v.tlRows = Array.from({ length: N }, (_, i) => ({ id: 'S' + i, g: i === sel ? '▸' : '', fg: i === sel ? 'var(--og-ice)' : 'var(--og-text-3)', onClick: () => this.select(i) }));
+    v.scenLabel = E.label;
+    let fl = 0, f0 = 0, empty = 0, emptyAt = -1;
+    for (let i = 0; i < N; i++) { if (!E.maneuver_enabled[i]) continue; f0 += E.budget[i]; const r = E.remaining_dv_mps[s * N + i]; fl += E.alive[s * N + i] ? r : 0; if (r === 0) empty++; }
+    for (let t = 0; t <= 360 && emptyAt < 0; t++) { let all = true; for (let i = 0; i < N; i++) if (E.maneuver_enabled[i] && E.remaining_dv_mps[t * N + i] > 0) { all = false; break; } if (all) emptyAt = t; }
+    v.fuelLeft = fl.toFixed(2); v.fuelStart = f0.toFixed(1);
+    v.fuelEmpty = empty ? `${empty} of ${E.budget.filter((b, i) => E.maneuver_enabled[i]).length} tanks empty` : 'no tank empty'; v.fuelEmptyC = empty ? 'var(--og-text)' : 'var(--og-text-3)';
+    v.fuelNote = emptyAt >= 0 ? `all tanks empty at T+${emptyAt}` : `${(() => { let x = 0; for (let i = 0; i < N; i++) if (E.maneuver_enabled[i]) x += E.remaining_dv_mps[360 * N + i]; return x.toFixed(2); })()} m/s left at end`;
+    v.fuelBars = Array.from({ length: N }, (_, i) => {
+      const a2 = s * N + i, offl = !E.maneuver_enabled[i], dead = !E.alive[a2], r = E.remaining_dv_mps[a2], b = E.budget[i], isSel = i === sel, emptyT = !offl && r <= 1e-6;
+      const cap = E.limited.includes(i) ? ' ◐' : offl ? ' ⊘' : '';
+      return { id: 'S' + i + cap, track: ((b / 2) * 100).toFixed(1) + '%', x: `scaleX(${offl || dead ? 0 : (r / b).toFixed(3)})`,
+        bar: isSel ? 'var(--og-ice)' : 'color-mix(in oklab, var(--og-ice) 62%, transparent)', glow: isSel ? '0 0 8px color-mix(in oklab, var(--og-ice) 55%, transparent)' : 'none',
+        trackStyle: offl ? 'dashed' : 'solid', trackC: emptyT ? 'var(--og-hair-hi)' : 'var(--og-hair)',
+        v: offl ? 'OFF' : dead ? '—' : emptyT ? 'EMPTY' : r.toFixed(2), vc: offl || emptyT || dead ? 'var(--og-text-3)' : 'var(--og-text)',
+        fg: isSel ? 'var(--og-ice)' : 'var(--og-text-2)', onClick: () => this.select(i),
+        aria: `S${i} remaining delta-v ${offl ? 'thruster offline' : r.toFixed(2) + ' of ' + b.toFixed(1) + ' m/s'}` };
+    });
+    // summary strip (episode totals, both tabs)
+    const SB = window.OGData.source(E.scenario, 'before', st.sh).summary, SA = window.OGData.source(E.scenario, 'after', st.sh).summary, isB = st.pt === 'before';
+    const cell = (label, short, key, unit, f, curRaw) => {
+      if (SB[key] === null || SA[key] === null) return { label: phone ? short : label, val: '—', unit: '', fg: 'var(--og-text-3)', bV: 'off', aV: 'off', bX: 'scaleX(0)', aX: 'scaleX(0)', bBar: 'transparent', aBar: 'transparent', bC: 'var(--og-text-3)', aC: 'var(--og-text-3)', note: 'shield off · nothing overrides the policy', sofar: '' };
+      const b = SB[key], a = SA[key], mx = Math.max(b, a, 1e-9), mine = isB ? b : a, other = isB ? a : b;
+      let note = '';
+      if (b === 0 && a === 0) note = 'none in either';
+      else if (isB) note = other > 0 ? `${(b / other).toFixed(b / other >= 10 ? 0 : 1)}× after` : 'after: none';
+      else note = b > 0 ? `${Math.round((1 - a / b) * 100)}% less than before` : '';
+      return { label: phone ? short : label, val: curRaw, unit: phone ? '' : unit, fg: key === 'collisions' && mine > 0 ? 'var(--og-collision)' : 'var(--og-text)',
+        bV: f(b), aV: f(a), bX: `scaleX(${(b / mx).toFixed(3)})`, aX: `scaleX(${(a / mx).toFixed(3)})`,
+        bBar: isB ? 'var(--og-ice)' : 'var(--og-text-3)', aBar: isB ? 'var(--og-text-3)' : 'var(--og-ice)', bC: isB ? 'var(--og-ice)' : 'var(--og-text-3)', aC: isB ? 'var(--og-text-3)' : 'var(--og-ice)',
+        note: key === 'collisions' && st.sh === 'off' && E.ref ? `10 runs: ${E.ref[st.pt][0]}/10 · no action ${E.ref.none[0]}/10` : note, sofar: key === 'collisions' ? `T+${s}: ${M.collisions[s]}` : `T+${s}: ${f(key === 'total_dv' ? M.dv[s] : key === 'maneuvers' ? M.maneuvers[s] : key === 'shield' ? M.shield[s] : M.meanDev[s])}` };
+    };
+    const mvS = st.mv;
+    v.strip = [
+      cell('TOTAL Δv', 'Δv', 'total_dv', 'm/s', (x) => x.toFixed(2), mvS.dv),
+      cell('MANEUVERS', 'MANEUV', 'maneuvers', '', (x) => fmt(x), mvS.m),
+      cell('SHIELD', 'SHIELD', 'shield', 'interventions', (x) => fmt(x), mvS.sh),
+      cell('COLLISIONS', 'COLL', 'collisions', '', (x) => fmt(x), mvS.c),
+      cell('MISSION DEVIATION', 'DEV', 'mean_dev', 'mean', (x) => x.toFixed(3), mvS.dev),
+    ];
+
+    // metrics
+    const mv = st.mv, cNow = M.collisions[s], uNow = M.unsafe[s];
+    Object.assign(v, { mC: mv.c, mU: mv.u, mM: mv.m, mS: mv.sh, mDv: mv.dv, mDev: mv.dev,
+      mcC: cNow ? 'var(--og-collision)' : 'var(--og-text)', mcG: cNow ? '✕' : '', muC: uNow ? 'var(--og-dsafe)' : 'var(--og-text)', muG: uNow ? '○' : '' });
+
+    // conjunction table
+    const ks = []; for (let k = 0; k < P; k++) if (!E.masked[s * P + k]) ks.push(k);
+    ks.sort((a, b) => E.pairStatus[s * P + b] - E.pairStatus[s * P + a] || E.risk[s * P + b] - E.risk[s * P + a] || E.d_min_m[s * P + a] - E.d_min_m[s * P + b]);
+    v.livePairs = String(ks.length);
+    v.rows = ks.slice(0, 8).map((k) => {
+      const x = s * P + k, pst = E.pairStatus[x], S = SAT[pst], [i, j] = E.pair_index[k], isC = pst === 3, inv = i === sel || j === sel;
+      return { pair: `S${i}–S${j}`, g: pst ? S.g : '·', l: S.pl, c: pst ? S.c : 'var(--og-text-3)', tint: pst ? tint(S.c) : 'transparent', edge: pst ? tint(S.c, 40) : 'transparent',
+        dmin: isC ? '—' : fmt(E.d_min_m[x]), dC: isC ? 'var(--og-collision)' : 'var(--og-text)', dsub: isC ? `impact T+${E.collStep[k]}` : `d_safe ${fmt(E.d_safe_m[x])}`,
+        risk: isC ? '—' : E.risk[x].toFixed(3), riskX: `scaleX(${isC ? 0 : E.risk[x].toFixed(3)})`,
+        pairC: inv ? 'var(--og-ice)' : 'var(--og-text)', pairW: inv ? '500' : '400', onClick: () => this.select(i === sel ? j : i) };
+    });
+
+    // inspector
+    const a = s * N + sel, sc = E.satStatus[a], S = SAT[sc], ev = E.satEvent[a], V = EVT[ev];
+    const off = !E.maneuver_enabled[sel], lim = !off && E.budget[sel] < 2;
+    v.pick = Array.from({ length: N }, (_, n) => {
+      const SS = SAT[E.satStatus[s * N + n]], o = !E.maneuver_enabled[n], l = !o && E.budget[n] < 2, A = n === sel;
+      return { id: 'S' + n, g: SS.g, c: SS.c, cap: o ? '⊘' : l ? '◐' : '', onClick: () => this.select(n), pressed: A ? 'true' : 'false', label: `S${n}, ${SS.l}${o ? ', thruster offline' : l ? ', limited delta-v' : ''}`,
+        bd: A ? 'var(--og-ice)' : 'var(--og-hair)', bg: A ? tint('var(--og-ice)', 10) : 'transparent', sh: A ? 'var(--og-glow)' : 'none', fg: A ? 'var(--og-ice)' : 'var(--og-text)' };
+    });
+    Object.assign(v, { iId: 'S' + sel, iG: S.g, iL: S.l, iC: S.c, iTint: sc ? tint(S.c) : 'transparent', iEdge: sc ? tint(S.c, 40) : 'var(--og-hair)',
+      iEvShow: !!V && ev !== 3, iEvG: V ? V.g : '', iEvL: V ? V.l : '', iEvC: V ? V.c : '', iEvTint: V ? tint(V.c) : 'transparent', iEvEdge: V ? tint(V.c, 40) : 'transparent',
+      capShow: off || lim, capG: off ? '⊘' : '◐', capL: off ? 'THRUSTER OFFLINE' : `LIMITED Δv · ${E.budget[sel].toFixed(2)} m/s budget` });
+    const retired = sc === 3;
+    let partner = -1; if (retired) for (let k = 0; k < P; k++) if (E.collStep[k] >= 0 && E.pair_index[k].includes(sel)) partner = E.pair_index[k][0] === sel ? E.pair_index[k][1] : E.pair_index[k][0];
+    v.retShow = retired; v.retText = retired ? `RETIRED · collided with S${partner} at T+${E.death[sel]} min · removed from all pair rows` : '';
+    const rem = E.remaining_dv_mps[a];
+    v.dvVal = off ? '—' : rem.toFixed(2); v.dvX = `scaleX(${off ? 0 : Math.min(1, rem / 2).toFixed(3)})`;
+    v.dvBudget = off ? 'thruster offline' : `m/s of ${E.budget[sel].toFixed(2)}${rem === 0 ? ' · depleted' : ''}`;
+    v.devVal = E.mission_deviation[a].toFixed(3);
+    const cj = E.closestJ[a];
+    if (retired || cj < 0) { v.cVal = '—'; v.cSub = retired ? 'retired' : 'no live partner'; v.cC = 'var(--og-text-3)'; }
+    else {
+      const d = E.closestD[a], ds = E.closestDs[a], r = 1 - d / (1.1 * ds);
+      v.cVal = fmt(d) + ' m'; v.cSub = `S${cj} · d_safe ${fmt(ds)}`; v.cC = r > 0.5 ? 'var(--og-risk)' : d < ds ? 'var(--og-dsafe)' : 'var(--og-text)';
+    }
+    const logs = E.logs[sel];
+    v.log = logs.map((L) => {
+      const cur = L.step === s, fut = L.step > s;
+      const g = L.type === 3 ? '✕' : L.over ? '◇' : L.dv > 0 ? '■' : '·';
+      const gc = L.type === 3 ? 'var(--og-collision)' : L.over ? 'var(--og-shield)' : L.dv > 0 ? 'var(--og-maneuver)' : 'var(--og-text-3)';
+      const blocked = L.over && L.ap === 0 && L.pr !== 0;
+      return { t: 'T+' + L.step, pr: L.type === 3 ? 'COLLISION' : ACT[L.pr].short, ap: L.type === 3 ? 'RETIRED' : ACT[L.ap].short, apC: L.type === 3 ? 'var(--og-collision)' : L.over ? 'var(--og-shield)' : 'var(--og-text)',
+        dv: L.dv > 0 ? '−' + L.dv.toFixed(2) : blocked ? (off ? 'offline' : 'blocked') : '—', g, gc, fg: fut ? 'var(--og-text-3)' : 'var(--og-text)',
+        bg: cur ? tint('var(--og-ice)', 8) : 'transparent', bd: cur ? 'var(--og-hair-hi)' : 'transparent', onClick: () => { this.setState({ playing: false }); this.goStep(L.step, 'jump'); } };
+    });
+    v.logCount = logs.length ? `${logs.filter((l) => l.step <= s).length} of ${logs.length} so far` : '';
+    const past = logs.filter((L) => L.step < s).slice(-3).reverse();
+    v.recent = past.map((L) => ({ t: 'T+' + L.step, g: L.type === 3 ? '✕' : L.over ? '◇' : L.dv > 0 ? '■' : '·',
+      gc: L.type === 3 ? 'var(--og-collision)' : L.over ? 'var(--og-shield)' : L.dv > 0 ? 'var(--og-maneuver)' : 'var(--og-text-3)',
+      ap: L.type === 3 ? 'COLLISION' : ACT[L.ap].short, apC: L.type === 3 ? 'var(--og-collision)' : L.over ? 'var(--og-shield)' : 'var(--og-text)',
+      title: L.type === 3 ? `T+${L.step} collision` : `T+${L.step} proposed ${ACT[L.pr].label} → approved ${ACT[L.ap].label}${L.over ? ' (shield override)' : ''}`,
+      onClick: () => { this.setState({ playing: false }); this.goStep(L.step, 'jump'); } }));
+    v.recentLabel = logs.length === 0 ? `no actions for S${sel} this episode` : past.length ? 'earlier' : 'no earlier actions';
+    v.logEmpty = logs.length === 0; v.logEmptyText = `No actions proposed for S${sel} in this episode.`;
+    v.step0 = s === 0;
+    v.nowShow = s >= 1 && !retired;
+    if (v.nowShow) {
+      const x = (s - 1) * N + sel, pr = E.proposed[x], ap = E.approved[x], over = !!E.intervened[x];
+      Object.assign(v, { nowPr: ACT[pr].label, nowAp: ACT[ap].label, nowC: over ? 'var(--og-shield)' : ap ? 'var(--og-maneuver)' : 'var(--og-text)',
+        nowNote: st.sh === 'off' && pr !== 0 && E.applied_dv_mps[x] === 0 ? 'no Δv left · not executed' : st.sh === 'off' && pr !== 0 ? 'applied as proposed · no shield' : over ? '◇ shield override' : E.applied_dv_mps[x] > 0 ? `■ −${E.applied_dv_mps[x].toFixed(2)} m/s` : '' });
+    }
+    return v;
+  }
+}
+</script>
+</body>
+</html>
