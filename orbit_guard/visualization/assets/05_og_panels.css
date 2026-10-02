@@ -1,0 +1,90 @@
+/* OrbitGuard replay - panel contents: tracked this step, conjunction table, fleet fuel, inspector. Colours arrive as
+   --c / --track / --fill / --r custom properties set by the renderers; nothing animates except transform and opacity. */
+.og-pane-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.og-count { align-self: flex-end; margin-top: -26px; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: var(--og-r-chip); white-space: nowrap;
+  font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--c, var(--og-text-2)); background: color-mix(in oklab, var(--c, var(--og-text-3)) var(--og-tint), transparent); border: 0; cursor: default;
+}
+button.og-chip { cursor: pointer; }
+.og-chip.is-neutral { border: 1px dashed var(--og-hair-hi); background: transparent; color: var(--og-text-2); }
+.og-row-glyph { font-family: var(--og-font-mono); color: var(--c, var(--og-text-3)); text-align: center; }
+
+/* tracked this step */
+.og-cells { display: grid; grid-template-columns: repeat(var(--n, 15), minmax(0, 1fr)); gap: 2px; }
+.og-cell-btn {
+  display: grid; place-items: center; height: 20px; padding: 0; border-radius: 3px; border: 1px solid var(--og-hair); background: transparent; color: var(--c);
+  font-family: var(--og-font-mono); font-size: var(--og-fs-xs); line-height: 1; cursor: pointer;
+}
+.og-cell-btn.is-flagged { background: color-mix(in oklab, var(--c) 16%, transparent); border-color: color-mix(in oklab, var(--c) 40%, transparent); }
+.og-cell-btn:hover { border-color: var(--og-hair-hi); }
+.og-cell-btn.is-selected { border-color: var(--og-ice); }
+.og-cells-axis { display: flex; justify-content: space-between; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-rows { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.og-row {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; padding: 7px 6px; text-align: left; color: var(--og-text);
+  border-radius: 6px; border: 1px solid transparent; background: transparent; cursor: pointer;
+}
+.og-row:hover { background: color-mix(in oklab, var(--og-ice) 6%, transparent); }
+.og-row.is-selected { background: color-mix(in oklab, var(--og-ice) 8%, transparent); border-color: var(--og-hair-hi); }
+.og-row-group { border-color: var(--og-hair); }
+.og-row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.og-row-id { font-family: var(--og-font-mono); font-size: 13px; font-weight: 500; }
+.og-row-status { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--c); }
+.og-row-sub { grid-column: 2; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-more { align-self: flex-start; padding: 4px 8px; border-radius: var(--og-r-chip); border: 1px solid var(--og-hair); background: transparent; color: var(--og-text-2); font-size: var(--og-fs-xs); cursor: pointer; }
+.og-more:hover { border-color: var(--og-hair-hi); color: var(--og-ice); }
+.og-empty-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 6px; border: 1px dashed var(--og-hair-hi); }
+.og-empty-line { display: flex; align-items: center; gap: 8px; font-size: var(--og-fs-sm); color: var(--og-text-2); }
+.og-empty-line.is-dim { color: var(--og-text-3); }
+.og-empty-swatch { width: 8px; height: 8px; border: 1px solid var(--og-maneuver); opacity: .6; }
+.og-note { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; border: 1px dashed var(--og-hair); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+
+/* conjunction table */
+.og-risk { display: flex; flex-direction: column; }
+.og-risk-head, .og-risk-row { display: grid; grid-template-columns: 60px minmax(0, 1.5fr) minmax(0, 1.15fr) 46px; gap: 6px; align-items: center; }
+.og-risk-head { padding: 0 6px 6px; font-size: var(--og-fs-xs); font-weight: 600; letter-spacing: .08em; color: var(--og-text-3); text-transform: uppercase; white-space: nowrap; }
+.og-risk-row { padding: 6px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--og-text); cursor: pointer; text-align: left; }
+.og-risk-row:hover { background: color-mix(in oklab, var(--og-ice) 6%, transparent); }
+.og-risk-pair { font-family: var(--og-font-mono); font-size: var(--og-fs-sm); white-space: nowrap; }
+.og-risk-dist, .og-risk-val { display: flex; flex-direction: column; font-family: var(--og-font-mono); font-size: var(--og-fs-md); font-variant-numeric: tabular-nums; }
+.og-risk-sub { font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-risk-bar { display: block; height: 3px; margin-top: 3px; background: var(--og-hair); overflow: hidden; }
+.og-risk-bar > span { display: block; height: 100%; background: var(--og-risk); transform-origin: left center; transform: scaleX(var(--r, 0)); }
+
+/* fleet fuel */
+.og-fuel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.og-fuel-total { font-family: var(--og-font-mono); font-size: var(--og-fs-xl); font-weight: 300; font-variant-numeric: tabular-nums; }
+.og-fuel-unit, .og-fuel-text, .og-fuel-stranded { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-fuel-canvas { width: 100%; height: 52px; display: block; }
+.og-fuel-bars { display: flex; flex-direction: column; gap: 2px; }
+.og-fuel-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 46px; gap: 8px; align-items: center; padding: 2px 4px; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--og-text-2); cursor: pointer; text-align: left; }
+.og-fuel-row.is-selected { border-color: var(--og-hair-hi); }
+.og-fuel-id { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); }
+.og-cap { margin-left: 3px; color: var(--og-text-3); }
+.og-fuel-track { position: relative; display: block; height: 6px; width: calc(var(--track, 1) * 100%); background: var(--og-hair); overflow: hidden; }
+.og-fuel-fill { position: absolute; inset: 0; background: var(--og-ice); transform-origin: left center; transform: scaleX(var(--fill, 0)); }
+.og-fuel-row.is-offline .og-fuel-track { background: transparent; border-top: 1px dashed var(--og-hair-hi); height: 0; }
+.og-fuel-row.is-empty .og-fuel-label { color: var(--og-risk); }
+.og-fuel-row.is-retired { opacity: .55; }
+.og-fuel-label { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* inspector */
+.og-insp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.og-insp-id { font-family: var(--og-font-mono); font-size: var(--og-fs-display); font-weight: 300; line-height: 1; }
+.og-step-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--og-hair); background: transparent; color: var(--og-text-2); cursor: pointer; }
+.og-step-btn:hover { color: var(--og-ice); border-color: var(--og-hair-hi); }
+.og-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.og-readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.og-readouts > div { display: flex; flex-direction: column; min-width: 0; }
+.og-readout { font-family: var(--og-font-mono); font-size: var(--og-fs-lg); font-variant-numeric: tabular-nums; }
+.og-unit { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
+.og-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+.og-pick { height: 22px; border-radius: 4px; border: 1px solid var(--og-hair); background: transparent; color: var(--og-text-2); font-family: var(--og-font-mono); font-size: var(--og-fs-xs); cursor: pointer; }
+.og-pick.is-selected { border-color: var(--og-ice); color: var(--og-ice); }
+.og-insp-chart { height: 150px; }
+.og-decision { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.og-decision.is-dim { color: var(--og-text-3); font-size: var(--og-fs-sm); }
+.og-decision-line { font-family: var(--og-font-mono); font-size: var(--og-fs-sm); }
+.og-chip.is-maneuver { --c: var(--og-maneuver); }
+.og-chip.is-shield { --c: var(--og-shield); }

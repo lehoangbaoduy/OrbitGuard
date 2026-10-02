@@ -45,6 +45,9 @@ views (histogram lanes, 15×360 matrix, fleet-fuel heatmap), explicit empty/shie
 | D13 | **Retirement comes from collisions, never from `alive`.** The env empties `agents` on truncation, so `alive[T]` is all False on every real trace (found by review on the 12 recordings). `retired_matrix` = satellite in a collided pair; `alive` is no longer shipped. | Review finding H1; EC-08. |
 | D14 | **Fleet fuel counts usable tanks only**; offline thrusters' fuel is reported as `stranded_mps`. Shield lane is `None` (not 0) when the shield is off. One burn threshold (`BURN_EPSILON_MPS` = env constant, drift-tested). | Review findings M4–M6; real-data rule 4. |
 | D15 | **BEFORE and AFTER tabs are always offered**; a policy without a trace is disabled with "no trace recorded". Meta needs `n_agents >= 2` (the env's own minimum) and must agree with the trace. | EC-03; review M9. |
+| D17 | **Controller and stage are separate closures** (`19_og_controller.js` owns state, clock, panels, inputs; `18_og_stage.js` owns Plotly: full react, in-place WebGL update during a drag/wheel, one react when settled). While playing, frames between full reacts (≤ every 250 ms, or on any structural change) update live traces in place; `applyInPlace(strict)` refuses and forces a react when a mesh changed size or a trace was empty at the last react (review M4). | Software GL: full react ≈ 175 ms vs ≈ 10 ms in place; labels lag ≤ 1 step between reacts. |
+| D18 | **Satellite-size caption no longer claims a multiple.** The handoff's "about 300× true size" is not what is drawn (the bus is ≈ 96 km vs a 10 m configured body); the caption says "enlarged for visibility, not drawn to scale". | Review M3 (real-data rule: no unverifiable number). |
+| D19 | **One scalar `grow` per effect type** (plume/ring/lines) restarts when a step starts any new run of that type; continuing runs re-grow with it. Per-satellite start times would need a per-satellite grow in `sceneTraces`. | Simplicity; revisit in PR7 polish if visible. |
 | D16 | **Selection callback updates controls in place** (wildcard outputs for className/disabled/title/aria-pressed/children) instead of rebuilding them, and re-validates the client-held selection against the index. | Keyboard focus survives; the State store is client-controlled. |
 
 ## 3. Open questions (Q) — conservative defaults taken, user can override
@@ -173,16 +176,39 @@ Playwright: 320/390/768/1024/1440 + live resize (EC-16).
 Files: `assets/10_og_core.js`, `12_og_scene_static.js`, `13_og_scene_dynamic.js`, `15_og_labels.js`, `tests/js/labels.test.mjs`, `tests/js/scene.test.mjs`.
 Textured Earth mesh (+ fallback EC-20), atmosphere, graticule, orbit rings, satellite meshes (×300 caption), status pins, merged label plates
 (EC-34), burn plumes from catalog exhaust, shield rings, legend, CSS starfield + parallax.
+| Task | Status |
+|---|---|
+| Single status vocabulary (`vocabulary.py`: colour + glyph + marker + label; hexes drift-tested against the token file) shipped in the payload with the Earth radius from `physics.constants` | DONE |
+| `10_og_core.js` (decode typed arrays, schema check), `12_og_scene_static.js` (textured Earth with plain-surface fallback EC-20, atmosphere, graticule, orbit rings = the satellites' own recorded trajectories, seeded starfield), `15_og_labels.js` (merge ≤ 1100 km, ≤ 4 per plate, explicit plate size EC-34), `13_og_scene_dynamic.js` (models ×300 stated in the legend, trails, conjunction lines, pins, burn plumes along the catalog exhaust direction, shield rings, collision halos, retired satellites as ✕), `11_og_camera.js` (live camera copy, parallax), `18_og_stage.js` (draws a view, keeps the camera, click selects) | DONE |
+| `node --test` suite (65 tests) run from pytest on payloads of REAL fixtures: orthonormal frames, plume ∥ exhaust, ring in the plane of travel, no NaN, stable trace order | DONE |
+| Live on the 12 real episodes: Plotly 2.35.2, textured Earth, labelled satellites at the peak-risk step, camera drag kept across tab and shield switches (EC-13, EC-15 part) | DONE (evidence `docs/redesign/evidence/pr3_*.png`) |
+| Review (typescript-reviewer): BLOCK on 1 HIGH (error left the previous episode on screen), 6 MEDIUM, ~12 LOW | **DONE** — H1/M1 (errors clear the stage + panels, overlay hides only after Plotly resolves), M2 (starfield wraps: each star twice), M3 (caption, D18), M4 (strict in-place), M6 (status/event code drift test), M7 (decode rejection tests, N=15/T=360 test, independent + mutation plume test, named stability test, vacuous parallax test rewritten, JS tests fail loudly without node unless `OG_ALLOW_NO_NODE=1`), LOW (payload length/catalog checks, selected clamp, NaN domain, texture URL from script path, ring comment). **Accepted:** M5 (labels may stack beyond 4 per plate in `labelAll` mode, which the UI never enables; default risk-only labelling never went under 1100 km on 12 real episodes). |
+| Note | One console *warning* (Canvas2D readback hint) comes from inside plotly.js 2.35.2 itself (script location confirmed); not our code. |
 
 ### PR4 — Playback engine + camera
-Files: `assets/11_og_camera.js`, `14_og_playback.js`, `17_og_motion.js`, `18_og_boot.js`, `tests/js/camera.test.mjs`, `tests/js/playback.test.mjs`.
+Files: `assets/11_og_camera.js`, `14_og_playback.js`, `16_og_gesture.js`, `17_og_motion.js`, `18_og_stage.js`, `19_og_controller.js`, `layout_playback.py`, `tests/js/{camera,playback,gesture,motion}.test.mjs`.
 rAF loop + interpolation, controls, 1/2/4/8×, loop, prev/next event (EC-23), scrubber (density bars, conjunction ticks, hover preview), keys (EC-18),
 camera module (EC-15), state kept across tab/shield switches (EC-13), scenario → start step (EC-14), the five key animations.
+| Task | Status |
+|---|---|
+| `14_og_playback.js` (advance/loop/stop, event jumps null at the ends EC-23, keyboard map that does not steal Space from buttons or arrows from the scrubber EC-18, scrubber maths, clock, one-shot run starts) + tests | DONE |
+| `17_og_motion.js` (growth, tween τ, collision flash, static red frame under reduced motion; durations drift-tested against the tokens) + tests | DONE |
+| `16_og_gesture.js` (drag/wheel tracker, in-place WebGL update, one full redraw when settled) + tests with fakes | DONE |
+| Playback bar markup (`layout_playback.py`, 4 layout tests GREEN), icon + playback CSS, stage controls (zoom, Orbits, View) | DONE |
+| Controller `19_og_controller.js`: rAF loop (only while something moves), controls, speeds, loop, prev/next event, scrubber (density, ticks, hover preview, slider keys), global keys, clock + banner, collision flash, one-shot animations, state kept across tab/shield switches, scenario → open step, errors shown not hidden | DONE |
+| Live on the 12 real episodes: play at ≈ 4 steps/s, `]`/arrows/scrub/speed/loop, EC-13 (step 117 and S5 kept across AFTER TRAINING; strip counted 30.00 → 4.65 → 3.15), EC-14 (scenario → its own open step), console clean | DONE |
+| Review (typescript-reviewer) of controller/stage/panels | TODO |
+| Perf note | Headless Chromium here renders with SwiftShader (CPU): ≈ 4 fps for the whole page at 1× — not representative. Real GPU measurement is PR7. |
 
 ### PR5 — Panels, timeline, fuel, rail, inspector, strip
-Files: `assets/16_og_panels.js`, `19_og_timeline.js`, `20_og_fuel.js`, `21_og_inspector.js`, `22_og_strip.js`, `tests/js/rail.test.mjs`, `tests/js/strip.test.mjs`.
+Files: `assets/20_og_panels.js` (view-models), `21_og_models.js`, `22_og_dom.js` (textContent-only builder), `23_og_render_panels.js`, `24_og_charts.js`, `05_og_icons.css`, `05_og_panels.css`, `06_og_playback.css`, `tests/js/{panels,models,charts}.test.mjs`.
 Tracked-this-step (grouping, +N more), inspector (stepper, picker, 3-row chart, decision line), conjunction table, fleet-fuel heatmap + bars,
 timeline Counts / By satellite, summary strip (totals, BEFORE/AFTER bars, ratio note, running value).
+
+| Task | Status |
+|---|---|
+| Pure view-models + renderers: tracked-this-step (grouping, expand, empty card), conjunction table, fleet fuel (bars, area chart, stranded), inspector (readouts, picker, 3-row Plotly chart with playhead relayout, decision line), timeline Counts / By satellite with selected-satellite marks, summary-strip running values + count-up | DONE (110 node tests) |
+| Live: all panels fill from real traces; dock scrolls when the inspector + tracked panes exceed the stage height (stage height uses `50vw` as in the handoff) | DONE, polish in PR7 |
 
 ### PR6 — Shield-off and empty states
 Files: `assets/23_og_states.js`, `05_og_panels.css` (edit), `layout.py` (edit). EC-01…EC-03, EC-06, EC-08, EC-09, EC-24, EC-26.
@@ -213,3 +239,5 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-02 | Interim check: old dcc.Graph app still renders with the vendored plotly (3 graphs, 0 errors) | OK |
 | 2026-10-02 | PR1: data layer (meta, catalog, derived series, source, payload, discovery, reference, recorder) + 12 real episodes recorded | **DONE** — reviewed (3 HIGH + 10 MEDIUM fixed test-first); suite 502 passed, ruff clean |
 | 2026-10-02 | PR2: fonts, selection, layout, strip, callbacks, app rewrite, CSS; verified live on the 12 real episodes at 5 widths + live resize | DONE pending review; no overflow, console clean |
+| 2026-10-02 | PR3 review (typescript-reviewer): 1 HIGH + 6 MEDIUM fixed or accepted, tests added (node 110 passing) | DONE |
+| 2026-10-02 | PR4/PR5 wired together: controller, stage, playback bar, panels, timeline, charts; verified live (play, keys, scrub, EC-13/14, strip count-up) | DONE pending review; suite 923 passed |

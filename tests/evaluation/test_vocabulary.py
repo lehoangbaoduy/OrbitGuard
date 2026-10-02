@@ -69,3 +69,9 @@ def test_payload_form_is_plain_json():
     assert payload["event"][0]["glyph"] == ""  # code 0 = none: nothing to draw
     assert {"color", "glyph", "label", "marker"} <= set(payload["sat_status"][3])
     assert {"dash", "width"} <= set(payload["pair_status"][2])
+
+
+def test_the_stage_scripts_use_the_ice_token_colour():
+    core = (TOKENS.parent / "10_og_core.js").read_text()
+
+    assert f'const ICE = "{_token("og-ice")}"' in core

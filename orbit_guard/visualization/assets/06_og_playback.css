@@ -1,0 +1,76 @@
+/* OrbitGuard replay - playback bar: transport, scrubber with density bars, speed and loop. */
+.og-playback { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 14px; border: 1px solid var(--og-hair); border-radius: var(--og-r-pane); background: var(--og-glass); }
+.og-transport { display: flex; align-items: center; gap: 6px; }
+.og-transport-btn {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--og-hair); background: transparent;
+  color: var(--og-text-2); font-size: 18px; cursor: pointer; transition: transform var(--og-dur-press) var(--og-ease-out), background var(--og-dur-fast) var(--og-ease-out);
+}
+.og-transport-btn:hover:not(:disabled) { background: color-mix(in oklab, var(--og-ice) 8%, transparent); color: var(--og-ice); }
+.og-transport-btn:active:not(:disabled) { transform: scale(.94); }
+.og-transport-btn:disabled { opacity: .35; cursor: not-allowed; }
+.og-play { width: 54px; height: 54px; font-size: 24px; color: var(--og-ice); border-color: var(--og-hair-hi); }
+.og-play[aria-pressed="true"] { box-shadow: var(--og-glow); background: color-mix(in oklab, var(--og-ice) 10%, transparent); }
+
+.og-scrub { position: relative; flex: 1 1 280px; min-width: 200px; height: 44px; cursor: pointer; border-radius: var(--og-r-chip); touch-action: none; }
+.og-scrub-density { position: absolute; inset: 0; width: 100%; height: 100%; }
+.og-scrub::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: 8px; background: var(--og-hair-hi); border-radius: 2px; }
+.og-scrub-fill { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: 8px; background: var(--og-ice); transform-origin: left center; transform: scaleX(0); border-radius: 2px; }
+.og-scrub-thumb { position: absolute; left: 0; top: 50%; width: 14px; height: 14px; margin: 2px 0 0 -7px; border-radius: 50%; background: var(--og-ground); border: 2px solid var(--og-ice); box-shadow: var(--og-glow); }
+.og-scrub:focus-visible { outline: 2px solid var(--og-ice); outline-offset: 3px; }
+.og-scrub-hover {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; padding: 6px 8px; border-radius: var(--radius-md); white-space: nowrap; pointer-events: none;
+  font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text); background: var(--og-glass-hi); border: 1px solid var(--og-hair-hi);
+}
+.og-scrub-hover[hidden] { display: none; }
+
+.og-playback-options { display: flex; align-items: center; gap: 10px; }
+.og-speed .og-seg { flex-direction: row; min-height: 32px; min-width: 40px; justify-content: center; padding: 0 8px; font-family: var(--og-font-mono); font-size: var(--og-fs-sm); }
+.og-loop { flex-direction: row; gap: 6px; min-height: 32px; padding: 0 10px; border: 1px solid var(--og-hair); font-family: var(--og-font-mono); font-size: var(--og-fs-sm); }
+.og-loop[aria-pressed="true"] { color: var(--og-ice); border-color: var(--og-hair-hi); box-shadow: var(--og-glow); }
+
+@media (max-width: 759px) {
+  .og-transport-btn { width: 44px; height: 44px; }
+  .og-play { width: 54px; height: 54px; }
+  .og-speed .og-seg, .og-loop { min-height: 44px; }
+  .og-playback-options { width: 100%; justify-content: space-between; }
+}
+
+/* Stage overlays: mission clock, event banner, collision flash, camera buttons. */
+.og-clock-t { font-family: var(--og-font-mono); font-weight: 300; font-size: var(--og-fs-hero); line-height: 1; color: var(--og-text); }
+.og-clock-unit { margin-left: 6px; font-size: var(--og-fs-md); color: var(--og-text-3); }
+.og-clock-sub { margin-top: 4px; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); letter-spacing: .06em; }
+.og-clock-chip { display: inline-block; margin-top: 8px; }
+.og-banner-card {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 14px; border-radius: var(--radius-md); font-family: var(--og-font-mono); font-size: var(--og-fs-sm);
+  color: var(--c); background: var(--og-glass-hi); border: 1px solid color-mix(in oklab, var(--c) 55%, transparent); backdrop-filter: blur(var(--og-blur));
+  animation: og-rise var(--og-dur-base) var(--og-ease-out);
+}
+.og-banner-more { font-size: var(--og-fs-xs); color: var(--og-text-2); }
+.og-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 35%, color-mix(in oklab, var(--og-collision) 55%, transparent) 100%); }
+.og-stage-controls { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 6px; z-index: 3; }
+.og-stage-btn {
+  min-width: 36px; min-height: 36px; padding: 0 10px; border-radius: var(--og-r-chip); border: 1px solid var(--og-hair); color: var(--og-text-2); cursor: pointer;
+  background: var(--og-glass-hi); font-family: var(--og-font-mono); font-size: var(--og-fs-sm); transition: border-color var(--og-dur-fast) var(--og-ease-out);
+}
+.og-stage-btn:hover { border-color: var(--og-hair-hi); color: var(--og-ice); }
+.og-stage-btn[aria-pressed="true"] { color: var(--og-ice); border-color: var(--og-hair-hi); }
+@keyframes og-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* Timeline */
+.og-tl-tabs { margin-bottom: 8px; }
+.og-tl-tab { min-height: 32px; padding: 0 12px; }
+.og-tl-wrap { position: relative; width: 100%; cursor: crosshair; }
+.og-tl-canvas { display: block; width: 100%; }
+.og-tl-head { position: absolute; left: 0; top: 0; width: 1px; background: var(--og-ice); pointer-events: none; will-change: transform; }
+.og-tl-notes { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-family: var(--og-font-mono); font-size: var(--og-fs-xs); }
+.og-tl-note { color: var(--c); }
+.og-tip-head { color: var(--og-text-3); margin-bottom: 2px; }
+.og-tip-line { color: var(--c); }
+
+@container (min-width: 780px) {
+  .og-stage-controls { right: calc(330px + 28px); }
+  #og-tracked { flex: 1 1 0; min-height: 230px; display: flex; flex-direction: column; }
+  #og-tracked .og-pane-body { overflow-y: auto; min-height: 0; }
+  #og-tracked .og-pane-body > *, #og-tracked .og-rows { flex-shrink: 0; overflow: visible; }
+  #og-inspector { flex: 0 0 auto; }
+}

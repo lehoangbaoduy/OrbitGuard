@@ -224,3 +224,54 @@ def test_phone_strip_labels_stay_readable_to_assistive_tech():
     short = [c for c in _walk(cell) if getattr(c, "className", "") == "og-cell-label-short"]
 
     assert short and all(c.__dict__.get("aria-hidden") == "true" for c in short)
+
+
+def test_legend_lists_every_status_with_glyph_and_label_and_states_the_visual_scale():
+    legend = next(c for c in _walk(_layout()) if getattr(c, "id", None) == "og-legend")
+    text = _text(legend)
+
+    for glyph, label in (("○", "INSIDE d_safe"), ("◆", "HIGH RISK"), ("✕", "COLLIDED"), ("■", "MANEUVER"), ("◇", "SHIELD INTERVENTION")):
+        assert glyph in text and label in text, (glyph, label)
+    assert "not drawn to scale" in text and "not data" in text
+
+
+def test_the_stage_has_a_starfield_for_the_camera_parallax():
+    ids = {c.id for c in _walk(_layout()) if isinstance(getattr(c, "id", None), str)}
+
+    assert {"og-stars-far", "og-stars-near"} <= ids
+
+
+# ----------------------------------------------------------------------- playback bar (PR4)
+def _by_id(layout):
+    return {c.id: c for c in _walk(layout) if isinstance(getattr(c, "id", None), str)}
+
+
+def test_playback_bar_has_the_five_transport_buttons_with_accessible_names():
+    ids = _by_id(_layout(payload=_payload(shielded_trace())))
+
+    names = {key: ids[key].__dict__.get("aria-label") for key in ("og-prev-event", "og-step-back", "og-play", "og-step-fwd", "og-next-event")}
+    assert names == {"og-prev-event": "Previous event", "og-step-back": "Step back", "og-play": "Play", "og-step-fwd": "Step forward", "og-next-event": "Next event"}
+    assert ids["og-play"].__dict__.get("aria-pressed") is False
+
+
+def test_the_scrubber_is_a_keyboard_slider_over_the_recorded_steps():
+    payload = _payload(shielded_trace())
+    scrub = _by_id(_layout(payload=payload))["og-scrub"]
+
+    assert scrub.__dict__.get("role") == "slider" and scrub.__dict__.get("tabIndex") == 0
+    assert scrub.__dict__.get("aria-valuemin") == 0 and scrub.__dict__.get("aria-valuemax") == payload["dims"]["steps"]
+
+
+def test_speed_buttons_offer_1_2_4_8_with_one_pressed_and_loop_is_a_toggle():
+    layout = _layout(payload=_payload(shielded_trace()))
+    speeds = _buttons(layout, "og-speed")
+
+    assert [b.id["id"] for b in speeds] == ["1", "2", "4", "8"]
+    assert [b.__dict__.get("aria-pressed") for b in speeds] == [True, False, False, False]
+    assert _by_id(layout)["og-loop"].__dict__.get("aria-pressed") is False
+
+
+def test_the_scrubber_has_a_canvas_for_the_density_bars_and_a_hover_preview():
+    ids = _by_id(_layout(payload=_payload(shielded_trace())))
+
+    assert {"og-scrub-density", "og-scrub-fill", "og-scrub-thumb", "og-scrub-hover"} <= set(ids)

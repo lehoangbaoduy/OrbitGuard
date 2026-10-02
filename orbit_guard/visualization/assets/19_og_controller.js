@@ -1,0 +1,440 @@
+/* OrbitGuard replay - controller: the playback clock, selection, panels, scrubber, timeline and keys.
+   All mutable state is private to this closure (nothing application-specific is published on `window`). Dash calls
+   `dash_clientside.og.boot` whenever the stored payload changes; everything else is driven by the user and by one
+   requestAnimationFrame loop that runs only while something is moving. */
+(function (root) {
+  "use strict";
+  const OG = root.OG;
+  const $ = (id) => document.getElementById(id);
+  const DRAW_INTERVAL_MS = 33; // the 3D scene is redrawn at most ~30 times a second
+  const FALLBACK_STEP_MS = 250; // used only if the token file is missing; the real value is --og-step-ms
+  const TIMELINE_HEIGHT = 130, MATRIX_HEIGHT = 150;
+  const HOVER_PAD_PX = 8;
+  const S = { ep: null, p: 0, playing: false, speed: 1, loop: false, selected: 0, orbits: true, expanded: false, timeline: "counts", last: 0, lastDraw: -Infinity, raf: 0,
+    anim: { plume: null, ring: null, lines: null, flash: null }, needDraw: true, panelsKey: "", stripVals: {}, stripTween: null, chart: { el: null, key: "" }, bound: false };
+  let stage = null;
+
+  const reduced = () => Boolean(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const stepMs = () => { const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--og-step-ms")); return Number.isFinite(v) && v > 0 ? v : FALLBACK_STEP_MS; };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const curStep = () => OG.playback.stepOf(S.p, S.ep.T);
+
+  function setText(id, text) { const el = $(id); if (el && el.textContent !== text) el.textContent = text; }
+
+  function setStatus(title, detail) {
+    const loading = $("og-loading");
+    if (!loading) return;
+    loading.hidden = false;
+    const heading = loading.querySelector(".og-loading-title");
+    if (heading) heading.textContent = title;
+    setText("og-loading-detail", detail || "");
+  }
+
+  /* ------------------------------------------------------------ panels */
+  /* Re-rendering replaces buttons; keep keyboard focus on "the same" button (same container, same position). */
+  function keepingFocus(container, render) {
+    const active = document.activeElement, inside = container && active && container.contains(active);
+    const index = inside ? [...container.querySelectorAll("button")].indexOf(active) : -1;
+    const result = render();
+    if (index >= 0) { const again = container.querySelectorAll("button")[index]; if (again) again.focus({ preventScroll: true }); }
+    return result;
+  }
+
+  const ui = () => ({ selected: S.selected, expanded: S.expanded, select, goStep, toggleExpand: () => { S.expanded = !S.expanded; S.panelsKey = ""; renderPanels(); } });
+
+  function renderPanels() {
+    const ep = S.ep, step = curStep(), key = `${step}|${S.selected}|${S.expanded}`;
+    if (!ep || key === S.panelsKey) return;
+    S.panelsKey = key;
+    const u = ui();
+    const body = (id) => $(`${id}-body`);
+    if (body("og-tracked")) keepingFocus(body("og-tracked"), () => OG.render.tracked(body("og-tracked"), ep, step, u));
+    if (body("og-risk")) keepingFocus(body("og-risk"), () => OG.render.risk(body("og-risk"), ep, step, u));
+    if (body("og-fuel")) {
+      keepingFocus(body("og-fuel"), () => OG.render.fuel(body("og-fuel"), ep, step, u));
+      drawCanvas($("og-fuel-canvas"), 52, (g, w, h) => OG.charts.drawFuelArea(g, w, h, ep, step));
+    }
+    if (body("og-inspector")) {
+      keepingFocus(body("og-inspector"), () => OG.render.inspector(body("og-inspector"), ep, step, u));
+      mountInspectorChart(step);
+    }
+    renderBanner(step);
+    renderStrip(step);
+    renderTimelineMarks();
+  }
+
+  /* The inspector chart is a persistent Plotly element: panel re-renders only re-parent it. */
+  function mountInspectorChart(step) {
+    const slot = $("og-inspector-chart");
+    if (!slot || !root.Plotly) return;
+    if (!S.chart.el) S.chart.el = document.createElement("div");
+    S.chart.el.id = "og-inspector-chart";
+    S.chart.el.className = "og-insp-chart";
+    slot.replaceWith(S.chart.el);
+    const key = `${S.ep.meta.scenario_id}|${S.ep.meta.policy}|${S.ep.shield}|${S.selected}`;
+    if (S.chart.key !== key) {
+      S.chart.key = key;
+      const fig = OG.charts.inspectorFigure(S.ep, S.selected, step);
+      root.Plotly.react(S.chart.el, fig.data, { ...fig.layout, height: S.chart.el.clientHeight || undefined }, { displayModeBar: false, staticPlot: true, responsive: true });
+    } else if (S.chart.el._fullLayout) {
+      root.Plotly.relayout(S.chart.el, OG.charts.playheadUpdate(step));
+    }
+  }
+
+  function renderBanner(step) {
+    const ep = S.ep, t = OG.playback.clockText(step, ep.controlDtS), b = OG.panels.banner(ep, step);
+    const clock = $("og-clock"), host = $("og-banner");
+    if (clock) OG.dom.mount(clock, OG.dom.h("div", { class: "og-clock-t" }, `T+${t.minutes}`, OG.dom.h("span", { class: "og-clock-unit" }, "min")),
+      OG.dom.h("div", { class: "og-clock-sub" }, `${t.hms} · step ${step} / ${ep.T}`),
+      ep.shield ? null : OG.dom.h("div", { class: "og-chip og-clock-chip", style: { "--c": ep.vocab.event[2].color } }, "◇ SHIELD OFF"));
+    if (host) OG.dom.mount(host, b ? OG.dom.h("div", { class: `og-banner-card is-${b.type}`, style: { "--c": b.color } },
+      OG.dom.h("span", { class: "og-banner-main" }, `${b.glyph} ${b.label} · ${b.sats}`), b.more ? OG.dom.h("span", { class: "og-banner-more" }, b.more) : null) : null);
+  }
+
+  function renderStrip(step) {
+    const running = OG.models.stripRunning(S.ep, step);
+    for (const [metric, text] of Object.entries(running)) setText(`og-strip-run-${metric}`, text);
+  }
+
+  /* The strip's totals count up to their new values when a tab or the shield switches (the end value is the recorded one). */
+  function countUpStrip() {
+    const tweens = [];
+    for (const el of document.querySelectorAll(".og-cell-val")) {
+      const metric = (el.id || "").replace("og-strip-val-", ""), target = parseFloat(el.textContent), before = S.stripVals[metric];
+      const decimals = (el.textContent.split(".")[1] || "").length;
+      if (Number.isFinite(target)) S.stripVals[metric] = target; else delete S.stripVals[metric];
+      if (Number.isFinite(target) && Number.isFinite(before) && before !== target) tweens.push({ el, current: before, target, decimals });
+    }
+    S.stripTween = tweens.length && !reduced() ? tweens : null;
+    if (S.stripTween) kick();
+  }
+
+  function stepStripTween(dt) {
+    if (!S.stripTween) return;
+    for (const t of S.stripTween) { t.current = OG.motion.tween(t.current, t.target, dt, OG.motion.DURATION.count, false); t.el.textContent = t.current.toFixed(t.decimals); }
+    if (S.stripTween.every((t) => t.current === t.target)) S.stripTween = null;
+  }
+
+  /* ------------------------------------------------------------ canvases */
+  function drawCanvas(canvas, height, paint) {
+    if (!canvas) return null;
+    const ratio = root.devicePixelRatio || 1, w = canvas.parentElement ? canvas.parentElement.clientWidth : canvas.clientWidth;
+    if (!w) return null;
+    canvas.style.width = `${w}px`; canvas.style.height = `${height}px`;
+    canvas.width = Math.round(w * ratio); canvas.height = Math.round(height * ratio);
+    const g = canvas.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return paint(g, w, height) || true;
+  }
+
+  function drawScrubber() {
+    const canvas = $("og-scrub-density"), host = $("og-scrub");
+    if (!canvas || !host || !S.ep) return;
+    const ratio = root.devicePixelRatio || 1, w = host.clientWidth, h = host.clientHeight;
+    if (!w) return;
+    canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
+    const g = canvas.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    OG.charts.drawScrubDensity(g, w, h, S.ep);
+  }
+
+  function moveScrubber() {
+    const ep = S.ep, host = $("og-scrub");
+    if (!host) return;
+    const w = host.clientWidth, u = S.p / ep.T, step = curStep();
+    const fill = $("og-scrub-fill"), thumb = $("og-scrub-thumb");
+    if (fill) fill.style.transform = `scaleX(${u})`;
+    if (thumb) thumb.style.transform = `translateX(${(u * w).toFixed(1)}px)`;
+    host.setAttribute("aria-valuenow", String(step));
+    host.setAttribute("aria-valuetext", `step ${step} of ${ep.T}, T+${OG.playback.clockText(step, ep.controlDtS).minutes} min`);
+    const head = $("og-timeline-head");
+    if (head) head.style.transform = `translateX(${(u * head.parentElement.clientWidth).toFixed(1)}px)`;
+  }
+
+  /* ------------------------------------------------------------ timeline */
+  function renderTimeline() {
+    const host = $("og-timeline-body");
+    if (!host || !S.ep) return;
+    const { h, mount } = OG.dom;
+    const tab = (mode, label) => h("button", { type: "button", class: `og-seg og-tl-tab${S.timeline === mode ? " is-active" : ""}`, "aria-pressed": S.timeline === mode, on: { click: () => { S.timeline = mode; renderTimeline(); } } }, label);
+    mount(host,
+      h("div", { class: "og-segmented og-tl-tabs", role: "group", "aria-label": "Timeline view" }, tab("counts", "Counts"), tab("sat", "By satellite")),
+      h("div", { id: "og-timeline-wrap", class: "og-tl-wrap" }, h("canvas", { id: "og-timeline-canvas", class: "og-tl-canvas" }), h("div", { id: "og-timeline-head", class: "og-tl-head" }),
+        h("div", { id: "og-timeline-tip", class: "og-scrub-hover", hidden: true, role: "tooltip" })),
+      h("div", { id: "og-timeline-notes", class: "og-tl-notes" }));
+    const wrap = $("og-timeline-wrap");
+    wrap.addEventListener("pointerdown", timelineClick);
+    wrap.addEventListener("pointermove", timelineHover);
+    wrap.addEventListener("pointerleave", () => { const tip = $("og-timeline-tip"); if (tip) tip.hidden = true; });
+    drawTimeline();
+  }
+
+  function drawTimeline() {
+    const ep = S.ep, canvas = $("og-timeline-canvas");
+    if (!ep || !canvas) return;
+    const counts = S.timeline === "counts", height = counts ? TIMELINE_HEIGHT : MATRIX_HEIGHT;
+    S.lanes = null;
+    drawCanvas(canvas, height, (g, w, h) => {
+      if (counts) { S.lanes = OG.charts.drawLanes(g, w, h, ep).lanes; OG.charts.drawLaneMarks(g, w, ep, S.lanes, S.selected); }
+      else OG.charts.drawMatrix(g, w, h, ep, S.selected);
+    });
+    const head = $("og-timeline-head");
+    if (head) head.style.height = `${height}px`;
+    renderTimelineNotes();
+    moveScrubber();
+  }
+
+  const renderTimelineMarks = () => { if (S.ep && $("og-timeline-canvas")) drawTimeline(); };
+
+  function renderTimelineNotes() {
+    const notes = $("og-timeline-notes");
+    if (!notes) return;
+    const run = OG.models.runningCounts(S.ep, curStep()), v = S.ep.vocab.event;
+    OG.dom.mount(notes, [[1, run.maneuver], [2, run.shield], [3, run.collision]].map(([code, text]) => OG.dom.h("span", { class: "og-tl-note", style: { "--c": v[code].color } }, `${v[code].glyph} ${v[code].label} ${text}`)));
+  }
+
+  function eventTarget(event, element) {
+    const rect = element.getBoundingClientRect();
+    return { rect, x: clamp(event.clientX - rect.left, 0, rect.width), y: clamp(event.clientY - rect.top, 0, rect.height) };
+  }
+
+  function timelineClick(event) {
+    const canvas = $("og-timeline-canvas");
+    if (!canvas || !S.ep) return;
+    const { rect, x, y } = eventTarget(event, canvas), step = Math.round((x / rect.width) * S.ep.T);
+    if (S.timeline === "sat") select(clamp(Math.floor((y / rect.height) * S.ep.N), 0, S.ep.N - 1));
+    goStep(step);
+  }
+
+  function showTip(tip, host, x, step) {
+    OG.dom.mount(tip, OG.dom.h("div", { class: "og-tip-head" }, `step ${step} · T+${OG.playback.clockText(step, S.ep.controlDtS).minutes} min`),
+      OG.panels.hoverLines(S.ep, step).map((l) => OG.dom.h("div", { class: "og-tip-line", style: { "--c": l.color || "var(--og-text-3)" } }, `${l.glyph} ${l.text}`)));
+    tip.hidden = false;
+    tip.style.transform = `translateX(${clamp(x - tip.offsetWidth / 2, 0, Math.max(0, host.clientWidth - tip.offsetWidth - HOVER_PAD_PX)).toFixed(0)}px)`;
+  }
+
+  function timelineHover(event) {
+    const canvas = $("og-timeline-canvas"), tip = $("og-timeline-tip");
+    if (!canvas || !tip || !S.ep) return;
+    const { rect, x } = eventTarget(event, canvas);
+    showTip(tip, canvas, x, Math.round((x / rect.width) * S.ep.T));
+  }
+
+  /* ------------------------------------------------------------ actions */
+  function kick() { if (!S.raf) S.raf = root.requestAnimationFrame(frame); }
+  function requestDraw(force) { S.needDraw = force ? "force" : (S.needDraw || true); kick(); }
+
+  function setPlaying(on) {
+    if (!S.ep) return;
+    if (on && S.p >= S.ep.T) S.p = 0;
+    S.playing = on;
+    const button = $("og-play");
+    if (button) {
+      button.setAttribute("aria-pressed", String(on)); button.setAttribute("aria-label", on ? "Pause" : "Play");
+      const icon = button.querySelector(".og-ico");
+      if (icon) icon.className = `og-ico ${on ? "og-ico-pause" : "og-ico-play"}`;
+    }
+    requestDraw(false);
+  }
+
+  function select(sat) {
+    if (!S.ep || sat === S.selected || sat < 0 || sat >= S.ep.N) return;
+    S.selected = sat; S.panelsKey = ""; renderPanels(); requestDraw(true);
+  }
+
+  /* Jump (or step) to `step`. Animations belong only to a single step forward; a jump starts none. */
+  function goStep(step, now = performance.now()) {
+    const ep = S.ep;
+    if (!ep) return;
+    const next = clamp(Math.round(step), 0, ep.T), from = curStep();
+    S.p = next;
+    if (next !== from) startAnimations(OG.playback.runStartsBetween(ep, from, next), next, now);
+    requestDraw(false);
+  }
+
+  function startAnimations(starts, step, now) {
+    const a = S.anim;
+    a.plume = starts.maneuver.length ? now : null;
+    a.ring = starts.shield.length ? now : null;
+    a.flash = starts.collision.length ? now : null;
+    a.lines = S.ep.payload.conjunction_entries.includes(step) ? now : null;
+  }
+
+  const jumpEvent = (direction) => {
+    const keys = S.ep.payload.key_steps, step = curStep();
+    const target = direction > 0 ? OG.playback.nextKey(keys, step) : OG.playback.prevKey(keys, step);
+    if (target !== null) goStep(target);
+  };
+
+  function setSpeed(speed) {
+    S.speed = speed;
+    for (const button of document.querySelectorAll(".og-speed-btn")) {
+      const on = Number(button.dataset.speed) === speed;
+      button.classList.toggle("is-active", on); button.setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  function setLoop(on) { S.loop = on; const b = $("og-loop"); if (b) b.setAttribute("aria-pressed", String(on)); }
+
+  function setOrbits(on) { S.orbits = on; const b = $("og-orbits"); if (b) b.setAttribute("aria-pressed", String(on)); requestDraw(true); }
+
+  /* ------------------------------------------------------------ frame loop */
+  function view(now, step) {
+    const r = reduced(), D = OG.motion.DURATION, g = (start, d) => OG.motion.growth(start, now, d, r);
+    return { step, frac: r ? 0 : OG.playback.frac(S.p, S.ep.T), selected: S.selected, orbits: S.orbits, labelAll: false,
+      grow: { plume: g(S.anim.plume, D.plume), ring: g(S.anim.ring, D.ring), lines: g(S.anim.lines, D.line) } };
+  }
+
+  function animating(now) {
+    const a = S.anim, D = OG.motion.DURATION;
+    return (a.plume !== null && now - a.plume < D.plume) || (a.ring !== null && now - a.ring < D.ring) || (a.lines !== null && now - a.lines < D.line) || (a.flash !== null && now - a.flash < D.flash);
+  }
+
+  function paintFlash(now) {
+    const host = $("og-stage");
+    if (!host) return;
+    let el = $("og-flash");
+    if (!el) { el = document.createElement("div"); el.id = "og-flash"; el.className = "og-flash"; el.setAttribute("aria-hidden", "true"); host.append(el); }
+    const alpha = OG.motion.flashAlpha(S.anim.flash, now, reduced());
+    el.style.opacity = alpha.toFixed(3);
+  }
+
+  /* Draw one frame; the loading overlay goes away only once Plotly has really drawn, and any failure is shown, not hidden. */
+  function drawNow(v, now, forced) {
+    const ep = S.ep;
+    try {
+      if (!root.Plotly) throw new Error("the plotting library did not load");
+      Promise.resolve(stage.draw(v, now, forced, S.playing)).then(() => {
+        const loading = $("og-loading");
+        if (loading && S.ep === ep) loading.hidden = true;
+      }).catch((error) => { if (S.ep === ep) fail("COULD NOT DRAW THE SCENE", error); });
+    } catch (error) { fail("COULD NOT DRAW THE SCENE", error); }
+  }
+
+  /* Never leave a previous episode on screen under another episode's header. */
+  function fail(title, error) {
+    S.playing = false;
+    S.ep = null;
+    if (stage) stage.clear();
+    for (const id of ["og-tracked", "og-inspector", "og-risk", "og-fuel", "og-timeline"]) { const body = $(`${id}-body`); if (body) body.replaceChildren(); }
+    setStatus(title, String((error && error.message) || error || "").slice(0, 160));
+  }
+
+  function frame(now) {
+    S.raf = 0;
+    const ep = S.ep;
+    if (!ep) return;
+    const dt = S.last ? now - S.last : 0;
+    S.last = now;
+    const before = curStep();
+    if (S.playing) {
+      const next = OG.playback.advance({ p: S.p, playing: true }, dt, { speed: S.speed, loop: S.loop, T: ep.T, stepMs: stepMs() });
+      S.p = next.p;
+      if (!next.playing) setPlaying(false);
+      const after = curStep();
+      if (after !== before) startAnimations(OG.playback.runStartsBetween(ep, before, after), after, now);
+    }
+    stepStripTween(dt);
+    const step = curStep(), gestureActive = stage.gestureActive(now), settled = stage.settled(now);
+    if (step !== before || S.needDraw) renderPanels();
+    moveScrubber();
+    paintFlash(now);
+    const due = now - S.lastDraw >= DRAW_INTERVAL_MS;
+    if (S.needDraw === "force" || settled || (due && (S.playing || S.needDraw || animating(now) || gestureActive))) {
+      S.lastDraw = now;
+      const forced = S.needDraw === "force" || settled;
+      S.needDraw = false;
+      drawNow(view(now, step), now, forced);
+    }
+    if (S.playing || animating(now) || gestureActive || S.needDraw || S.stripTween) kick();
+    else S.last = 0; // idle: the next burst of motion starts with a fresh clock, not a huge dt
+  }
+
+  /* ------------------------------------------------------------ inputs */
+  function bindOnce() {
+    if (S.bound) return;
+    S.bound = true;
+    const on = (id, type, fn) => { const el = $(id); if (el) el.addEventListener(type, fn); };
+    on("og-play", "click", () => setPlaying(!S.playing));
+    on("og-step-back", "click", () => goStep(curStep() - 1));
+    on("og-step-fwd", "click", () => goStep(curStep() + 1));
+    on("og-prev-event", "click", () => jumpEvent(-1));
+    on("og-next-event", "click", () => jumpEvent(1));
+    on("og-loop", "click", () => setLoop(!S.loop));
+    on("og-orbits", "click", () => setOrbits(!S.orbits));
+    on("og-zoom-in", "click", () => { stage.zoom(1 / 1.25); requestDraw(true); });
+    on("og-zoom-out", "click", () => { stage.zoom(1.25); requestDraw(true); });
+    on("og-view-reset", "click", () => { stage.resetCamera(); requestDraw(true); });
+    for (const button of document.querySelectorAll(".og-speed-btn")) button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
+    bindScrubber();
+    document.addEventListener("keydown", (event) => {
+      if (!S.ep || event.ctrlKey || event.metaKey || event.altKey) return;
+      const t = event.target, action = OG.playback.keyAction(event.key, { shift: event.shiftKey, tag: t.tagName || "", editable: Boolean(t.isContentEditable), role: t.getAttribute ? t.getAttribute("role") || "" : "" });
+      if (!action) return;
+      event.preventDefault();
+      if (action.type === "toggle") setPlaying(!S.playing);
+      else if (action.type === "event") jumpEvent(action.direction);
+      else goStep(curStep() + action.delta);
+    });
+    if (root.ResizeObserver) new root.ResizeObserver(() => { if (S.ep) { drawScrubber(); drawTimeline(); S.panelsKey = ""; renderPanels(); } }).observe($("og-app") || document.body);
+  }
+
+  function bindScrubber() {
+    const host = $("og-scrub");
+    if (!host) return;
+    let dragging = false;
+    const stepAt = (event) => OG.playback.scrubStep(event.clientX, host.getBoundingClientRect(), S.ep.T);
+    host.addEventListener("pointerdown", (event) => { if (!S.ep) return; dragging = true; host.setPointerCapture(event.pointerId); goStep(stepAt(event)); });
+    host.addEventListener("pointermove", (event) => {
+      if (!S.ep) return;
+      const step = stepAt(event), tip = $("og-scrub-hover");
+      if (dragging) goStep(step);
+      if (tip) showTip(tip, host, event.clientX - host.getBoundingClientRect().left, step);
+    });
+    const stop = () => { dragging = false; };
+    host.addEventListener("pointerup", stop); host.addEventListener("pointercancel", stop);
+    host.addEventListener("pointerleave", () => { const tip = $("og-scrub-hover"); if (tip) tip.hidden = true; });
+    host.addEventListener("keydown", (event) => {
+      if (!S.ep) return;
+      const next = OG.playback.sliderKey(event.key, { shift: event.shiftKey }, curStep(), S.ep.T);
+      if (next === null) return;
+      event.preventDefault(); goStep(next);
+    });
+  }
+
+  /* ------------------------------------------------------------ boot */
+  function adopt(ep) {
+    const previous = S.ep, sameScenario = previous && previous.meta.scenario_id === ep.meta.scenario_id;
+    const first = stage.setEpisode(ep);
+    S.p = sameScenario ? Math.min(Math.round(S.p), ep.T) : ep.openStep;
+    S.selected = previous && previous.N === ep.N ? S.selected : 0;
+    if (!sameScenario) { S.playing = false; S.anim = { plume: null, ring: null, lines: null, flash: null }; stage.resetCamera(); }
+    S.ep = ep; S.panelsKey = ""; S.chart.key = "";
+    return first;
+  }
+
+  function boot(payload) {
+    if (!payload) { fail("NO TRACE", ""); return "empty"; }
+    try {
+      if (!stage) stage = OG.createStage({ onSelect: select, requestDraw });
+      const ep = OG.decodeEpisode(payload);
+      setStatus("LOADING TRACE", `pre-recorded episode · ${ep.T + 1} frames · ${ep.P} pairs`);
+      adopt(ep);
+      bindOnce();
+      setPlaying(S.playing);
+      const host = $("og-scrub");
+      if (host) { host.setAttribute("aria-valuemax", String(ep.T)); drawScrubber(); }
+      renderTimeline();
+      countUpStrip();
+      renderPanels();
+      requestDraw("force");
+      return "ready";
+    } catch (error) {
+      fail("COULD NOT READ TRACE", error);
+      return "error";
+    }
+  }
+
+  root.dash_clientside = root.dash_clientside || {};
+  root.dash_clientside.og = { ...(root.dash_clientside.og || {}), boot };
+})(globalThis);

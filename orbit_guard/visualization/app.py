@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from dash import Dash
+from dash import ClientsideFunction, Dash, Input, Output
 
 from orbit_guard.visualization.callbacks import PayloadProvider, register_callbacks
 from orbit_guard.visualization.episodes import (
@@ -31,6 +31,9 @@ def create_app(index: EpisodeIndex, reference_log: str | Path | None = None) -> 
     selection = initial_selection(index)
     app.layout = build_layout(index, selection, provider(selection))
     register_callbacks(app, index, provider)
+    app.clientside_callback(  # the browser stage decodes the payload and draws it (assets/19_og_controller.js)
+        ClientsideFunction(namespace="og", function_name="boot"), Output("og-stage", "data-og-state"), Input("og-payload", "data")
+    )
     return app
 
 

@@ -15,8 +15,10 @@ from typing import Any
 from dash import dcc, html
 
 from orbit_guard.visualization.episodes import EpisodeIndex
+from orbit_guard.visualization.layout_playback import playback_bar
 from orbit_guard.visualization.layout_strip import DASH, NO_TRACE, summary_strip
 from orbit_guard.visualization.selection import Selection
+from orbit_guard.visualization.vocabulary import EVENT_VOCAB, SAT_VOCAB
 
 __all__ = ["build_layout", "control_states", "meta_children", "policy_label", "shield_off_bar", "summary_strip"]
 
@@ -176,15 +178,40 @@ def _loading(selection: Selection) -> html.Div:
     )
 
 
+SCALE_CAPTION = "Satellite models are enlarged for visibility, not drawn to scale, and the light direction is fixed: visual aids, not data."
+
+
+def _legend() -> html.Div:
+    """Status vocabulary chips: colour + glyph + label, straight from the single vocabulary (PRD §41)."""
+    chips = [
+        html.Span([html.Span(style.glyph, className="og-legend-glyph", style={"--chip": style.color}), html.Span(style.label, className="og-legend-label")], className="og-legend-chip")
+        for style in (*SAT_VOCAB[1:], *EVENT_VOCAB[1:3])
+    ]
+    return html.Div([html.Div(chips, className="og-legend-chips"), html.Div(SCALE_CAPTION, className="og-legend-caption")], id="og-legend", className="og-legend")
+
+
+def _stage_controls() -> html.Div:
+    """Zoom, orbit-ring toggle and camera reset; the browser stage wires them (assets/19)."""
+    def button(button_id: str, text: str, label: str, **extra: Any) -> html.Button:
+        return html.Button(text, id=button_id, className="og-stage-btn", type="button", title=label, **{"aria-label": label}, **extra)
+
+    return html.Div(
+        [button("og-zoom-out", "−", "Zoom out"), button("og-zoom-in", "+", "Zoom in"), button("og-orbits", "Orbits", "Show or hide the orbit rings", **{"aria-pressed": True}), button("og-view-reset", "View", "Reset the camera")],
+        className="og-stage-controls",
+    )
+
+
 def _stage(selection: Selection) -> html.Section:
     return html.Section(
         [
+            html.Div([html.Div(id="og-stars-far", className="og-stars og-stars-far"), html.Div(id="og-stars-near", className="og-stars og-stars-near")], className="og-starfield", **{"aria-hidden": "true"}),
             html.Div(id="og-scene", className="og-scene", role="img", **{"aria-label": "3D constellation view"}),
             *(html.Span(className=f"og-corner og-corner-{corner}", **{"aria-hidden": "true"}) for corner in ("tl", "tr", "bl", "br")),
             _loading(selection),
             html.Div(id="og-clock", className="og-clock"),
             html.Div(id="og-banner", className="og-banner", role="status"),
-            html.Div(id="og-legend", className="og-legend"),
+            _legend(),
+            _stage_controls(),
             html.Div([_pane("og-tracked", "Tracked this step"), _pane("og-inspector", "Inspector")], id="og-dock", className="og-dock"),
         ],
         id="og-stage",
@@ -192,13 +219,13 @@ def _stage(selection: Selection) -> html.Section:
     )
 
 
-def _main(selection: Selection) -> html.Main:
+def _main(selection: Selection, payload: Mapping[str, Any] | None) -> html.Main:
     return html.Main(
         [
             html.Div(
                 [
                     _stage(selection),
-                    html.Div(id="og-playback", className="og-playback"),
+                    playback_bar(payload),
                     html.Section([html.H2("Timeline", className="og-kicker og-pane-title"), html.Div(id="og-timeline-body")], id="og-timeline", className="og-pane og-timeline"),
                 ],
                 className="og-col-main",
@@ -227,7 +254,7 @@ def build_layout(index: EpisodeIndex, selection: Selection, payload: Mapping[str
             ),
             summary_strip(payload),
             _empty_state() if empty else html.Div(id="og-empty-slot"),
-            _main(selection),
+            _main(selection, payload),
         ],
         id="og-app",
         className="og-app is-empty" if empty else "og-app",

@@ -253,6 +253,15 @@ def test_a_stale_output_id_from_an_old_page_does_not_crash_the_callback(index):
     assert response.status_code == 200, response.get_data(as_text=True)
 
 
+def test_the_browser_stage_is_booted_by_a_clientside_callback_on_the_payload(index):
+    app = create_app(index)
+
+    keys = [k for k in app.callback_map if "og-stage.data-og-state" in k]
+
+    assert len(keys) == 1
+    assert [i["id"] for i in app.callback_map[keys[0]]["inputs"]] == ["og-payload"]
+
+
 def test_the_page_declares_its_language(index):
     assert 'lang="en"' in create_app(index).index_string
 
