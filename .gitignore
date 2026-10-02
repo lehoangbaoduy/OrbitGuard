@@ -31,3 +31,6 @@ ray_results/
 
 # Zone.Identifier sidecar files (Windows download metadata, not project content)
 *:Zone.Identifier
+
+# Windows download metadata (NTFS alternate data streams copied through WSL)
+*:Zone.Identifier
