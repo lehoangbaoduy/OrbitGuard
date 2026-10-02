@@ -4,9 +4,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ASSETS = path.resolve(import.meta.dirname, "../../orbit_guard/visualization/assets");
-const MODULES = ["10_og_core.js", "11_og_camera.js", "12_og_scene_static.js", "15_og_labels.js", "13_og_scene_dynamic.js", "14_og_playback.js", "16_og_gesture.js", "17_og_motion.js", "20_og_panels.js", "21_og_models.js", "24_og_charts.js"];
+const MODULES = ["10_og_core.js", "11_og_camera.js", "12_og_scene_static.js", "15_og_labels.js", "13_og_scene_dynamic.js", "14_og_playback.js", "16_og_gesture.js", "17_og_motion.js", "20_og_panels.js", "21_og_models.js", "22_og_dom.js", "23_og_render_panels.js", "24_og_charts.js"];
 
 export async function loadOG() {
+  if (!globalThis.document) (await import("./fakedom.mjs")).installFakeDom(); // 22_/23_ only build nodes through createElement
   for (const name of MODULES) {
     const file = path.join(ASSETS, name);
     await import(pathToFileURL(file).href); // every module must exist: a missing one fails loudly

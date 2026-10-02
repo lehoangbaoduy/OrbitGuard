@@ -10,13 +10,19 @@
   const TEXTURES = { day: `${ASSET_BASE}earth-day-1k.jpg`, night: `${ASSET_BASE}earth-night-1k.jpg` };
   const TEXTURE_SIZE = { w: 1024, h: 512 };
   const DOCK_MARGIN_PX = 24, MIN_DOMAIN = 0.4, ZOOM_MIN = 0.5, ZOOM_MAX = 3;
-  const FULL_REACT_MS = 250; // while playing, a full Plotly.react (labels, structure) at most this often; frames in between update WebGL in place
+  // While playing, frames update the live WebGL traces in place (≈ 15× cheaper than a react); a full Plotly.react (it also
+  // refreshes the label plates and picking data) follows after this many in-place frames or this long, whichever is first.
+  const IN_PLACE_RUN_MAX = 5, LABEL_STALE_MS = 500;
   const STAR_LAYERS = { far: { id: "og-stars-far", count: 160, seed: 11 }, near: { id: "og-stars-near", count: 50, seed: 29 } };
   const PLOT_CONFIG = { displayModeBar: false, responsive: true, scrollZoom: true, doubleClick: false };
   const $ = (id) => document.getElementById(id);
+  /* Plotly builds no WebGL object for an empty trace, so a trace that is empty now and filled later cannot be updated in
+     place. Every line/marker trace therefore always carries one point, hidden inside the (opaque) Earth. */
+  const HIDDEN_POINT = { x: [0], y: [0], z: [0] };
+  const withHiddenPoint = (data) => data.map((d) => (d.type === "scatter3d" && d.x && d.x.length === 0 ? { ...d, ...HIDDEN_POINT } : d));
 
   function createStage(handlers) {
-    const S = { ep: null, st: null, earthMesh: null, camera: null, revision: 0, resetView: false, bound: false, tracker: OG.gesture.createTracker(), starsDrawn: false, texturesRequested: false, selectedRing: null, lastFull: -Infinity, signature: "", nativeBound: false };
+    const S = { ep: null, st: null, earthMesh: null, camera: null, revision: 0, resetView: false, bound: false, tracker: OG.gesture.createTracker(), starsDrawn: false, texturesRequested: false, selectedRing: null, lastFull: -Infinity, inPlaceRun: 0, signature: "", nativeBound: false };
 
     function domainRight() {
       const stage = $("og-stage"), dock = $("og-dock");
@@ -57,9 +63,10 @@
     function loadTextures() {
       if (S.texturesRequested) return;
       S.texturesRequested = true;
+      const radius = S.ep.earthRadiusKm;
       Promise.all([loadImage(TEXTURES.day), loadImage(TEXTURES.night)]).then(([day, night]) => {
         const { w, h } = TEXTURE_SIZE;
-        S.earthMesh = OG.scene.earthMesh(S.ep.earthRadiusKm, OG.scene.SUN, pixels(day), pixels(night), w, h);
+        S.earthMesh = OG.scene.earthMesh(radius, OG.scene.SUN, pixels(day), pixels(night), w, h);
         if (S.st) S.st.earth = S.earthMesh;
         document.documentElement.setAttribute("data-og-earth", "textured");
         handlers.requestDraw(true);
@@ -109,15 +116,16 @@
       const el = $("og-scene");
       if (!S.ep || !el || !root.Plotly) return "skipped";
       const gesture = S.tracker.active(now);
-      const { data, annotations } = OG.scene.sceneTraces(S.ep, { ...view, static: S.st, selectedRing: selectedRing(view.selected) });
+      const { data: traces, annotations } = OG.scene.sceneTraces(S.ep, { ...view, static: S.st, selectedRing: selectedRing(view.selected) });
+      const data = withHiddenPoint(traces);
       const signature = `${view.selected}|${view.orbits}`;
       if (gesture && !force && OG.gesture.applyInPlace(el, data)) return "inplace";
-      const light = playing && !force && signature === S.signature && now - S.lastFull < FULL_REACT_MS;
-      if (light && OG.gesture.applyInPlace(el, data, { strict: true })) return "inplace";
-      S.signature = signature; S.lastFull = now;
+      const light = playing && !force && signature === S.signature && S.inPlaceRun < IN_PLACE_RUN_MAX && now - S.lastFull < LABEL_STALE_MS;
+      if (light && OG.gesture.applyInPlace(el, data, { strict: true })) { S.inPlaceRun += 1; return "inplace"; }
+      S.signature = signature; S.lastFull = now; S.inPlaceRun = 0;
       let layout = OG.scene.layout(S.ep, { camera: S.resetView ? null : S.camera, annotations, domainRight: domainRight(), revision: S.revision });
-      if (!S.resetView) layout = OG.camera.withLive(layout, el);
-      S.resetView = false;
+      if (!S.resetView && !S.zoomed) layout = OG.camera.withLive(layout, el);
+      S.resetView = false; S.zoomed = false;
       const done = root.Plotly.react(el, data, layout, PLOT_CONFIG);
       S.camera = OG.camera.live(el) || S.camera;
       moveStars(S.camera);
@@ -141,9 +149,10 @@
       const length = Math.hypot(camera.eye.x, camera.eye.y, camera.eye.z), base = Math.hypot(OG.scene.DEFAULT_CAMERA.eye.x, OG.scene.DEFAULT_CAMERA.eye.y, OG.scene.DEFAULT_CAMERA.eye.z);
       const target = Math.min(ZOOM_MAX * base, Math.max(ZOOM_MIN * base, length * factor)), k = target / length;
       S.camera = { ...camera, eye: { x: camera.eye.x * k, y: camera.eye.y * k, z: camera.eye.z * k } };
+      S.zoomed = true; // the next full draw uses this camera instead of the live one
     }
 
-    return { setEpisode, draw, clear, resetCamera, zoom, settled: (now) => S.tracker.settled(now), gestureActive: (now) => S.tracker.active(now), hasEpisode: () => S.ep !== null };
+    return { setEpisode, draw, clear, releaseGesture: () => { if (S.tracker.up()) handlers.requestDraw(true); }, resetCamera, zoom, settled: (now) => S.tracker.settled(now), gestureActive: (now) => S.tracker.active(now), hasEpisode: () => S.ep !== null };
   }
 
   OG.createStage = createStage;

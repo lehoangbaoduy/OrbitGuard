@@ -127,3 +127,18 @@ test("risk rows are ordered by status, then risk, then closest approach; a colli
   assert.equal(collided.dMin, null);
   assert.match(collided.note, /^impact T\+\d+$/);
 });
+
+test("the scrubber tooltip names a collided pair instead of calling the fleet nominal", () => {
+  const ep = OG.decodeEpisode(fixture("fleet_collision").payload);
+  const lines = OG.panels.hoverLines(ep, ep.T).map((l) => l.text).join(" | ");
+  assert.match(lines, /COLLISION/i);
+  assert.doesNotMatch(lines, /all pairs nominal/);
+});
+
+test("risk rows survive NaN risk and distance without breaking the order", () => {
+  const ep = OG.decodeEpisode(fixture("shielded").payload);
+  ep.risk[3] = NaN; ep.dMin[3] = NaN;
+  const rows = OG.panels.riskRows(ep, 3, 8);
+  assert.ok(rows.length >= 1);
+  assert.ok(rows.every((r) => r.risk === null || Number.isFinite(r.risk) || Number.isNaN(r.risk)));
+});

@@ -1,8 +1,15 @@
 /* OrbitGuard replay — phone layout (< 760 px): one row of five compact strip cells, 44 px touch targets. */
 @media (max-width: 759px) {
-  .og-header { gap: 8px 14px; }
+  .og-header { gap: 6px 14px; }
+  .og-scenarios { flex-wrap: nowrap; width: 100%; }
+  .og-scenarios .og-kicker { display: none; }
+  .og-scenarios .og-segmented { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .og-scenarios .og-seg { flex: 0 0 auto; min-height: 44px; padding: 4px 12px; }
+  .og-tab-sub, .og-tab-reason { display: none; }
+  .og-shield-control { flex-wrap: nowrap; }
+  .og-shield-control .og-kicker { flex: 0 0 auto; }
+  .og-shield-control .og-segmented { width: auto; flex: 1 1 auto; }
   .og-meta-line { margin-left: 0; justify-content: flex-start; }
-  .og-segmented { width: 100%; }
   .og-seg { flex: 1 1 auto; min-height: 44px; }
   .og-tabs { width: 100%; }
   .og-tab { flex: 1 1 0; min-width: 0; padding: 10px 8px 9px; }
@@ -18,4 +25,26 @@
   /* the full label and the unit stay in the accessibility tree: "MAN" alone would be read out as letters */
   .og-cell-label-full, .og-cell-unit { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .og-rail { position: static; max-width: none; flex-basis: 100%; }
+}
+
+/* Phone: the stage and the playback bar stay put; Risk / Timeline / Inspect show one panel group at a time. */
+.og-phone-tabs { display: none; }
+@media (max-width: 759px) {
+  :root { --og-phone-stage-h: 260px; }
+  .og-stage { position: sticky; top: 0; z-index: 6; height: var(--og-phone-stage-h); }
+  .og-playback { position: sticky; top: var(--og-phone-stage-h); z-index: 6; gap: 6px 10px; padding: 8px 10px; background: color-mix(in oklab, var(--color-surface) 92%, var(--og-ground)); }
+  .og-scrub { order: 3; flex-basis: 100%; }
+  .og-clock-t { font-size: 30px; }
+  .og-clock { top: 10px; left: 12px; }
+  .og-banner { left: 12px; top: 62px; transform: none; max-width: calc(100% - 24px); text-align: left; }
+  .og-banner-card { padding: 4px 8px; font-size: var(--og-fs-xs); flex-direction: row; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+  .og-stage-controls { right: 8px; bottom: 8px; }
+  .og-phone-tabs { display: flex; margin-top: 4px; }
+  .og-app[data-phone-tab="risk"] #og-timeline, .og-app[data-phone-tab="risk"] #og-phone-inspect,
+  .og-app[data-phone-tab="timeline"] #og-rail-right, .og-app[data-phone-tab="timeline"] #og-phone-inspect,
+  .og-app[data-phone-tab="inspect"] #og-rail-right, .og-app[data-phone-tab="inspect"] #og-timeline { display: none; }
+  .og-phone-inspect .og-dock { position: static; display: flex; flex-direction: column; gap: var(--og-gap-pane); width: auto; overflow: visible; pointer-events: auto; }
+  .og-phone-inspect .og-legend { position: static; margin-bottom: var(--og-gap-pane); }
+  .og-phone-inspect #og-tracked, .og-phone-inspect #og-inspector { flex: none; min-height: 0; }
+  .og-phone-inspect .og-insp-chart { height: 190px; }
 }

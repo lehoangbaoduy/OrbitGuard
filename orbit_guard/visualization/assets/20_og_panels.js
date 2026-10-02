@@ -124,10 +124,11 @@
       const shown = ids.length > HOVER_IDS ? `${ids.slice(0, HOVER_IDS).join(", ")} +${ids.length - HOVER_IDS}` : ids.join(", ");
       lines.push({ glyph: e.glyph, color: e.color, text: `${e.label} ×${sats.length} · ${shown}` });
     }
-    let high = 0, inside = 0;
-    for (let k = 0; k < ep.P; k += 1) { const s = ep.pairStatus[step * ep.P + k]; if (s === PAIR_HIGH_RISK) high += 1; else if (s === PAIR_INSIDE) inside += 1; }
+    let high = 0, inside = 0, collided = 0;
+    for (let k = 0; k < ep.P; k += 1) { const s = ep.pairStatus[step * ep.P + k]; if (s === PAIR_HIGH_RISK) high += 1; else if (s === PAIR_INSIDE) inside += 1; else if (s === PAIR_COLLISION) collided += 1; }
     const pv = ep.vocab.pair_status;
     if (high) lines.push({ glyph: pv[PAIR_HIGH_RISK].glyph, color: pv[PAIR_HIGH_RISK].color, text: `${high} ${pv[PAIR_HIGH_RISK].label} pair${high > 1 ? "s" : ""}` });
+    if (collided) lines.push({ glyph: pv[PAIR_COLLISION].glyph, color: pv[PAIR_COLLISION].color, text: `${collided} ${pv[PAIR_COLLISION].label} pair${collided > 1 ? "s" : ""} ` });
     if (inside) lines.push({ glyph: pv[PAIR_INSIDE].glyph, color: pv[PAIR_INSIDE].color, text: `${inside} ${pv[PAIR_INSIDE].label}` });
     return lines.length ? lines : [{ glyph: "·", color: null, text: "no events · all pairs nominal" }];
   }
@@ -138,6 +139,8 @@
   }
 
   /* The conjunction table: pairs ordered by status, then risk, then closest approach. A collided pair has no stale distance. */
+  const finiteOr = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+
   function riskRows(ep, step, limit) {
     const rows = [];
     for (let k = 0; k < ep.P; k += 1) {
@@ -147,7 +150,7 @@
         dMin: collided ? null : ep.dMin[a], dSafe: collided ? null : ep.dSafe[a], risk: collided ? null : ep.risk[a],
         note: collided ? `impact T+${minutesAt(ep, firstCollisionStep(ep, k))}` : null });
     }
-    rows.sort((x, y) => y.statusCode - x.statusCode || (y.risk ?? 0) - (x.risk ?? 0) || (x.dMin ?? Infinity) - (y.dMin ?? Infinity));
+    rows.sort((x, y) => y.statusCode - x.statusCode || finiteOr(y.risk, 0) - finiteOr(x.risk, 0) || finiteOr(x.dMin, Infinity) - finiteOr(y.dMin, Infinity));
     return rows.slice(0, limit);
   }
 

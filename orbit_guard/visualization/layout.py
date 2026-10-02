@@ -223,6 +223,19 @@ def _stage(selection: Selection) -> html.Section:
     )
 
 
+PHONE_TABS = (("risk", "Risk"), ("timeline", "Timeline"), ("inspect", "Inspect"))
+DEFAULT_PHONE_TAB = "risk"
+
+
+def _phone_tabs() -> html.Div:
+    """Risk / Timeline / Inspect switcher; only shown below 760 px (CSS), where the panes become one tab at a time."""
+    buttons = [
+        html.Button(label, id=f"og-phone-tab-{key}", className="og-seg og-phone-tab" + (" is-active" if key == DEFAULT_PHONE_TAB else ""), type="button", **{"aria-pressed": key == DEFAULT_PHONE_TAB, "data-tab": key})
+        for key, label in PHONE_TABS
+    ]
+    return html.Div(buttons, className="og-segmented og-phone-tabs", role="group", **{"aria-label": "Panels"})
+
+
 def _main(selection: Selection, payload: Mapping[str, Any] | None) -> html.Main:
     return html.Main(
         [
@@ -230,6 +243,8 @@ def _main(selection: Selection, payload: Mapping[str, Any] | None) -> html.Main:
                 [
                     _stage(selection),
                     playback_bar(payload),
+                    _phone_tabs(),
+                    html.Div(id="og-phone-inspect", className="og-phone-inspect"),
                     html.Section([html.H2("Timeline", className="og-kicker og-pane-title"), html.Div(id="og-timeline-body")], id="og-timeline", className="og-pane og-timeline"),
                 ],
                 className="og-col-main",
@@ -262,4 +277,5 @@ def build_layout(index: EpisodeIndex, selection: Selection, payload: Mapping[str
         ],
         id="og-app",
         className="og-app is-empty" if empty else "og-app",
+        **{"data-phone-tab": DEFAULT_PHONE_TAB},
     )

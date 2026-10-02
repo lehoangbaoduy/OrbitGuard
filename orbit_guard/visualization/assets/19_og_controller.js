@@ -10,6 +10,7 @@
   const FALLBACK_STEP_MS = 250; // used only if the token file is missing; the real value is --og-step-ms
   const TIMELINE_HEIGHT = 130, MATRIX_HEIGHT = 150;
   const HOVER_PAD_PX = 8;
+  const MAX_FRAME_DT_MS = 250; // a stall (hidden tab, slow draw) slows playback instead of skipping ahead
   const S = { ep: null, p: 0, playing: false, speed: 1, loop: false, selected: 0, orbits: true, expanded: false, timeline: "counts", last: 0, lastDraw: -Infinity, raf: 0,
     anim: { plume: null, ring: null, lines: null, flash: null }, needDraw: true, panelsKey: "", stripVals: {}, stripTween: null, chart: { el: null, key: "" }, bound: false };
   let stage = null;
@@ -17,7 +18,7 @@
   const reduced = () => Boolean(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const stepMs = () => { const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--og-step-ms")); return Number.isFinite(v) && v > 0 ? v : FALLBACK_STEP_MS; };
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const curStep = () => OG.playback.stepOf(S.p, S.ep.T);
+  const curStep = () => (S.ep ? OG.playback.stepOf(S.p, S.ep.T) : 0);
 
   function setText(id, text) { const el = $(id); if (el && el.textContent !== text) el.textContent = text; }
 
@@ -34,9 +35,9 @@
   /* Re-rendering replaces buttons; keep keyboard focus on "the same" button (same container, same position). */
   function keepingFocus(container, render) {
     const active = document.activeElement, inside = container && active && container.contains(active);
-    const index = inside ? [...container.querySelectorAll("button")].indexOf(active) : -1;
+    const key = inside ? active.dataset.focusKey || null : null;
     const result = render();
-    if (index >= 0) { const again = container.querySelectorAll("button")[index]; if (again) again.focus({ preventScroll: true }); }
+    if (key) { const again = [...container.querySelectorAll("[data-focus-key]")].find((el) => el.dataset.focusKey === key); if (again) again.focus({ preventScroll: true }); }
     return result;
   }
 
@@ -60,7 +61,7 @@
     }
     renderBanner(step);
     renderStrip(step);
-    renderTimelineMarks();
+    if (S.timelineSel !== S.selected) { S.timelineSel = S.selected; renderTimelineMarks(); } else renderTimelineNotes();
   }
 
   /* The inspector chart is a persistent Plotly element: panel re-renders only re-parent it. */
@@ -87,8 +88,10 @@
     if (clock) OG.dom.mount(clock, OG.dom.h("div", { class: "og-clock-t" }, `T+${t.minutes}`, OG.dom.h("span", { class: "og-clock-unit" }, "min")),
       OG.dom.h("div", { class: "og-clock-sub" }, `${t.hms} · step ${step} / ${ep.T}`),
       ep.shield ? null : OG.dom.h("div", { class: "og-chip og-clock-chip", style: { "--c": ep.vocab.event[2].color } }, "◇ SHIELD OFF"));
-    if (host) OG.dom.mount(host, b ? OG.dom.h("div", { class: `og-banner-card is-${b.type}`, style: { "--c": b.color } },
+    const text = b ? `${b.type}|${b.sats}|${b.more}` : "";
+    if (host && S.bannerText !== text) OG.dom.mount(host, b ? OG.dom.h("div", { class: `og-banner-card is-${b.type}`, style: { "--c": b.color } },
       OG.dom.h("span", { class: "og-banner-main" }, `${b.glyph} ${b.label} · ${b.sats}`), b.more ? OG.dom.h("span", { class: "og-banner-more" }, b.more) : null) : null);
+    S.bannerText = text;
   }
 
   /* The legend dims the shield entry (and says so) when the episode ran without the shield. */
@@ -122,6 +125,8 @@
 
   function stepStripTween(dt) {
     if (!S.stripTween) return;
+    S.stripTween = S.stripTween.filter((t) => t.el.isConnected);
+    if (!S.stripTween.length) { S.stripTween = null; return; }
     for (const t of S.stripTween) { t.current = OG.motion.tween(t.current, t.target, dt, OG.motion.DURATION.count, false); t.el.textContent = t.current.toFixed(t.decimals); }
     if (S.stripTween.every((t) => t.current === t.target)) S.stripTween = null;
   }
@@ -156,6 +161,9 @@
     const fill = $("og-scrub-fill"), thumb = $("og-scrub-thumb");
     if (fill) fill.style.transform = `scaleX(${u})`;
     if (thumb) thumb.style.transform = `translateX(${(u * w).toFixed(1)}px)`;
+    const keys = ep.payload.key_steps, off = (id, disabled) => { const el = $(id); if (el) el.disabled = disabled; };
+    off("og-step-back", step <= 0); off("og-step-fwd", step >= ep.T);
+    off("og-prev-event", OG.playback.prevKey(keys, step) === null); off("og-next-event", OG.playback.nextKey(keys, step) === null);
     host.setAttribute("aria-valuenow", String(step));
     host.setAttribute("aria-valuetext", `step ${step} of ${ep.T}, T+${OG.playback.clockText(step, ep.controlDtS).minutes} min`);
     const head = $("og-timeline-head");
@@ -166,8 +174,12 @@
   function renderTimeline() {
     const host = $("og-timeline-body");
     if (!host || !S.ep) return;
+    keepingFocus(host, () => buildTimeline(host));
+  }
+
+  function buildTimeline(host) {
     const { h, mount } = OG.dom;
-    const tab = (mode, label) => h("button", { type: "button", class: `og-seg og-tl-tab${S.timeline === mode ? " is-active" : ""}`, "aria-pressed": S.timeline === mode, on: { click: () => { S.timeline = mode; renderTimeline(); } } }, label);
+    const tab = (mode, label) => h("button", { type: "button", "data-focus-key": `tl-${mode}`, class: `og-seg og-tl-tab${S.timeline === mode ? " is-active" : ""}`, "aria-pressed": S.timeline === mode, on: { click: () => { S.timeline = mode; renderTimeline(); } } }, label);
     mount(host,
       h("div", { class: "og-segmented og-tl-tabs", role: "group", "aria-label": "Timeline view" }, tab("counts", "Counts"), tab("sat", "By satellite")),
       h("div", { id: "og-timeline-wrap", class: "og-tl-wrap" }, h("canvas", { id: "og-timeline-canvas", class: "og-tl-canvas" }), h("div", { id: "og-timeline-head", class: "og-tl-head" }),
@@ -191,6 +203,7 @@
     });
     const head = $("og-timeline-head");
     if (head) head.style.height = `${height}px`;
+    S.timelineSel = S.selected;
     renderTimelineNotes();
     moveScrubber();
   }
@@ -212,7 +225,9 @@
   function timelineClick(event) {
     const canvas = $("og-timeline-canvas");
     if (!canvas || !S.ep) return;
-    const { rect, x, y } = eventTarget(event, canvas), step = Math.round((x / rect.width) * S.ep.T);
+    const { rect, x, y } = eventTarget(event, canvas);
+    if (!rect.width) return;
+    const step = Math.round((x / rect.width) * S.ep.T);
     if (S.timeline === "sat") select(clamp(Math.floor((y / rect.height) * S.ep.N), 0, S.ep.N - 1));
     goStep(step);
   }
@@ -238,10 +253,11 @@
   function setPlaying(on) {
     if (!S.ep) return;
     if (on && S.p >= S.ep.T) S.p = 0;
+    if (!on && S.playing) S.p = Math.floor(S.p); // a paused scene shows a recorded frame, never an in-between one
     S.playing = on;
     const button = $("og-play");
     if (button) {
-      button.setAttribute("aria-pressed", String(on)); button.setAttribute("aria-label", on ? "Pause" : "Play");
+      button.setAttribute("aria-pressed", String(on)); button.title = on ? "Pause (Space)" : "Play (Space)";
       const icon = button.querySelector(".og-ico");
       if (icon) icon.className = `og-ico ${on ? "og-ico-pause" : "og-ico-play"}`;
     }
@@ -257,21 +273,28 @@
   function goStep(step, now = performance.now()) {
     const ep = S.ep;
     if (!ep) return;
+    if (!Number.isFinite(step)) return;
     const next = clamp(Math.round(step), 0, ep.T), from = curStep();
     S.p = next;
-    if (next !== from) startAnimations(OG.playback.runStartsBetween(ep, from, next), next, now);
+    if (next !== from) startAnimations(OG.playback.runStartsBetween(ep, from, next), next, now, next !== from + 1);
     requestDraw(false);
   }
 
-  function startAnimations(starts, step, now) {
+  const collisionAt = (step) => { for (let i = 0; i < S.ep.N; i += 1) if (S.ep.event[step * S.ep.N + i] === 3) return true; return false; };
+
+  /* Plume, ring and conjunction lines belong to the step just played. The flash is a screen overlay that runs to its end
+     (or, under reduced motion, stays as a static red frame for as long as the step has a collision). */
+  function startAnimations(starts, step, now, jumped) {
     const a = S.anim;
     a.plume = starts.maneuver.length ? now : null;
     a.ring = starts.shield.length ? now : null;
-    a.flash = starts.collision.length ? now : null;
     a.lines = S.ep.payload.conjunction_entries.includes(step) ? now : null;
+    if (starts.collision.length || (jumped && collisionAt(step))) a.flash = now;
+    else if (reduced()) a.flash = null;
   }
 
   const jumpEvent = (direction) => {
+    if (!S.ep) return;
     const keys = S.ep.payload.key_steps, step = curStep();
     const target = direction > 0 ? OG.playback.nextKey(keys, step) : OG.playback.prevKey(keys, step);
     if (target !== null) goStep(target);
@@ -323,9 +346,21 @@
   }
 
   /* Never leave a previous episode on screen under another episode's header. */
+  function clearChrome() {
+    for (const id of ["og-clock", "og-banner", "og-timeline-head", "og-flash"]) { const el = $(id); if (el) { el.replaceChildren(); if (id === "og-flash") el.style.opacity = "0"; } }
+    for (const el of document.querySelectorAll(".og-cell-run")) el.textContent = "";
+    const host = $("og-scrub"), fill = $("og-scrub-fill"), thumb = $("og-scrub-thumb"), density = $("og-scrub-density");
+    if (fill) fill.style.transform = "scaleX(0)";
+    if (thumb) thumb.style.transform = "translateX(0)";
+    if (density && density.getContext) density.getContext("2d").clearRect(0, 0, density.width, density.height);
+    if (host) { host.removeAttribute("aria-valuenow"); host.removeAttribute("aria-valuetext"); }
+    S.stripTween = null; S.panelsKey = ""; S.bannerText = null; S.last = 0;
+  }
+
   function fail(title, error) {
-    S.playing = false;
+    setPlaying(false);
     S.ep = null;
+    clearChrome();
     if (stage) stage.clear();
     for (const id of ["og-tracked", "og-inspector", "og-risk", "og-fuel", "og-timeline"]) { const body = $(`${id}-body`); if (body) body.replaceChildren(); }
     setStatus(title, String((error && error.message) || error || "").slice(0, 160));
@@ -333,9 +368,13 @@
 
   function frame(now) {
     S.raf = 0;
+    try { tick(now); } catch (error) { fail("COULD NOT UPDATE THE REPLAY", error); }
+  }
+
+  function tick(now) {
     const ep = S.ep;
     if (!ep) return;
-    const dt = S.last ? now - S.last : 0;
+    const dt = S.last ? Math.min(MAX_FRAME_DT_MS, now - S.last) : 0;
     S.last = now;
     const before = curStep();
     if (S.playing) {
@@ -343,7 +382,7 @@
       S.p = next.p;
       if (!next.playing) setPlaying(false);
       const after = curStep();
-      if (after !== before) startAnimations(OG.playback.runStartsBetween(ep, before, after), after, now);
+      if (after !== before) startAnimations(OG.playback.runStartsBetween(ep, before, after), after, now, after !== before + 1);
     }
     stepStripTween(dt);
     const step = curStep(), gestureActive = stage.gestureActive(now), settled = stage.settled(now);
@@ -378,8 +417,11 @@
     on("og-view-reset", "click", () => { stage.resetCamera(); requestDraw(true); });
     for (const button of document.querySelectorAll(".og-speed-btn")) button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
     bindScrubber();
+    for (const button of document.querySelectorAll(".og-phone-tab")) button.addEventListener("click", () => setPhoneTab(button.dataset.tab));
+    if (root.matchMedia) root.matchMedia(PHONE_QUERY).addEventListener("change", placeDock);
+    placeDock();
     document.addEventListener("keydown", (event) => {
-      if (!S.ep || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (!S.ep || event.ctrlKey || event.metaKey || event.altKey || (event.repeat && event.key === " ")) return;
       const t = event.target, action = OG.playback.keyAction(event.key, { shift: event.shiftKey, tag: t.tagName || "", editable: Boolean(t.isContentEditable), role: t.getAttribute ? t.getAttribute("role") || "" : "" });
       if (!action) return;
       event.preventDefault();
@@ -387,7 +429,17 @@
       else if (action.type === "event") jumpEvent(action.direction);
       else goStep(curStep() + action.delta);
     });
-    if (root.ResizeObserver) new root.ResizeObserver(() => { if (S.ep) { drawScrubber(); drawTimeline(); S.panelsKey = ""; renderPanels(); } }).observe($("og-app") || document.body);
+    if (root.ResizeObserver) {
+      let width = 0, queued = false;
+      new root.ResizeObserver((entries) => {
+        const next = Math.round(entries[entries.length - 1].contentRect.width);
+        if (next === width || queued) return; // height changes come from our own re-renders: ignore them
+        width = next; queued = true;
+        root.requestAnimationFrame(() => { queued = false; if (S.ep) { drawScrubber(); drawTimeline(); S.panelsKey = ""; renderPanels(); } });
+      }).observe($("og-app") || document.body);
+    }
+    root.addEventListener("blur", () => stage && stage.releaseGesture());
+    document.addEventListener("visibilitychange", () => { if (document.hidden && stage) stage.releaseGesture(); });
   }
 
   function bindScrubber() {
@@ -395,7 +447,12 @@
     if (!host) return;
     let dragging = false;
     const stepAt = (event) => OG.playback.scrubStep(event.clientX, host.getBoundingClientRect(), S.ep.T);
-    host.addEventListener("pointerdown", (event) => { if (!S.ep) return; dragging = true; host.setPointerCapture(event.pointerId); goStep(stepAt(event)); });
+    host.addEventListener("pointerdown", (event) => {
+      if (!S.ep || event.button > 0) return;
+      dragging = true;
+      try { host.setPointerCapture(event.pointerId); } catch (error) { /* a synthetic pointer cannot be captured; dragging still works while over the bar */ }
+      goStep(stepAt(event));
+    });
     host.addEventListener("pointermove", (event) => {
       if (!S.ep) return;
       const step = stepAt(event), tip = $("og-scrub-hover");
@@ -403,7 +460,7 @@
       if (tip) showTip(tip, host, event.clientX - host.getBoundingClientRect().left, step);
     });
     const stop = () => { dragging = false; };
-    host.addEventListener("pointerup", stop); host.addEventListener("pointercancel", stop);
+    host.addEventListener("pointerup", stop); host.addEventListener("pointercancel", stop); host.addEventListener("lostpointercapture", stop);
     host.addEventListener("pointerleave", () => { const tip = $("og-scrub-hover"); if (tip) tip.hidden = true; });
     host.addEventListener("keydown", (event) => {
       if (!S.ep) return;
@@ -413,14 +470,39 @@
     });
   }
 
+  /* ------------------------------------------------------------ phone */
+  const PHONE_QUERY = "(max-width: 759px)";
+  const isPhone = () => Boolean(root.matchMedia && root.matchMedia(PHONE_QUERY).matches);
+
+  function setPhoneTab(tab) {
+    const app = $("og-app");
+    if (app) app.setAttribute("data-phone-tab", tab);
+    for (const button of document.querySelectorAll(".og-phone-tab")) {
+      const on = button.dataset.tab === tab;
+      button.classList.toggle("is-active", on); button.setAttribute("aria-pressed", String(on));
+    }
+    S.panelsKey = ""; renderPanels(); drawTimeline();
+  }
+
+  /* On a phone the dock and the legend live in the Inspect tab instead of on top of the 3D view. */
+  function placeDock() {
+    const dock = $("og-dock"), legend = $("og-legend"), stage = $("og-stage"), mount = $("og-phone-inspect");
+    if (!dock || !legend || !stage || !mount) return;
+    if (isPhone()) mount.append(legend, dock);
+    else stage.append(legend, dock);
+    S.panelsKey = ""; if (S.ep) { renderPanels(); drawTimeline(); requestDraw(true); }
+  }
+
   /* ------------------------------------------------------------ boot */
   function adopt(ep) {
     const previous = S.ep, sameScenario = previous && previous.meta.scenario_id === ep.meta.scenario_id;
     const first = stage.setEpisode(ep);
     S.p = sameScenario ? Math.min(Math.round(S.p), ep.T) : ep.openStep;
     S.selected = previous && previous.N === ep.N ? S.selected : 0;
-    if (!sameScenario) { S.playing = false; S.anim = { plume: null, ring: null, lines: null, flash: null }; stage.resetCamera(); }
-    S.ep = ep; S.panelsKey = ""; S.chart.key = "";
+    S.anim = { plume: null, ring: null, lines: null, flash: null };
+    if (!sameScenario) { S.playing = false; stage.resetCamera(); }
+    S.ep = ep; S.panelsKey = ""; S.chart.key = ""; S.bannerText = null; S.timelineSel = null;
+    if (collisionAt(Math.floor(S.p))) S.anim.flash = performance.now();
     return first;
   }
 

@@ -40,11 +40,13 @@ views (histogram lanes, 15×360 matrix, fleet-fuel heatmap), explicit empty/shie
 | D8 | **Reference ("10 runs…") note is hidden** unless `--reference LOG.jsonl` (output of `orbit_guard.evaluation.runner`) is given; then it shows only the models present in the log. The untrained policy is not a registry model, so BEFORE never gets a reference number. | Real-data rule 6. My earlier 10-seed run was an ad-hoc script, not `runner.py`. |
 | D9 | **All assets self-hosted:** plotly.js, fonts (Martian Mono, Instrument Sans), icons, Earth JPGs. No CDN at runtime. Earth textures keep an attribution/licence note in `assets/README_ASSETS.md`. | Security review rule; handoff §Assets (offline). |
 | D10 | **JS in small modules** (≤ 400 lines, 800 cap), `assets/1x_og_*.js`, plain scripts loaded in numeric order, a single `dash_clientside.og` namespace. Pure helpers are tested with `node --test` (Node 22 available) from a pytest wrapper. | CONST-ARCH-003; handoff "one small, tested module" for camera internals. |
-| D11 | **Legacy `figures.py` figure builders are removed** once their replacements are tested (PR7); `SAT/PAIR/EVENT_STYLE` stay and take the token hexes + glyph changes (◆, ○). | Handoff "Tokens". |
+| D11 | **Legacy `figures.py` and its test are removed** (PR7). Nothing imported them any more; `SAT/PAIR/EVENT_STYLE` were superseded by the single `vocabulary.py` (token hexes + glyphs ◆, ○), so they went with it. | Handoff "Tokens". |
 | D12 | **Handoff folder stays where it is** (repo root); `*:Zone.Identifier` is git-ignored. | Q3 default. |
 | D13 | **Retirement comes from collisions, never from `alive`.** The env empties `agents` on truncation, so `alive[T]` is all False on every real trace (found by review on the 12 recordings). `retired_matrix` = satellite in a collided pair; `alive` is no longer shipped. | Review finding H1; EC-08. |
 | D14 | **Fleet fuel counts usable tanks only**; offline thrusters' fuel is reported as `stranded_mps`. Shield lane is `None` (not 0) when the shield is off. One burn threshold (`BURN_EPSILON_MPS` = env constant, drift-tested). | Review findings M4–M6; real-data rule 4. |
 | D15 | **BEFORE and AFTER tabs are always offered**; a policy without a trace is disabled with "no trace recorded". Meta needs `n_agents >= 2` (the env's own minimum) and must agree with the trace. | EC-03; review M9. |
+| D20 | **Phone (< 760 px):** stage (260 px) and playback bar are sticky; Risk / Timeline / Inspect tabs show one group of panes at a time (`data-phone-tab` on `#og-app`); the dock and the legend are re-parented into the Inspect tab by the controller (`matchMedia`). | Handoff "Phone". |
+| D21 | **Every line/marker trace always carries one hidden point** (inside the opaque Earth) so Plotly builds a WebGL object for it and playback can update it in place; in-place frames run ≤ 5 in a row or ≤ 500 ms before a full react. Measured with software GL: 49 vs ~29 frames in 4 s at 8×. | Playback performance; real-GPU numbers still to be taken on hardware. |
 | D17 | **Controller and stage are separate closures** (`19_og_controller.js` owns state, clock, panels, inputs; `18_og_stage.js` owns Plotly: full react, in-place WebGL update during a drag/wheel, one react when settled). While playing, frames between full reacts (≤ every 250 ms, or on any structural change) update live traces in place; `applyInPlace(strict)` refuses and forces a react when a mesh changed size or a trace was empty at the last react (review M4). | Software GL: full react ≈ 175 ms vs ≈ 10 ms in place; labels lag ≤ 1 step between reacts. |
 | D18 | **Satellite-size caption no longer claims a multiple.** The handoff's "about 300× true size" is not what is drawn (the bus is ≈ 96 km vs a 10 m configured body); the caption says "enlarged for visibility, not drawn to scale". | Review M3 (real-data rule: no unverifiable number). |
 | D19 | **One scalar `grow` per effect type** (plume/ring/lines) restarts when a step starts any new run of that type; continuing runs re-grow with it. Per-satellite start times would need a per-satellite grow in `sceneTraces`. | Simplicity; revisit in PR7 polish if visible. |
@@ -197,7 +199,7 @@ camera module (EC-15), state kept across tab/shield switches (EC-13), scenario �
 | Playback bar markup (`layout_playback.py`, 4 layout tests GREEN), icon + playback CSS, stage controls (zoom, Orbits, View) | DONE |
 | Controller `19_og_controller.js`: rAF loop (only while something moves), controls, speeds, loop, prev/next event, scrubber (density, ticks, hover preview, slider keys), global keys, clock + banner, collision flash, one-shot animations, state kept across tab/shield switches, scenario → open step, errors shown not hidden | DONE |
 | Live on the 12 real episodes: play at ≈ 4 steps/s, `]`/arrows/scrub/speed/loop, EC-13 (step 117 and S5 kept across AFTER TRAINING; strip counted 30.00 → 4.65 → 3.15), EC-14 (scenario → its own open step), console clean | DONE |
-| Review (typescript-reviewer) of controller/stage/panels | TODO |
+| Review (typescript-reviewer) of controller/stage/panels: 0 CRITICAL, 4 HIGH, 9 MEDIUM, ~12 LOW | **DONE** — HIGH: zoom discarded by the live-camera copy (one-shot flag), unbounded dt (clamped to 250 ms), `frame()` unguarded and `fail()` leaving stale chrome (try/catch, `clearChrome`), focus lost on re-render (stable `data-focus-key`, timeline wrapped). MEDIUM: pause rounds to a recorded frame, flash no longer cut short, animation state reset on every payload, collided pairs named in tooltips, NaN-safe fuel/risk, timeline redrawn only when selection changes, width-only coalesced ResizeObserver, banner re-mounted only on change, play button uses `aria-pressed` alone, texture radius captured early. LOW: pointer capture guarded, left button only, stuck gesture released on blur/hide, NaN step guarded, Space repeat ignored, prev/next/step disabled at the ends, rows/fuel/cells expose `aria-pressed`. **Found by the new fake-DOM tests:** `h()` rendered `aria-pressed=""`/missing for booleans (fixed: ARIA keys keep "true"/"false"). **Not done:** strip count-up could in theory race Dash's DOM commit (worked in every live switch; tween drops detached nodes); scrub while paused still does full reacts. |
 | Perf note | Headless Chromium here renders with SwiftShader (CPU): ≈ 4 fps for the whole page at 1× — not representative. Real GPU measurement is PR7. |
 
 ### PR5 — Panels, timeline, fuel, rail, inspector, strip
@@ -218,6 +220,13 @@ Files: `05_og_panels.css` (edit), `layout.py` (edit). EC-01…EC-03, EC-06, EC-0
 | Known gap | Switching one control to a combination without a trace is ignored (the option is disabled with the reason), so a baseline policy whose only trace is shield-off cannot be reached from a shield-on selection. All 12 real combinations exist, so this only affects partial directories. |
 
 ### PR7 — Phone layout, motion polish, reduced motion, cleanup
+| Task | Status |
+|---|---|
+| Phone layout: sticky stage + playback, Risk/Timeline/Inspect tabs, compact header (scenario row scrolls, tab sub-lines hidden), 44 px targets; checked at 390 px | DONE (evidence `pr7_phone_*_390.png`) |
+| Reduced motion: stepping instead of interpolation, durations 0, static red frame at a collision step (checked live) | DONE |
+| Legacy `figures.py` removed (D11) | DONE |
+| Performance on real GPU, a11y audit, final full review, FR16 check | TODO |
+
 Files: `assets/08_og_phone.css`, `17_og_motion.js` (edit), `figures.py` (remove legacy builders), delete obsolete tests, docs.
 EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibility audit (a11y-architect), full review, final evidence.
 
@@ -246,3 +255,4 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-02 | PR3 review (typescript-reviewer): 1 HIGH + 6 MEDIUM fixed or accepted, tests added (node 110 passing) | DONE |
 | 2026-10-02 | PR4/PR5 wired together: controller, stage, playback bar, panels, timeline, charts; verified live (play, keys, scrub, EC-13/14, strip count-up) | DONE pending review; suite 923 passed |
 | 2026-10-02 | PR6: states verified live on fixture directories (empty, partial, collision, capability, shield-off); legend dimming + reference note added | DONE pending review |
+| 2026-10-02 | PR4/5 review (typescript-reviewer): 4 HIGH + 9 MEDIUM fixed, fake-DOM tests added (node 116); phone layout, reduced motion, in-place playback, figures.py removed | DONE; suite 914 passed |

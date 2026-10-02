@@ -5,11 +5,13 @@
   const OG = root.OG;
 
   /* h("button", {class: "x", "data-sat": 3, on: {click: fn}}, child, "text", ...) -> HTMLElement.
-     Attributes with null/undefined/false are skipped; `style` takes custom properties only (colours come from CSS vars). */
+     Attributes with null/undefined/false are skipped (aria-* keep "true"/"false"); `style` takes custom properties only (colours come from CSS vars). */
   function h(tag, attrs, ...children) {
     const el = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs || {})) {
-      if (value === null || value === undefined || value === false) continue;
+      if (value === null || value === undefined) continue;
+      if (key.startsWith("aria-")) { el.setAttribute(key, String(value)); continue; } // ARIA states need "true"/"false", never "" or absence
+      if (value === false) continue;
       if (key === "on") for (const [type, handler] of Object.entries(value)) el.addEventListener(type, handler);
       else if (key === "style") for (const [name, v] of Object.entries(value)) el.style.setProperty(name, v);
       else if (key === "text") el.textContent = String(value);
