@@ -11,14 +11,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from gymnasium.spaces.utils import flatten
 from ray.rllib.core.columns import Columns
 
+from orbit_guard.rl.ctde_module import POLICY_ID
+from orbit_guard.rl.evaluation import make_greedy_policy
 from orbit_guard.rl.training import (
-    POLICY_ID,
     TrainingSettings,
     build_algo,
-    evaluate,
-    greedy_action,
     load_training_settings,
     restore,
     train,
@@ -115,9 +115,13 @@ def test_checkpoint_round_trip_restores_identical_actor_weights(algo, tmp_path):
 
 def test_greedy_execution_ignores_the_global_state(algo):
     module = algo.get_module(POLICY_ID)
-    local = np.random.default_rng(0).standard_normal(AGENT_OBS_FLAT_DIM).astype(np.float32)
+    policy = make_greedy_policy(algo, _env_factory)
+    raw_env = _env_factory({})
+    observations, _ = raw_env.reset(seed=0)
+    agent = raw_env.possible_agents[0]
 
-    decentralized_action = greedy_action(algo, local, _GLOBAL_DIM)
+    decentralized_action = policy(agent, observations[agent])
+    local = flatten(raw_env.observation_space(agent), observations[agent]).astype(np.float32)
     with_noise = torch.as_tensor(np.concatenate([local, np.full(_GLOBAL_DIM, 99.0, np.float32)]))[None]
     with torch.no_grad():
         logits = module.forward_inference({Columns.OBS: with_noise})[Columns.ACTION_DIST_INPUTS]
@@ -125,14 +129,12 @@ def test_greedy_execution_ignores_the_global_state(algo):
     assert decentralized_action == int(torch.argmax(logits).item())
 
 
-def test_evaluation_rolls_out_full_episodes_with_the_trained_actor(algo):
-    report = evaluate(algo, _env_factory, num_episodes=2, seed=0)
+def test_settings_expose_the_critic_fix_and_reward_scale_defaults():
+    settings = TrainingSettings()
 
-    assert report.episodes == 2
-    assert report.mean_episode_steps == 10.0
-    assert report.collisions == 0
+    assert settings.vf_clip_param >= 1.0e3
+    assert settings.reward_scale == 1.0
 
 
-def test_evaluate_rejects_a_non_positive_episode_count(algo):
-    with pytest.raises(ValueError):
-        evaluate(algo, _env_factory, num_episodes=0)
+def test_the_critic_fix_reaches_the_ppo_config(algo):
+    assert algo.config.vf_clip_param == _SETTINGS.vf_clip_param

@@ -17,22 +17,20 @@ Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import torch
 import yaml
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.core.columns import Columns
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 
 from orbit_guard.rl.ctde_module import (
     DEFAULT_ACTOR_HIDDEN_LAYERS,
     DEFAULT_CRITIC_HIDDEN_LAYERS,
+    POLICY_ID,
     CentralizedCriticTorchRLModule,
 )
 from orbit_guard.rl.rllib_env import (
@@ -41,7 +39,6 @@ from orbit_guard.rl.rllib_env import (
     register_orbit_guard_env,
 )
 
-POLICY_ID = "shared_policy"
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
 
@@ -60,6 +57,8 @@ class TrainingSettings:
     num_epochs: int = 10
     actor_hidden_layers: tuple[int, ...] = DEFAULT_ACTOR_HIDDEN_LAYERS
     critic_hidden_layers: tuple[int, ...] = DEFAULT_CRITIC_HIDDEN_LAYERS
+    vf_clip_param: float = 1.0e6
+    reward_scale: float = 1.0
     num_env_runners: int = 0
     seed: int | None = None
 
@@ -79,6 +78,7 @@ def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **ove
         "num_epochs": rl_block["num_sgd_iter"],
         "actor_hidden_layers": tuple(rl_block["actor_hidden_layers"]),
         "critic_hidden_layers": tuple(rl_block["critic_hidden_layers"]),
+        **{key: rl_block[key] for key in ("vf_clip_param", "reward_scale", "num_env_runners") if key in rl_block},
     }
     settings.update(overrides)
     return TrainingSettings(**settings)
@@ -112,6 +112,7 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
             train_batch_size=settings.train_batch_size,
             minibatch_size=settings.minibatch_size,
             num_epochs=settings.num_epochs,
+            vf_clip_param=settings.vf_clip_param,
         )
     )
     if settings.seed is not None:
@@ -121,7 +122,7 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
 
 def build_algo(env_factory: EnvFactory, settings: TrainingSettings, env_name: str = DEFAULT_ENV_NAME) -> Algorithm:
     """Register `env_factory` and build the MAPPO/CTDE algorithm for it."""
-    register_orbit_guard_env(env_name, env_factory)
+    register_orbit_guard_env(env_name, env_factory, reward_scale=settings.reward_scale)
     probe_env = CTDEParallelPettingZooEnv(env_factory({}))
     local_obs_dim = probe_env.local_obs_dim
     probe_env.close()
@@ -134,7 +135,8 @@ class TrainingReport:
     episode_return_means: tuple[float, ...]
     env_steps_sampled: int
     checkpoint_path: str | None = None
-    metrics: dict[str, Any] = field(default_factory=dict)
+    entropies: tuple[float, ...] = ()
+    vf_explained_variances: tuple[float, ...] = ()
 
 
 def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | None = None) -> TrainingReport:
@@ -143,10 +145,15 @@ def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | Non
         raise ValueError(f"num_iterations must be >= 1, got {num_iterations}")
 
     returns: list[float] = []
+    entropies: list[float] = []
+    explained_variances: list[float] = []
     result: dict[str, Any] = {}
     for _ in range(num_iterations):
         result = algo.train()
         returns.append(float(result.get("env_runners", {}).get("episode_return_mean", float("nan"))))
+        learner_metrics = result.get("learners", {}).get(POLICY_ID, {})
+        entropies.append(float(learner_metrics.get("entropy", float("nan"))))
+        explained_variances.append(float(learner_metrics.get("vf_explained_var", float("nan"))))
 
     checkpoint_path = algo.save_to_path(str(checkpoint_dir)) if checkpoint_dir is not None else None
     return TrainingReport(
@@ -154,6 +161,8 @@ def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | Non
         episode_return_means=tuple(returns),
         env_steps_sampled=int(result.get("num_env_steps_sampled_lifetime", 0)),
         checkpoint_path=checkpoint_path,
+        entropies=tuple(entropies),
+        vf_explained_variances=tuple(explained_variances),
     )
 
 
@@ -164,83 +173,48 @@ def restore(env_factory: EnvFactory, settings: TrainingSettings, checkpoint_path
     return algo
 
 
-def greedy_action(algo: Algorithm, local_observation: np.ndarray, global_state_dim: int) -> int:
-    """Decentralized execution: argmax of the actor from the LOCAL observation only.
-
-    The module still expects the full ``[local | global]`` vector shape, so the
-    global slice is zero-padded; the actor never reads it (see ctde_module).
-    """
-    module = algo.get_module(POLICY_ID)
-    padded = np.concatenate([local_observation.astype(np.float32), np.zeros(global_state_dim, dtype=np.float32)])
-    with torch.no_grad():
-        outputs = module.forward_inference({Columns.OBS: torch.as_tensor(padded)[None]})
-    return int(torch.argmax(outputs[Columns.ACTION_DIST_INPUTS], dim=-1).item())
-
-
-@dataclass(frozen=True)
-class EvaluationReport:
-    episodes: int
-    mean_return_per_agent: float
-    collisions: int
-    mean_episode_steps: float
-
-
-def evaluate(algo: Algorithm, env_factory: EnvFactory, num_episodes: int, seed: int = 0) -> EvaluationReport:
-    """Greedy rollout on the raw env: one local observation per agent, no global state."""
-    from gymnasium.spaces.utils import flatten
-
-    if num_episodes < 1:
-        raise ValueError(f"num_episodes must be >= 1, got {num_episodes}")
-
-    env = env_factory({})
-    global_state_dim = int(env.state_space.shape[0])
-    returns: list[float] = []
-    steps: list[int] = []
-    collisions = 0
-
-    for episode in range(num_episodes):
-        observations, _ = env.reset(seed=seed + episode)
-        episode_return, episode_steps = 0.0, 0
-        while env.agents:
-            actions = {
-                agent: greedy_action(algo, flatten(env.observation_space(agent), observations[agent]), global_state_dim)
-                for agent in env.agents
-            }
-            observations, rewards, terminations, _, _ = env.step(actions)
-            episode_return += sum(rewards.values()) / max(len(rewards), 1)
-            episode_steps += 1
-            collisions += sum(bool(terminated) for terminated in terminations.values())
-        returns.append(episode_return)
-        steps.append(episode_steps)
-
-    return EvaluationReport(
-        episodes=num_episodes,
-        mean_return_per_agent=float(np.mean(returns)),
-        collisions=collisions,
-        mean_episode_steps=float(np.mean(steps)),
-    )
-
-
 def main(argv: list[str] | None = None) -> None:
-    """CLI: train MAPPO/CTDE on `OrbitGuardEnv`, then evaluate the trained actor.
+    """CLI: train MAPPO/CTDE on `OrbitGuardEnv`, then judge it against the no-maneuver baseline.
 
-    This is the human-read convergence run (PRD §44 P3-M5): inspect the printed
-    per-iteration returns and the evaluation report yourself; it is not CI-gated.
+    This is the human-read convergence run (PRD §44 P3-M5): read the printed
+    per-iteration returns and the gate verdict yourself; it is not CI-gated.
     """
     import argparse
+    import dataclasses
 
     from orbit_guard.rl.environment import OrbitGuardEnv
+    from orbit_guard.rl.evaluation import (
+        evaluate,
+        evaluate_policy,
+        gate_verdict,
+        no_maneuver_policy,
+    )
 
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--agents", type=int, default=2)
     parser.add_argument("--iterations", type=int, default=20)
-    parser.add_argument("--eval-episodes", type=int, default=5)
+    parser.add_argument("--eval-episodes", type=int, default=40)
+    parser.add_argument("--eval-seed", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG_PATH))
     parser.add_argument("--checkpoint-dir", default=None)
+    parser.add_argument("--num-env-runners", type=int, default=None)
+    parser.add_argument("--reward-scale", type=float, default=None)
+    parser.add_argument("--train-batch-size", type=int, default=None)
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--entropy-coeff", type=float, default=None)
     args = parser.parse_args(argv)
 
-    settings = load_training_settings(args.config, seed=args.seed)
+    overrides = {
+        "seed": args.seed,
+        "num_env_runners": args.num_env_runners,
+        "reward_scale": args.reward_scale,
+        "train_batch_size": args.train_batch_size,
+        "learning_rate": args.learning_rate,
+        "entropy_coeff": args.entropy_coeff,
+    }
+    settings = load_training_settings(args.config, **{k: v for k, v in overrides.items() if v is not None})
+    print(settings)
 
     def env_factory(config: dict) -> OrbitGuardEnv:
         return OrbitGuardEnv(num_agents=args.agents)
@@ -248,9 +222,19 @@ def main(argv: list[str] | None = None) -> None:
     algo = build_algo(env_factory, settings)
     try:
         report = train(algo, args.iterations, args.checkpoint_dir)
-        for iteration, mean_return in enumerate(report.episode_return_means, start=1):
-            print(f"iteration {iteration:3d}  episode_return_mean {mean_return:10.3f}")
-        print(evaluate(algo, env_factory, args.eval_episodes, seed=args.seed))
+        for iteration, (mean_return, entropy, explained_variance) in enumerate(
+            zip(report.episode_return_means, report.entropies, report.vf_explained_variances, strict=True), start=1
+        ):
+            print(
+                f"iteration {iteration:3d}  return {mean_return:10.3f}  "
+                f"entropy {entropy:6.3f}  vf_explained_var {explained_variance:7.3f}"
+            )
+        baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)
+        trained = evaluate(algo, env_factory, args.eval_episodes, args.eval_seed)
+        budget_mps = env_factory({}).delta_v_budget_mps
+        print("baseline:", dataclasses.asdict(baseline))
+        print("trained: ", dataclasses.asdict(trained))
+        print("verdict: ", gate_verdict(trained, baseline, budget_mps))
     finally:
         algo.stop()
 

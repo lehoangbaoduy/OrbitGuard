@@ -33,6 +33,7 @@ from ray.rllib.utils.typing import TensorType
 
 torch, nn = try_import_torch()
 
+POLICY_ID = "shared_policy"
 DEFAULT_ACTOR_HIDDEN_LAYERS = (128, 128)
 DEFAULT_CRITIC_HIDDEN_LAYERS = (256, 256)
 

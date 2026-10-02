@@ -250,6 +250,17 @@ class OrbitGuardEnv(ParallelEnv):
         flattened = [flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents]
         return np.concatenate(flattened).astype(np.float32)
 
+    @property
+    def delta_v_budget_mps(self) -> float:
+        return self._capability_template.remaining_delta_v_mps
+
+    def delta_v_used_mps(self) -> dict[str, float]:
+        """Delta-v each satellite has spent so far this episode (budget minus remaining)."""
+        return {
+            agent: self.delta_v_budget_mps - self._capabilities[self._agent_index[agent]].remaining_delta_v_mps
+            for agent in self.possible_agents
+        }
+
     def render(self):
         raise NotImplementedError("OrbitGuardEnv has no rendering.")
 

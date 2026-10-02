@@ -13,13 +13,8 @@ from __future__ import annotations
 import math
 
 from orbit_guard.rl.environment import OrbitGuardEnv
-from orbit_guard.rl.training import (
-    TrainingSettings,
-    build_algo,
-    evaluate,
-    restore,
-    train,
-)
+from orbit_guard.rl.evaluation import evaluate
+from orbit_guard.rl.training import TrainingSettings, build_algo, restore, train
 
 _SETTINGS = TrainingSettings(train_batch_size=64, minibatch_size=32, num_epochs=1, seed=0)
 
@@ -46,4 +41,5 @@ def test_train_checkpoint_restore_evaluate_on_the_real_environment(tmp_path):
 
     assert evaluation.episodes == 2
     assert evaluation.mean_episode_steps > 0
+    assert evaluation.mean_delta_v_used_mps >= 0
     assert math.isfinite(evaluation.mean_return_per_agent)
