@@ -103,6 +103,22 @@ def load_reward_weights(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overri
     return weights
 
 
+def make_env_factory(num_agents: int, reward_weights: dict[str, float], shielded: bool) -> EnvFactory:
+    """Env factory for a training/eval run: shield-active or a fully separate no-shield environment.
+
+    The shield module is imported only on the shielded branch, so a no-shield run
+    never even loads it (PRD §28, P4-M6).
+    """
+    if shielded:
+        from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
+
+        return lambda config: ShieldedOrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights)
+
+    from orbit_guard.rl.environment import OrbitGuardEnv
+
+    return lambda config: OrbitGuardEnv(num_agents=num_agents, reward_weights=reward_weights)
+
+
 def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSettings) -> PPOConfig:
     """PPOConfig with one shared actor and a centralized critic (true CTDE)."""
     module_spec = RLModuleSpec(
@@ -203,7 +219,6 @@ def main(argv: list[str] | None = None) -> None:
     import argparse
     import dataclasses
 
-    from orbit_guard.rl.environment import OrbitGuardEnv
     from orbit_guard.rl.evaluation import (
         evaluate,
         evaluate_policy,
@@ -220,6 +235,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG_PATH))
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--num-env-runners", type=int, default=None)
+    parser.add_argument(
+        "--shield", action=argparse.BooleanOptionalAction, default=True,
+        help="train/evaluate with the joint-action safety shield active (default); --no-shield is a separate run",
+    )
     parser.add_argument("--reward-scale", type=float, default=None)
     parser.add_argument("--reward-offset", type=float, default=None)
     parser.add_argument("--train-batch-size", type=int, default=None)
@@ -247,10 +266,9 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, key) is not None
     }
     reward_weights = load_reward_weights(args.config, **weight_overrides)
-    print(settings, reward_weights, flush=True)
+    print(settings, reward_weights, f"shield={args.shield}", flush=True)
 
-    def env_factory(config: dict) -> OrbitGuardEnv:
-        return OrbitGuardEnv(num_agents=args.agents, reward_weights=reward_weights)
+    env_factory = make_env_factory(args.agents, reward_weights, shielded=args.shield)
 
     algo = build_algo(env_factory, settings)
     try:

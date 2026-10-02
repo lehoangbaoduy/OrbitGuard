@@ -51,6 +51,8 @@ class EvaluationReport:
     threat_step_fraction: float
     mean_delta_v_used_mps: float
     mean_episode_steps: float
+    shield_intervention_rate: float = 0.0  # intervened agent-steps / agent-steps (0 without a shield)
+    shield_infeasible_step_rate: float = 0.0  # steps whose approved joint action still had a violation
 
 
 def no_maneuver_policy(agent: str, observation: dict[str, np.ndarray]) -> int:
@@ -91,6 +93,7 @@ def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, 
     returns, steps, delta_v_used = [], [], []
     collision_episodes = 0
     threat_steps = threat_maneuvers = calm_steps = calm_maneuvers = 0
+    shield_agent_steps = shield_interventions = shield_steps = shield_infeasible_steps = 0
 
     for episode in range(num_episodes):
         observations, _ = env.reset(seed=seed + episode)
@@ -103,7 +106,13 @@ def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, 
                     threat_steps, threat_maneuvers = threat_steps + 1, threat_maneuvers + maneuvered
                 else:
                     calm_steps, calm_maneuvers = calm_steps + 1, calm_maneuvers + maneuvered
-            observations, rewards, terminations, _, _ = env.step(actions)
+            observations, rewards, terminations, _, infos = env.step(actions)
+            decisions = [info["shield"] for info in infos.values() if "shield" in info]
+            if decisions:
+                shield_steps += 1
+                shield_infeasible_steps += not decisions[0]["feasible"]
+                shield_agent_steps += len(decisions)
+                shield_interventions += sum(bool(d["intervened"]) for d in decisions)
             episode_return += sum(rewards.values()) / max(len(rewards), 1)
             episode_steps += 1
             collided |= any(terminations.values())
@@ -124,6 +133,8 @@ def evaluate_policy(policy: Policy, env_factory: EnvFactory, num_episodes: int, 
         threat_step_fraction=_rate(threat_steps, total_steps),
         mean_delta_v_used_mps=float(np.mean(delta_v_used)),
         mean_episode_steps=float(np.mean(steps)),
+        shield_intervention_rate=_rate(shield_interventions, shield_agent_steps),
+        shield_infeasible_step_rate=_rate(shield_infeasible_steps, shield_steps),
     )
 
 

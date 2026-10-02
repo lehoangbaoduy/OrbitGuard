@@ -48,6 +48,7 @@ from gymnasium.spaces.utils import flatten
 from pettingzoo import ParallelEnv
 
 from orbit_guard.conjunction.collision import detect_collision
+from orbit_guard.conjunction.pair_assessment import assess_all_pairs, predict_all
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.physics.dynamics import state_derivative
 from orbit_guard.physics.integrator import propagate
@@ -56,10 +57,7 @@ from orbit_guard.physics.mission_deviation import (
     compute_weighted_mission_deviation,
 )
 from orbit_guard.physics.state import SatelliteCapability
-from orbit_guard.rl.conjunction_assessment import (
-    assess_all_pairs,
-    build_neighbor_candidates,
-)
+from orbit_guard.rl.conjunction_assessment import build_neighbor_candidates
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
     compute_coordination_term,
@@ -69,6 +67,7 @@ from orbit_guard.rl.reward import (
     compute_reward,
     compute_safety_term,
 )
+from orbit_guard.safety.adaptive_margin import MarginFn
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
 from orbit_guard.scenarios.conjunction_generator import (
     DEFAULT_DISTRIBUTION_MIX,
@@ -124,6 +123,7 @@ class OrbitGuardEnv(ParallelEnv):
         noise_model: NoiseModel = _DEFAULT_NOISE_MODEL,
         tle_path: str | Path = _DEFAULT_TLE_PATH,
         reward_weights: dict | None = None,
+        margin_fn: MarginFn | None = None,
     ):
         if num_agents < 2:
             raise ValueError("OrbitGuard is a multi-agent env; num_agents must be >= 2")
@@ -145,6 +145,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._distribution_mix = distribution_mix
         self._noise_model = noise_model
         self._reward_weights = reward_weights or _REWARD_WEIGHTS
+        self._margin_fn = margin_fn
         self._shell = fit_shell_distribution(load_tle_snapshot(tle_path))
         self._substeps_per_control = round(control_dt_s / physics_dt_s)
         self._horizon_steps = round(episode_horizon_s / control_dt_s)
@@ -176,6 +177,9 @@ class OrbitGuardEnv(ParallelEnv):
         self._shadow_states: list[np.ndarray] = []
         self._last_observations: dict = {}
         self._pending_assessments = None
+        self._pending_beliefs: list = []
+        self._pending_predictions: list = []
+        self._pending_mission_deviations: list[float] = [0.0] * num_agents
         self._collided_agents: set[int] = set()
 
     def observation_space(self, agent):
@@ -212,7 +216,7 @@ class OrbitGuardEnv(ParallelEnv):
         ]
 
         beliefs = self._current_beliefs()
-        self._pending_assessments = assess_all_pairs(beliefs, self._lookahead_s, self._physics_dt_s)
+        self._store_pending(beliefs)
         observations = self._observations_from(beliefs, self._pending_assessments, self._shadow_states)
         self._last_observations = dict(observations)
         infos = {agent: {} for agent in self.agents}
@@ -220,7 +224,9 @@ class OrbitGuardEnv(ParallelEnv):
 
     def step(self, actions):
         pre_assessments = self._pending_assessments
-        applied_delta_v, requested_delta_v = self._apply_actions(actions)
+        approved_actions, decision = self._approve_actions(actions)
+        applied_delta_v, approved_requested = self._apply_actions(approved_actions)
+        requested_delta_v = approved_requested if approved_actions is actions else self._requested_delta_v(actions)
         fine_trajectories = self._propagate_ground_truth(applied_delta_v)
         newly_collided = self._check_collisions(fine_trajectories)
         self._collided_agents |= newly_collided
@@ -229,11 +235,11 @@ class OrbitGuardEnv(ParallelEnv):
         self._advance_shadow_states()
 
         post_beliefs = self._current_beliefs()
-        post_assessments = assess_all_pairs(post_beliefs, self._lookahead_s, self._physics_dt_s)
-        self._pending_assessments = post_assessments
+        post_assessments = self._store_pending(post_beliefs)
 
         rewards = self._compute_rewards(
-            actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, self._shadow_states, newly_collided
+            actions, requested_delta_v, pre_assessments, self._outcome_assessments(post_assessments, decision),
+            post_beliefs, self._shadow_states, newly_collided,
         )
 
         observations = self._observations_from(post_beliefs, post_assessments, self._shadow_states)
@@ -241,7 +247,7 @@ class OrbitGuardEnv(ParallelEnv):
 
         terminations = {agent: self._agent_index[agent] in newly_collided for agent in self.agents}
         truncations = {agent: truncated_now for agent in self.agents}
-        infos = {agent: {} for agent in self.agents}
+        infos = self._step_infos(decision)
 
         self.agents = [agent for agent in self.agents if not (terminations[agent] or truncations[agent])]
         return observations, rewards, terminations, truncations, infos
@@ -263,6 +269,39 @@ class OrbitGuardEnv(ParallelEnv):
 
     def render(self):
         raise NotImplementedError("OrbitGuardEnv has no rendering.")
+
+    def _store_pending(self, beliefs) -> list:
+        """Predict and assess `beliefs`; keep all three as next step's decision-time state."""
+        self._pending_beliefs = list(beliefs)
+        self._pending_predictions = predict_all(beliefs, self._lookahead_s, self._physics_dt_s)
+        self._pending_assessments = assess_all_pairs(
+            beliefs, self._lookahead_s, self._physics_dt_s,
+            margin_fn=self._margin_fn, predicted=self._pending_predictions,
+        )
+        return self._pending_assessments
+
+    def _approve_actions(self, actions: dict):
+        """Hook: turn raw proposals into the actions actually applied. Identity here (no shield)."""
+        return actions, None
+
+    def _outcome_assessments(self, post_assessments, decision):
+        """Hook: assessments scoring the safety/coordination reward terms. The realized post-step ones here."""
+        return post_assessments
+
+    def _step_infos(self, decision) -> dict:
+        return {agent: {} for agent in self.agents}
+
+    def _requested_delta_v(self, actions: dict) -> list[np.ndarray]:
+        """Delta-v each agent's (raw, pre-cap) request maps to, from its true state -- no side effects."""
+        requested = [np.zeros(3) for _ in range(self._num_agents)]
+        for agent, action in actions.items():
+            idx = self._agent_index[agent]
+            gt = self._ground_truth[idx]
+            requested[idx] = map_intent_to_delta_v(
+                ManeuverIntent(action), gt[:3], gt[3:6],
+                base_delta_v_mps=self._capabilities[idx].max_delta_v_per_action_mps,
+            )
+        return requested
 
     def _current_beliefs(self):
         beliefs = []
@@ -291,6 +330,7 @@ class OrbitGuardEnv(ParallelEnv):
             idx = self._agent_index[agent]
             components = compute_mission_deviation(beliefs[idx].state_vector, shadow_states[idx])
             own_mission_deviation = compute_weighted_mission_deviation(components)
+            self._pending_mission_deviations[idx] = own_mission_deviation
             candidates = build_neighbor_candidates(idx, beliefs, assessments)
             cap = self._capabilities[idx]
             obs = build_observation(

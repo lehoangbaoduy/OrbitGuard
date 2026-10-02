@@ -162,3 +162,16 @@ def test_reward_weight_overrides_win_over_the_config_file():
 def test_unknown_reward_weight_names_are_rejected():
     with pytest.raises(ValueError):
         load_reward_weights(w9=1.0)
+
+
+def test_env_factory_builds_a_shielded_env_only_when_asked():
+    from orbit_guard.rl.environment import OrbitGuardEnv
+    from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
+    from orbit_guard.rl.training import make_env_factory
+
+    weights = load_reward_weights()
+    plain = make_env_factory(2, weights, shielded=False)({})
+    shielded = make_env_factory(2, weights, shielded=True)({})
+
+    assert type(plain) is OrbitGuardEnv
+    assert isinstance(shielded, ShieldedOrbitGuardEnv)

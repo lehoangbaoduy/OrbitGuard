@@ -112,3 +112,18 @@ def test_gate_criteria_are_overridable_but_default_to_the_preregistered_values()
     defaults = GateCriteria()
 
     assert dataclasses.astuple(defaults) == (0.25, 2.0, 0.3)
+
+
+def test_shield_metrics_are_zero_without_a_shield_and_positive_with_one_on_a_conjunction():
+    from orbit_guard.rl.environment import OrbitGuardEnv
+    from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
+
+    kwargs = {"episode_horizon_s": 180.0, "control_dt_s": 60.0, "physics_dt_s": 10.0, "lookahead_s": 1800.0}
+
+    plain = evaluate_policy(no_maneuver_policy, lambda _c: OrbitGuardEnv(num_agents=2, **kwargs), 1, seed=10)
+    shielded = evaluate_policy(no_maneuver_policy, lambda _c: ShieldedOrbitGuardEnv(num_agents=2, **kwargs), 1, seed=10)
+
+    assert plain.shield_intervention_rate == 0.0
+    assert plain.shield_infeasible_step_rate == 0.0
+    assert shielded.shield_intervention_rate > 0.0
+    assert 0.0 <= shielded.shield_infeasible_step_rate <= 1.0
