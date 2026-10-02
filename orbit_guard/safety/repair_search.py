@@ -21,10 +21,15 @@ Selection among FULL candidates is lexicographic and fully deterministic:
   2. lower total predicted risk (compared after quantizing to `risk_tolerance`,
      so risk differences too small to matter fall through to the next rule
      instead of buying a pointless extra burn);
-  3. lower total delta-v;
-  4. the maneuvering satellites with the lowest indices (the sorted tuple of
+  3. lower `shortfall_m` -- how far inside the safety margin the candidate
+     still leaves its pairs. It is 0 for every feasible assignment, so it only
+     matters when nothing is feasible: the risk proxy saturates (e.g. near 0
+     when sensing noise is tiny), and without this rule the fallback would
+     fall through to "burn nothing" while a burn could still add separation;
+  4. lower total delta-v;
+  5. the maneuvering satellites with the lowest indices (the sorted tuple of
      indices whose intent is not NO_MANEUVER, compared lexicographically);
-  5. the assignment tuple itself (a total order, so nothing is left to
+  6. the assignment tuple itself (a total order, so nothing is left to
      iteration order).
 If no candidate is feasible the same ordering picks the least risky one and
 the outcome's score says `feasible=False` -- the caller decides how to report.
@@ -43,6 +48,7 @@ DEFAULT_EXACT_MAX_AGENTS = 4
 DEFAULT_BEAM_WIDTH = 50
 DEFAULT_RISK_TOLERANCE = 1.0e-3
 _DELTA_V_RESOLUTION_MPS = 1.0e-9
+_SHORTFALL_RESOLUTION_M = 1.0
 
 Assignment = tuple[int, ...]
 
@@ -54,6 +60,7 @@ class AssignmentScore:
     feasible: bool
     risk: float
     delta_v_mps: float
+    shortfall_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,7 @@ def _final_key(score: AssignmentScore, assignment: Assignment, risk_tolerance: f
     return (
         not score.feasible,
         _quantized(score.risk, risk_tolerance),
+        _quantized(score.shortfall_m, _SHORTFALL_RESOLUTION_M),
         _quantized(score.delta_v_mps, _DELTA_V_RESOLUTION_MPS),
         _moving_agents(assignment),
         assignment,
@@ -95,6 +103,7 @@ def _final_key(score: AssignmentScore, assignment: Assignment, risk_tolerance: f
 def _partial_key(score: AssignmentScore, assignment: Assignment, risk_tolerance: float):
     return (
         _quantized(score.risk, risk_tolerance),
+        _quantized(score.shortfall_m, _SHORTFALL_RESOLUTION_M),
         _quantized(score.delta_v_mps, _DELTA_V_RESOLUTION_MPS),
         _moving_agents(assignment),
         assignment,

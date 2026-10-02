@@ -337,3 +337,17 @@ def test_shield_module_never_imports_ground_truth_machinery():
     }
     assert "GroundTruthState" not in imported
     assert "observe" not in imported
+
+
+def test_with_saturated_risk_and_no_feasible_option_the_shield_still_adds_separation():
+    # Zero sensing noise saturates the risk proxy near 0, so risk alone cannot rank burns; the
+    # fallback must still prefer a burn that reduces the margin shortfall over doing nothing.
+    zero_noise = NoiseModel(position_sigma_m=0.0, velocity_sigma_mps=0.0)
+    beliefs = _beliefs(_scenario("single_conjunction"), noise=zero_noise)
+    shield = _shield(margin_fn=_fixed_margin(1000.0))
+
+    result = shield.filter(beliefs, (0, 0), _capabilities(2))
+
+    assert not result.feasible
+    assert result.approved != (0, 0)
+    assert result.approved_evaluation.shortfall_m < result.proposal_evaluation.shortfall_m

@@ -104,6 +104,7 @@ class JointEvaluation:
     violations: tuple[Violation, ...]
     total_risk: float
     total_delta_v_mps: float
+    shortfall_m: float = 0.0  # summed depth inside the safety margin, over the evaluated pairs
 
 
 @dataclass(frozen=True)
@@ -222,6 +223,7 @@ class _JointContext:
             violations=tuple(violations),
             total_risk=float(sum(a.risk_proxy for a in assessments)),
             total_delta_v_mps=total_delta_v,
+            shortfall_m=float(sum(max(0.0, a.d_safe_m - a.d_min_m) for a in assessments)),
         )
 
 
@@ -317,7 +319,9 @@ class JointActionShield:
 
         def score(assignment) -> AssignmentScore:
             evaluation = context.evaluate(assignment, touching, affected)
-            return AssignmentScore(not evaluation.violations, evaluation.total_risk, evaluation.total_delta_v_mps)
+            return AssignmentScore(
+                not evaluation.violations, evaluation.total_risk, evaluation.total_delta_v_mps, evaluation.shortfall_m
+            )
 
         priority = dict.fromkeys(affected, 0.0)
         risk_by_pair = {(a.i, a.j): a.risk_proxy for a in proposal_evaluation.pairs}

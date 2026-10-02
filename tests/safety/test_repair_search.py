@@ -241,3 +241,23 @@ def test_outcome_reports_the_affected_agents_in_search_order():
 
     assert isinstance(outcome, RepairOutcome)
     assert set(outcome.stats.affected_agents) == {0, 2}
+
+
+def test_when_nothing_is_feasible_and_risk_ties_the_smaller_shortfall_wins_before_fuel():
+    def evaluate(assignment):
+        # Saturated risk (all equal); intent 3 leaves the pair closest to its margin but costs fuel.
+        shortfall = {0: 900.0, 1: 800.0, 2: 700.0, 3: 400.0}[assignment[0]]
+        return AssignmentScore(feasible=False, risk=0.0, delta_v_mps=0.05 * assignment[0], shortfall_m=shortfall)
+
+    outcome = search_repair((0,), (0,), {0: (0, 1, 2, 3)}, evaluate)
+
+    assert outcome.assignment == (3,)
+
+
+def test_shortfall_is_irrelevant_between_feasible_assignments():
+    def evaluate(assignment):
+        return AssignmentScore(feasible=True, risk=0.0, delta_v_mps=0.1 * assignment[0], shortfall_m=0.0)
+
+    outcome = search_repair((2,), (0,), {0: (0, 1, 2)}, evaluate)
+
+    assert outcome.assignment == (0,)
