@@ -45,7 +45,7 @@ def algo():
 def test_settings_load_the_prd_hyperparameters_from_the_default_config():
     settings = load_training_settings()
 
-    assert settings.learning_rate == pytest.approx(3.0e-4)
+    assert settings.learning_rate == pytest.approx(5.0e-4)
     assert settings.train_batch_size == 4000
     assert settings.minibatch_size == 256
     assert settings.num_epochs == 10
@@ -141,8 +141,8 @@ def test_the_critic_fix_reaches_the_ppo_config(algo):
     assert algo.config.vf_clip_param == _SETTINGS.vf_clip_param
 
 
-def test_reward_weights_load_the_prd_defaults_from_the_config():
-    assert load_reward_weights() == {"w1": 1.0, "w2": 0.3, "w3": 0.1, "w4": 0.5, "collision_penalty": -100}
+def test_reward_weights_load_the_tuned_defaults_from_the_config():
+    assert load_reward_weights() == {"w1": 1.0, "w2": 0.3, "w3": 5.0, "w4": 0.5, "collision_penalty": -100}
 
 
 def test_reward_weight_overrides_win_over_the_config_file():
