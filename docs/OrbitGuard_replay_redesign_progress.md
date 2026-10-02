@@ -34,7 +34,7 @@ views (histogram lanes, 15×360 matrix, fleet-fuel heatmap), explicit empty/shie
 | D2 | **Python computes, JS renders.** All numbers and derived series are produced by pure, unit-tested Python (`ReplaySource`) and shipped once per episode in a `dcc.Store`; JS never recomputes data, it only draws and interpolates positions. | Real-data rule 1; testability; the handoff says derived data is computed once in Python. |
 | D3 | **State stays client-side** (closure-private module state, not `window.*`); one `clientside_callback` boots the engine; server callbacks only for episode selection → payload. | Handoff "Porting to Dash"; CONST-SEC-003 (no app state on `window`). |
 | D4 | **Episodes are discovered from `trace.meta`** by scanning a directory (header only, no array loads). Key = `(scenario_id, policy, shield)`. | Real-data rule 3. `--trace FILE` is kept for single-trace use. |
-| D5 | **Meta schema v1** (`replay_meta.py`): `schema`, `scenario_id`, `condition`, `seed`, `policy` (`untrained`/`trained`/`no_maneuver`/`rule_based`), `shield` (bool), `model`, `n_agents`, `delta_v_budget_mps`, `weights_sha256` (or null), `init_seed` (untrained only). `load_trace` stays permissive for old traces; `validate_replay_meta` (called by discovery) raises with the missing field names. | Real-data rule 3 ("fail loudly on load"); old traces keep working with `--trace` + clear error. |
+| D5 | **Meta schema v1** (`replay_meta.py`): `schema`, `scenario_id`, `condition`, `seed`, `policy` (`untrained`/`trained`/`no_maneuver`/`rule_based`), `shield` (bool), `model`, `n_agents`, `delta_v_budget_mps`, `max_delta_v_per_action_mps`, `weights_sha256` (trained only), `init_seed` (untrained only). `load_trace` stays permissive for old traces; `validate_replay_meta` (called by discovery) raises with the missing field names. | Real-data rule 3 ("fail loudly on load"); old traces keep working with `--trace` + clear error. |
 | D6 | **Action catalog has one source:** `intent_catalog()` in `orbit_guard/safety/maneuver_mapper.py` (name, short label, Δv from config `maneuver:` block, exhaust direction from the RTN table). Visualization imports it. | Real-data rule 5. `orbit_guard/safety/__init__.py` is empty and `maneuver_mapper` only imports numpy + `physics.frames`, so FR16's import closure stays clean. |
 | D7 | **Default start step = the episode's peak-risk step** (derived by `derived/start_step.py`; first key step if no risk, else 0). | Handoff says "from config, not hard-coded". Derived from data = no new constants. |
 | D8 | **Reference ("10 runs…") note is hidden** unless `--reference LOG.jsonl` (output of `orbit_guard.evaluation.runner`) is given; then it shows only the models present in the log. The untrained policy is not a registry model, so BEFORE never gets a reference number. | Real-data rule 6. My earlier 10-seed run was an ad-hoc script, not `runner.py`. |
@@ -42,6 +42,10 @@ views (histogram lanes, 15×360 matrix, fleet-fuel heatmap), explicit empty/shie
 | D10 | **JS in small modules** (≤ 400 lines, 800 cap), `assets/1x_og_*.js`, plain scripts loaded in numeric order, a single `dash_clientside.og` namespace. Pure helpers are tested with `node --test` (Node 22 available) from a pytest wrapper. | CONST-ARCH-003; handoff "one small, tested module" for camera internals. |
 | D11 | **Legacy `figures.py` figure builders are removed** once their replacements are tested (PR7); `SAT/PAIR/EVENT_STYLE` stay and take the token hexes + glyph changes (◆, ○). | Handoff "Tokens". |
 | D12 | **Handoff folder stays where it is** (repo root); `*:Zone.Identifier` is git-ignored. | Q3 default. |
+| D13 | **Retirement comes from collisions, never from `alive`.** The env empties `agents` on truncation, so `alive[T]` is all False on every real trace (found by review on the 12 recordings). `retired_matrix` = satellite in a collided pair; `alive` is no longer shipped. | Review finding H1; EC-08. |
+| D14 | **Fleet fuel counts usable tanks only**; offline thrusters' fuel is reported as `stranded_mps`. Shield lane is `None` (not 0) when the shield is off. One burn threshold (`BURN_EPSILON_MPS` = env constant, drift-tested). | Review findings M4–M6; real-data rule 4. |
+| D15 | **BEFORE and AFTER tabs are always offered**; a policy without a trace is disabled with "no trace recorded". Meta needs `n_agents >= 2` (the env's own minimum) and must agree with the trace. | EC-03; review M9. |
+| D16 | **Selection callback updates controls in place** (wildcard outputs for className/disabled/title/aria-pressed/children) instead of rebuilding them, and re-validates the client-held selection against the index. | Keyboard focus survives; the State store is client-controlled. |
 
 ## 3. Open questions (Q) — conservative defaults taken, user can override
 
@@ -61,14 +65,14 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 
 | ID | Case | Source | Test | PR | Status |
 |---|---|---|---|---|---|
-| EC-01 | Loading trace: stage text, panes keep size (no layout jump) | DS "Empty & loading" | ui | 6 | TODO |
-| EC-02 | No trace / empty directory: "No episode loaded", controls disabled | DS | py + ui | 6 | TODO |
-| EC-03 | Scenario×policy×shield with no trace → option disabled "no trace recorded" | rule 4 | py + ui | 1/6 | TODO |
+| EC-01 | Loading trace: stage text, panes keep size (no layout jump) | DS "Empty & loading" | ui | 6 | DOING (loading region + stable pane sizes in layout, PR2; JS hide-on-ready lands PR4) |
+| EC-02 | No trace / empty directory: "No episode loaded", controls disabled | DS | py + ui | 6 | DOING (server-rendered 'No episode loaded' + disabled controls tested; Playwright evidence PR6) |
+| EC-03 | Scenario×policy×shield with no trace → option disabled "no trace recorded" | rule 4 | py + ui | 1/6 | DONE (py: index offers BEFORE/AFTER always, missing ones disabled 'no trace recorded' in layout + callback; ui evidence in PR6) |
 | EC-04 | Step 0: inspector says actions exist for steps 1–N | DS | js + ui | 5 | TODO |
 | EC-05 | All nominal: rail empty-card ("All N satellites nominal") | DS | js + ui | 5 | TODO |
 | EC-06 | Shield OFF: strip "—", hatched lane, legend dim + "(off)", tally "◇ off", empty-card text | DS | py + ui | 6 | TODO |
-| EC-07 | Thruster OFFLINE ⊘ / LIMITED Δv ◐ badges, fuel-track styles | README | py + ui | 1/5 | TODO |
-| EC-08 | Retired/collided satellites: ✕ ghost, "—" d_min, "impact T+n", retire strip, excluded from ranking | README | py + ui | 5/6 | TODO |
+| EC-07 | Thruster OFFLINE ⊘ / LIMITED Δv ◐ badges, fuel-track styles | README | py + ui | 1/5 | DOING (py capability flags DONE; badges PR5) |
+| EC-08 | Retired/collided satellites: ✕ ghost, "—" d_min, "impact T+n", retire strip, excluded from ranking | README | py + ui | 5/6 | DOING (py: retirement derived from collisions, not `alive`; ghost/impact UI PR5/6) |
 | EC-09 | NaN/absent field → "—" + reason tooltip | rule 4 | py + js | 5 | TODO |
 | EC-10 | Dense BEFORE: >3 same-type grouped, "+N more", histogram lanes, 15×T matrix, banner "N satellites" | DS | py + js + ui | 5 | TODO |
 | EC-11 | Sparse AFTER: IDs in lanes when ≤ 30 runs | DS | js + ui | 5 | TODO |
@@ -76,7 +80,7 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 | EC-13 | Switching tab/shield keeps scenario, step, selection, camera, play state | README | js + ui | 4 | TODO |
 | EC-14 | Switching scenario → derived start step | D7 | py + ui | 4 | TODO |
 | EC-15 | Camera drag/wheel during playback is not reset | README | js + ui | 4 | TODO |
-| EC-16 | No horizontal overflow at 320/390/768/1024/1440, including **live resize** | user rule + earlier bug | ui | 2/7 | TODO |
+| EC-16 | No horizontal overflow at 320/390/768/1024/1440, including **live resize** | user rule + earlier bug | ui | 2/7 | DOING (PR2 shell verified at 320/390/768/1024/1440 exact CSS px + live resize, 0 overflow; re-check each PR) |
 | EC-17 | Phone < 760 px: sticky stage + Risk/Timeline/Inspect tabs, ≥ 44 px targets | README | ui | 7 | TODO |
 | EC-18 | Keys: Space, ←/→, [ / ], ignored in inputs; slider PgUp/PgDn ±30, Home/End, Shift ±10 | DS | js + ui | 4 | TODO |
 | EC-19 | `prefers-reduced-motion`: durations 0, stepping, no interpolation | README | js + ui | 7 | TODO |
@@ -84,16 +88,16 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 | EC-21 | Hover only repeats rail/table/inspector info; touch works | DS | ui | 5 | TODO |
 | EC-22 | Selected satellite retires mid-episode | derived | js + ui | 5 | TODO |
 | EC-23 | Prev/next event disabled at the ends (45%) | DS | js + ui | 4 | TODO |
-| EC-24 | Reference note hidden without `--reference` | rule 6 | py + ui | 1/5 | TODO |
-| EC-25 | Comparative copy only from data; denominator 0 → no ratio | rule 7 | py | 1 | TODO |
-| EC-26 | Other tab's trace missing → bars show "—" | rule 4 | py + ui | 1/5 | TODO |
-| EC-27 | Meta missing/invalid → fail loudly naming fields | rule 3 | py | 1 | TODO |
-| EC-28 | Old trace without meta via `--trace` → clear error | D5 | py | 1 | TODO |
-| EC-29 | FR16: replay imports no Ray/torch | existing | py | 1/7 | TODO |
+| EC-24 | Reference note hidden without `--reference` | rule 6 | py + ui | 1/5 | DOING (py DONE: reference.py filters model/condition/n_agents, errors name file:line; UI PR5) |
+| EC-25 | Comparative copy only from data; denominator 0 → no ratio | rule 7 | py | 1 | DONE (never '100% less' for non-zero, NaN/inf/zero denominator → None) |
+| EC-26 | Other tab's trace missing → bars show "—" | rule 4 | py + ui | 1/5 | DOING (py DONE: missing counterpart → None; strip renders 'no trace recorded' without bar; JS running values PR5) |
+| EC-27 | Meta missing/invalid → fail loudly naming fields | rule 3 | py | 1 | DONE |
+| EC-28 | Old trace without meta via `--trace` → clear error | D5 | py | 1 | DONE |
+| EC-29 | FR16: replay imports no Ray/torch | existing | py | 1/7 | DOING (py DONE: app + data layer import no ray/torch/gymnasium; final check PR7) |
 | EC-30 | Literal guard: no episode numbers/synthetic imports in `.py/.js/.css`; assets folder lacks `orbitguard-data.js`, `support.js` | rule 8 | py | 0 | DONE |
-| EC-31 | Status matrices equal `frame_at` at every step (consistency of vectorised vs per-frame logic) | derived | py | 1 | TODO |
-| EC-32 | Payload size budget (≈ 1.5 MB / episode) and only the current episode in the Store | advisor | py | 1 | TODO |
-| EC-33 | Vendored plotly.js checksum pinned; no `dcc.Graph` in layout | D1 | py | 0/2 | DOING (assets half done; `no dcc.Graph in layout` check lands with PR2) |
+| EC-31 | Status matrices equal `frame_at` at every step (consistency of vectorised vs per-frame logic) | derived | py | 1 | DONE (vectorised == frame_at at every step incl. 12 real N=15 traces, one burn threshold) |
+| EC-32 | Payload size budget (≈ 1.5 MB / episode) and only the current episode in the Store | advisor | py | 1 | DONE (0.95 MB measured on a recorded N=15 T=360 episode, test runs without local files) |
+| EC-33 | Vendored plotly.js checksum pinned; no `dcc.Graph` in layout | D1 | py | 0/2 | DONE (no dcc.Graph in layout, vendored build checksum pinned) |
 | EC-34 | Label merging within threshold (≤ 4 per plate), plates never stack | DS | js + ui | 3 | TODO |
 | EC-35 | Fleet-fuel: exhausted tanks, "all empty" step, retired tint, offline flat grey | DS | py + ui | 5 | TODO |
 
@@ -138,13 +142,15 @@ tests: `tests/evaluation/test_replay_meta.py`, `test_episodes.py`, `test_derived
 `test_replay_payload.py`, `test_reference.py`, `tests/safety/test_intent_catalog.py`; FR16 test extended in `test_replay.py`.
 | Task | Status |
 |---|---|
-| Meta schema + `validate_replay_meta` + `build_replay_meta` (EC-27, EC-28) | TODO |
-| `intent_catalog()` single source (labels, Δv, exhaust axis) | TODO |
-| Vectorised status/event matrices == `frame_at` (EC-31) | TODO |
-| density, runs (merge ≤ 3 steps), key steps (conjunction entries, budget depletions, sparse run starts ≤ 80), fleet fuel, closest partner (excludes retired/collided), running metrics, capability flags (EC-07), start step (D7) | TODO |
-| `ReplaySource` facade; payload (float32, uint8) ≤ budget (EC-32) | TODO |
-| Episode discovery from meta, disabled-option info (EC-03); ratio/percent copy (EC-25); reference stats (EC-24) | TODO |
-| `scripts/record_replay_traces.py` → `~/orbitguard_runs/replay_traces/` (12 traces + untrained actor + weights hashes) | TODO |
+| Meta schema + `validate_replay_meta` + `build_replay_meta` (EC-27, EC-28) | DONE |
+| `intent_catalog()` single source (labels, Δv, exhaust axis) | DONE |
+| Vectorised status/event matrices == `frame_at` (EC-31) | DONE |
+| density, runs (merge ≤ 3 steps), key steps (conjunction entries, budget depletions, sparse run starts ≤ 80), fleet fuel, closest partner (excludes retired/collided), running metrics, capability flags (EC-07), start step (D7) | DONE |
+| `ReplaySource` facade; payload (float32, uint8) ≤ budget (EC-32) | DONE |
+| Episode discovery from meta, disabled-option info (EC-03); ratio/percent copy (EC-25); reference stats (EC-24) | DONE |
+| `scripts/record_replay_traces.py` → `~/orbitguard_runs/replay_traces/` (12 traces + untrained actor + weights hashes) | DONE |
+
+Review: python-reviewer BLOCK on 3 HIGH + 10 MEDIUM → all HIGH and every actionable MEDIUM fixed with tests first (`tests/evaluation/test_replay_hardening.py`, 36 tests). Real traces: 12 episodes recorded to `~/orbitguard_runs/replay_traces` (+ `weights/`), discovery verified, payload 0.97–0.99 MB.
 
 ### PR2 — Tokens/CSS + static layout
 Files: `assets/02_og_base.css`, `03_og_layout.css`, `04_og_stage.css`, `05_og_panels.css`, `06_og_timeline.css`, `07_og_motion.css`,
@@ -152,6 +158,16 @@ Files: `assets/02_og_base.css`, `03_og_layout.css`, `04_og_stage.css`, `05_og_pa
 `callbacks.py`, `figures.py` (styles → token hexes, glyphs), tests: `tests/evaluation/test_visualization_layout.py`, update `test_visualization_app.py`.
 Header (brand + scenario selector), tab bar (BEFORE/AFTER + SHIELD segmented), summary-strip skeleton, main grid, loading/no-trace states.
 Playwright: 320/390/768/1024/1440 + live resize (EC-16).
+| Task | Status |
+|---|---|
+| Self-hosted fonts (Instrument Sans, Martian Mono latin subsets) + `02_og_fonts.css` | DONE |
+| `selection.py` (resolve scenario/policy/shield, unavailable → ignored) + tests | DONE |
+| `layout.py`, `layout_strip.py` (header, tabs, shield control, shield-off bar, summary strip, stage/rail regions, loading + empty states) — tests RED→GREEN, no `dcc.Graph`, no inline styles but the strip bar `transform` | DONE |
+| `callbacks.py` (`PayloadProvider` with LRU(6) cache, `apply_click`, `parse_selection` validating client state, one selection callback updating controls IN PLACE via wildcard outputs so focus survives) + `app.py` rewrite (`create_app(index, reference_log)`, `--episodes/--trace/--reference-log`) | DONE |
+| CSS `02_og_base`, `03_og_layout`, `04_og_stage`, `07_og_motion`, `08_og_phone` (container query for the dock at ≥ 780 px) | DONE (`05_og_panels`/`06_og_timeline` land with PR5, icons with PR4) |
+| Playwright on the 12 real episodes: 5 widths, live resize, tab + shield clicks, console clean | DONE (evidence `docs/redesign/evidence/pr2_*.png`) |
+| Review (code-reviewer on layout/callbacks/CSS) | DOING |
+| `figures.py` token hexes/glyphs | MOVED to PR7 with the legacy removal (D11): nothing renders `figures.py` any more, so changing it now has no visible effect |
 
 ### PR3 — 3D scene (JS)
 Files: `assets/10_og_core.js`, `12_og_scene_static.js`, `13_og_scene_dynamic.js`, `15_og_labels.js`, `tests/js/labels.test.mjs`, `tests/js/scene.test.mjs`.
@@ -183,6 +199,7 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | Trace payload too large / slow first paint | float32/uint8 encoding, one episode in Store, EC-32 budget test |
 | 15×360 matrix + 3 lanes cost on every redraw | draw static layers once; only playhead moves by transform (README) |
 | 12 traces go stale after a retrain | meta carries weights hash; recording script is re-runnable |
+| Playwright browser here runs at devicePixelRatio 1.1 (WSLg scaling): set the viewport to CSS width × 1.1 to test exact breakpoints | `window.innerWidth` is asserted in every check |
 | Large JS surface with little automated coverage | pure helpers in `node --test`; Playwright evidence per PR |
 
 ## 8. Progress log (newest last)
@@ -194,3 +211,5 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-02 | Wrote `docs/redesign/REDESIGN_PROMPT.md` and this plan | done |
 | 2026-10-02 | PR0: vendored plotly 2.35.2 + handoff CSS/JPGs, README_ASSETS.md, guard tests (RED→GREEN), harness-os spec registered | **DONE** — 21 tests green, evaluation suite 120 green, ruff clean |
 | 2026-10-02 | Interim check: old dcc.Graph app still renders with the vendored plotly (3 graphs, 0 errors) | OK |
+| 2026-10-02 | PR1: data layer (meta, catalog, derived series, source, payload, discovery, reference, recorder) + 12 real episodes recorded | **DONE** — reviewed (3 HIGH + 10 MEDIUM fixed test-first); suite 502 passed, ruff clean |
+| 2026-10-02 | PR2: fonts, selection, layout, strip, callbacks, app rewrite, CSS; verified live on the 12 real episodes at 5 widths + live resize | DONE pending review; no overflow, console clean |

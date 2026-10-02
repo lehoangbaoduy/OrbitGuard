@@ -1,0 +1,21 @@
+/* OrbitGuard replay — phone layout (< 760 px): one row of five compact strip cells, 44 px touch targets. */
+@media (max-width: 759px) {
+  .og-header { gap: 8px 14px; }
+  .og-meta-line { margin-left: 0; justify-content: flex-start; }
+  .og-segmented { width: 100%; }
+  .og-seg { flex: 1 1 auto; min-height: 44px; }
+  .og-tabs { width: 100%; }
+  .og-tab { flex: 1 1 0; min-width: 0; padding: 10px 8px 9px; }
+  .og-tab-name { letter-spacing: .08em; font-size: var(--og-fs-sm); }
+  .og-tab-sub { white-space: normal; }
+  .og-shield-control { margin-left: 0; width: 100%; justify-content: space-between; }
+  .og-shield-control .og-seg { min-height: 44px; }
+  .og-strip { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .og-cell { padding: 8px 6px; gap: 4px; }
+  .og-cell-val { font-size: clamp(12px, 3.9vw, 15px); }
+  .og-cell-bars, .og-cell-note { display: none; }
+  .og-cell-label-short { display: inline; }
+  /* the full label and the unit stay in the accessibility tree: "MAN" alone would be read out as letters */
+  .og-cell-label-full, .og-cell-unit { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .og-rail { position: static; max-width: none; flex-basis: 100%; }
+}

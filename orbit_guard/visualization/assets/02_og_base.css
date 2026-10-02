@@ -1,0 +1,40 @@
+/* OrbitGuard replay — base: page ground, type roles, focus, scrollbars. Tokens live in 01_orbitguard-tokens.css. */
+html, body { margin: 0; background: var(--og-ground); }
+body { overflow-x: hidden; }
+button { font: inherit; color: inherit; }
+a { color: var(--og-ice); }
+a:hover { color: #f3f5fe; }
+
+.og-app {
+  position: relative; min-height: 100vh; overflow-x: clip;
+  color: var(--og-text); font-family: var(--og-font-sans); font-size: var(--og-fs-md);
+  background:
+    radial-gradient(1100px 680px at 28% 18%, color-mix(in oklab, var(--color-section) 26%, transparent), transparent 70%),
+    radial-gradient(900px 600px at 100% 100%, color-mix(in oklab, var(--color-surface) 55%, transparent), transparent 70%),
+    var(--og-ground);
+}
+/* faint scan lines over the whole page; purely decorative */
+.og-app::before {
+  content: ""; position: fixed; inset: 0; z-index: 60; pointer-events: none; opacity: .55;
+  background: repeating-linear-gradient(0deg, color-mix(in oklab, var(--og-ice) 3%, transparent) 0 1px, transparent 1px 3px);
+}
+
+.og-kicker {
+  font-size: var(--og-fs-xs); font-weight: 600; letter-spacing: var(--og-track-kicker);
+  text-transform: uppercase; color: var(--og-text-3); margin: 0;
+}
+.og-mono { font-family: var(--og-font-mono); font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--og-ice); outline-offset: 2px; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent; border-radius: 10px; background-clip: padding-box;
+  background-image: linear-gradient(180deg, rgba(219, 230, 243, .30), rgba(219, 230, 243, .12));
+}
+::-webkit-scrollbar-thumb:hover { background-image: linear-gradient(180deg, rgba(219, 230, 243, .55), rgba(219, 230, 243, .28)); }
+::-webkit-scrollbar-corner { background: transparent; }
+html::-webkit-scrollbar-track { background: var(--og-void); box-shadow: inset 1px 0 0 rgba(219, 230, 243, .08); }
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: rgba(219, 230, 243, .28) transparent; } }

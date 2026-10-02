@@ -1,0 +1,16 @@
+/* Self-hosted fonts (no runtime request to Google): latin subset of the variable builds. Glyphs outside the
+   subset (◆ ○ ✕ ◇ ■ ● ⊘ ◐ → Δ) fall back to the system monospace / sans stack. */
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("fonts/InstrumentSans-latin-var.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Martian Mono";
+  font-style: normal;
+  font-weight: 300 500;
+  font-display: swap;
+  src: url("fonts/MartianMono-latin-var.woff2") format("woff2");
+}

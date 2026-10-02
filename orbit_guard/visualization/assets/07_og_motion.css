@@ -1,0 +1,11 @@
+/* OrbitGuard replay — motion. Transform and opacity only; durations collapse to 0 under prefers-reduced-motion (tokens). */
+@keyframes og-pane-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.og-header, .og-tabbar, .og-strip, .og-stage, .og-rail > .og-pane {
+  animation: og-pane-in var(--og-dur-enter) var(--og-ease-out) both;
+}
+.og-tabbar { animation-delay: var(--og-stagger); }
+.og-strip { animation-delay: calc(var(--og-stagger) * 2); }
+.og-stage { animation-delay: calc(var(--og-stagger) * 3); }
+@media (prefers-reduced-motion: reduce) {
+  .og-header, .og-tabbar, .og-strip, .og-stage, .og-rail > .og-pane { animation: none; }
+}

@@ -34,3 +34,4 @@ ray_results/
 
 # Windows download metadata (NTFS alternate data streams copied through WSL)
 *:Zone.Identifier
+.playwright-mcp/
