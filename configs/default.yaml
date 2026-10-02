@@ -50,7 +50,7 @@ rl:
   num_sgd_iter: 10
   actor_hidden_layers: [128, 128]
   critic_hidden_layers: [256, 256]
-  vf_clip_param: 1.0e6
+  vf_clip_param: 1000000.0
   reward_scale: 1.0
   reward_offset: -1.0  # training-only centering of the +1/step baseline; evaluation uses raw rewards
   num_env_runners: 0

@@ -53,6 +53,16 @@ def test_settings_load_the_prd_hyperparameters_from_the_default_config():
     assert settings.critic_hidden_layers == (256, 256)
 
 
+def test_every_numeric_setting_loads_as_a_number():
+    # PyYAML parses `1.0e6` (no exponent sign) as a STRING; that once reached torch.clamp and crashed a run.
+    settings = load_training_settings()
+
+    for name in ("learning_rate", "gamma", "gae_lambda", "clip_param", "entropy_coeff", "vf_clip_param", "reward_scale", "reward_offset"):
+        assert isinstance(getattr(settings, name), (int, float)), name
+    for name in ("train_batch_size", "minibatch_size", "num_epochs", "num_env_runners"):
+        assert isinstance(getattr(settings, name), int), name
+
+
 def test_settings_overrides_take_precedence_over_the_config_file():
     assert load_training_settings(train_batch_size=64, seed=7).train_batch_size == 64
 
