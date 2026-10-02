@@ -10,7 +10,7 @@
 const fmtM = (m) => (Number.isFinite(m) ? Math.round(m).toLocaleString("en-US") : DASH);
   const fixed = (v, digits) => (Number.isFinite(v) ? v.toFixed(digits) : DASH);
 
-  const glyph = (text, color) => h("span", { class: "og-row-glyph", style: { "--c": color || NEUTRAL } }, text);
+  const glyph = (text, color) => h("span", { class: "og-row-glyph", style: { "--c": color || NEUTRAL }, "aria-hidden": "true" }, text);
 
   function satRow(row, selected, onSelect) {
     return h("button", { type: "button", class: `og-row${row.sat === selected ? " is-selected" : ""}`, "data-sat": row.sat, "data-focus-key": `sat-${row.sat}`, "aria-pressed": row.sat === selected, on: { click: () => onSelect(row.sat) } },
@@ -49,7 +49,7 @@ const fmtM = (m) => (Number.isFinite(m) ? Math.round(m).toLocaleString("en-US") 
       h("div", { class: "og-cells-axis" }, h("span", {}, "S0"), h("span", {}, OG.panels.stepTally(ep, step)), h("span", {}, `S${ep.N - 1}`)),
       model.empty ? emptyCard(ep) : h("div", { class: "og-rows" }, model.rows.map((r) => (r.kind === "group" ? groupRow(r, ui.toggleExpand) : satRow(r, ui.selected, ui.select)))),
       shieldNote,
-      model.moreLabel ? h("button", { type: "button", class: "og-more", "data-focus-key": "more", on: { click: ui.toggleExpand } }, model.moreLabel) : null);
+      model.moreLabel ? h("button", { type: "button", class: "og-more", "data-focus-key": "more", "aria-expanded": ui.expanded, on: { click: ui.toggleExpand } }, model.moreLabel) : null);
     return model;
   }
 

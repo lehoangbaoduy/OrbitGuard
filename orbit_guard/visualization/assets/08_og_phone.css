@@ -5,7 +5,7 @@
   .og-scenarios .og-kicker { display: none; }
   .og-scenarios .og-segmented { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .og-scenarios .og-seg { flex: 0 0 auto; min-height: 44px; padding: 4px 12px; }
-  .og-tab-sub, .og-tab-reason { display: none; }
+  .og-tab-sub { display: none; }
   .og-shield-control { flex-wrap: nowrap; }
   .og-shield-control .og-kicker { flex: 0 0 auto; }
   .og-shield-control .og-segmented { width: auto; flex: 1 1 auto; }
@@ -43,8 +43,21 @@
   .og-app[data-phone-tab="risk"] #og-timeline, .og-app[data-phone-tab="risk"] #og-phone-inspect,
   .og-app[data-phone-tab="timeline"] #og-rail-right, .og-app[data-phone-tab="timeline"] #og-phone-inspect,
   .og-app[data-phone-tab="inspect"] #og-rail-right, .og-app[data-phone-tab="inspect"] #og-timeline { display: none; }
-  .og-phone-inspect .og-dock { position: static; display: flex; flex-direction: column; gap: var(--og-gap-pane); width: auto; overflow: visible; pointer-events: auto; }
-  .og-phone-inspect .og-legend { position: static; margin-bottom: var(--og-gap-pane); }
-  .og-phone-inspect #og-tracked, .og-phone-inspect #og-inspector { flex: none; min-height: 0; }
   .og-phone-inspect .og-insp-chart { height: 190px; }
+}
+
+/* The dock and legend sit below the stage whenever the stage is narrower than 780 px (phones and mid-width desktops). */
+.og-phone-inspect { display: flex; flex-direction: column; gap: var(--og-gap-pane); }
+.og-phone-inspect:empty { display: none; }
+.og-phone-inspect .og-dock { position: static; display: flex; flex-direction: column; gap: var(--og-gap-pane); width: auto; overflow: visible; pointer-events: auto; }
+.og-phone-inspect .og-legend { position: static; }
+.og-phone-inspect #og-tracked, .og-phone-inspect #og-inspector { flex: none; min-height: 0; }
+.og-phone-inspect #og-tracked .og-pane-body { overflow: visible; }
+
+/* Sticky chrome must not swallow a short viewport (landscape phone, 400% zoom). */
+html { scroll-padding-top: calc(var(--og-phone-stage-h, 0px) + 230px); }
+@media (min-width: 760px) { html { scroll-padding-top: 0; } }
+@media (max-height: 600px) {
+  .og-stage, .og-playback { position: static; }
+  html { scroll-padding-top: 0; }
 }

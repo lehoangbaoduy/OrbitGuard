@@ -123,7 +123,7 @@ def meta_children(index: EpisodeIndex, selection: Selection, payload: Mapping[st
 def _header(index: EpisodeIndex, selection: Selection, payload: Mapping[str, Any] | None, states: Mapping[str, Any]) -> html.Header:
     return html.Header(
         [
-            html.Div([html.Span("ORBITGUARD", className="og-wordmark"), html.Span("EPISODE REPLAY", className="og-kicker")], className="og-brand"),
+            html.Div([html.H1("ORBITGUARD", className="og-wordmark"), html.Span("EPISODE REPLAY", className="og-kicker")], className="og-brand"),
             _scenario_group(index, states["og-scenario"]),
             html.Div(meta_children(index, selection, payload), id="og-meta-line", className="og-meta-line"),
         ],
@@ -197,7 +197,9 @@ def _legend() -> html.Div:
 def _stage_controls() -> html.Div:
     """Zoom, orbit-ring toggle and camera reset; the browser stage wires them (assets/19)."""
     def button(button_id: str, text: str, label: str, **extra: Any) -> html.Button:
-        return html.Button(text, id=button_id, className="og-stage-btn", type="button", title=label, **{"aria-label": label}, **extra)
+        # symbol buttons need a spoken name; words are their own name (label in name, WCAG 2.5.3)
+        spoken = {"aria-label": label} if len(text) == 1 else {}
+        return html.Button(text, id=button_id, className="og-stage-btn", type="button", title=label, **spoken, **extra)
 
     return html.Div(
         [button("og-zoom-out", "−", "Zoom out"), button("og-zoom-in", "+", "Zoom in"), button("og-orbits", "Orbits", "Show or hide the orbit rings", **{"aria-pressed": True}), button("og-view-reset", "View", "Reset the camera")],
@@ -209,11 +211,11 @@ def _stage(selection: Selection) -> html.Section:
     return html.Section(
         [
             html.Div([html.Div(id="og-stars-far", className="og-stars og-stars-far"), html.Div(id="og-stars-near", className="og-stars og-stars-near")], className="og-starfield", **{"aria-hidden": "true"}),
-            html.Div(id="og-scene", className="og-scene", role="img", **{"aria-label": "3D constellation view"}),
+            html.Div(id="og-scene", className="og-scene", role="group", tabIndex=0, **{"aria-label": "3D constellation view", "aria-roledescription": "3D view; arrow keys rotate, plus and minus zoom"}),
             *(html.Span(className=f"og-corner og-corner-{corner}", **{"aria-hidden": "true"}) for corner in ("tl", "tr", "bl", "br")),
             _loading(selection),
             html.Div(id="og-clock", className="og-clock"),
-            html.Div(id="og-banner", className="og-banner", role="status"),
+            html.Div(id="og-banner", className="og-banner", **{"aria-hidden": "true"}),
             _legend(),
             _stage_controls(),
             html.Div([_pane("og-tracked", "Tracked this step"), _pane("og-inspector", "Inspector")], id="og-dock", className="og-dock"),
@@ -249,7 +251,7 @@ def _main(selection: Selection, payload: Mapping[str, Any] | None) -> html.Main:
                 ],
                 className="og-col-main",
             ),
-            html.Aside([_pane(pane_id, title) for pane_id, title in _PANES], id="og-rail-right", className="og-rail"),
+            html.Aside([_pane(pane_id, title) for pane_id, title in _PANES], id="og-rail-right", className="og-rail", **{"aria-label": "Fleet fuel and conjunction risk"}),
         ],
         className="og-main",
     )
@@ -260,6 +262,9 @@ def build_layout(index: EpisodeIndex, selection: Selection, payload: Mapping[str
     states = control_states(index, selection)
     return html.Div(
         [
+            html.A("Skip to playback controls", href="#og-playback", className="og-skip"),
+            html.Div(id="og-live", className="og-sr-only", role="status", **{"aria-live": "polite"}),
+            html.Div(id="og-alert", className="og-sr-only", role="alert"),
             dcc.Store(id="og-payload", data=payload),
             dcc.Store(id="og-selection", data=asdict(selection)),
             _header(index, selection, payload, states),

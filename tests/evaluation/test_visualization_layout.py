@@ -222,7 +222,21 @@ def test_status_regions_and_the_scene_have_accessible_roles():
     by_id = {c.id: c for c in _walk(layout) if isinstance(getattr(c, "id", None), str)}
 
     assert by_id["og-shield-off-slot"].__dict__.get("role") == "status"  # a persistent live region, so text changes are announced
-    assert by_id["og-scene"].__dict__.get("role") == "img" and by_id["og-scene"].__dict__.get("aria-label")
+    scene = by_id["og-scene"].__dict__
+    assert scene.get("role") == "group" and scene.get("aria-label") and scene.get("tabIndex") == 0  # keyboard-operable, named
+    assert by_id["og-live"].__dict__.get("aria-live") == "polite" and by_id["og-alert"].__dict__.get("role") == "alert"
+    assert by_id["og-banner"].__dict__.get("aria-hidden") == "true"  # the tracked panel carries the same information
+
+
+def test_transport_and_speed_controls_have_names_that_contain_their_visible_text_and_shortcut_hints():
+    by_id = {c.id: c for c in _walk(_layout()) if isinstance(getattr(c, "id", None), str)}
+
+    assert by_id["og-next-event"].__dict__.get("aria-keyshortcuts") == "]"
+    assert by_id["og-prev-event"].__dict__.get("aria-keyshortcuts") == "["
+    speeds = [c for c in _walk(_layout()) if getattr(c, "className", "") and "og-speed-btn" in c.className]
+    assert speeds and all(c.children in c.__dict__["aria-label"] for c in speeds)
+    view = by_id["og-view-reset"]
+    assert "aria-label" not in view.__dict__  # visible word is the name
 
 
 def test_the_loading_detail_is_left_to_the_stage_so_it_can_never_go_stale():

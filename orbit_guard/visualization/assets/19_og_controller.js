@@ -10,6 +10,8 @@
   const FALLBACK_STEP_MS = 250; // used only if the token file is missing; the real value is --og-step-ms
   const TIMELINE_HEIGHT = 130, MATRIX_HEIGHT = 150;
   const HOVER_PAD_PX = 8;
+  const DOCK_MIN_PX = 780; // the stage is wide enough for the docked column at this width (mirrors 04_og_stage.css)
+  const ANNOUNCE_DELAY_MS = 350, ARIA_VALUE_INTERVAL_MS = 500, PICKER_COLUMNS = 5;
   const MAX_FRAME_DT_MS = 250; // a stall (hidden tab, slow draw) slows playback instead of skipping ahead
   const S = { ep: null, p: 0, playing: false, speed: 1, loop: false, selected: 0, orbits: true, expanded: false, timeline: "counts", last: 0, lastDraw: -Infinity, raf: 0,
     anim: { plume: null, ring: null, lines: null, flash: null }, needDraw: true, panelsKey: "", stripVals: {}, stripTween: null, chart: { el: null, key: "" }, bound: false };
@@ -22,6 +24,21 @@
 
   function setText(id, text) { const el = $(id); if (el && el.textContent !== text) el.textContent = text; }
 
+  /* Polite announcements for what the USER just did (stepping, jumping); playback itself stays silent. */
+  let announceTimer = 0, lastAriaValue = -Infinity;
+  function announce(text) {
+    const live = $("og-live");
+    if (!live) return;
+    root.clearTimeout(announceTimer);
+    announceTimer = root.setTimeout(() => { live.textContent = ""; live.textContent = text; }, ANNOUNCE_DELAY_MS);
+  }
+  const alertText = (text) => { const el = $("og-alert"); if (el) { el.textContent = ""; el.textContent = text; } };
+
+  function stepSummary(step) {
+    const ep = S.ep, flagged = OG.panels.stepCells(ep, step).filter((c) => c.flagged).length, b = OG.panels.banner(ep, step);
+    return `Step ${step} of ${ep.T}, T+${OG.playback.clockText(step, ep.controlDtS).minutes} min, ${flagged} of ${ep.N} satellites flagged${b ? `, ${b.label}` : ""}`;
+  }
+
   function setStatus(title, detail) {
     const loading = $("og-loading");
     if (!loading) return;
@@ -33,15 +50,24 @@
 
   /* ------------------------------------------------------------ panels */
   /* Re-rendering replaces buttons; keep keyboard focus on "the same" button (same container, same position). */
+  /* A container is left alone while a pointer is pressed in it, or while it holds keyboard focus during playback: rebuilding
+     it would swallow the click or make a screen reader re-read the focused control at playback rate. */
   function keepingFocus(container, render) {
     const active = document.activeElement, inside = container && active && container.contains(active);
+    if (container && (S.pressedIn === container || (S.playing && inside))) return null; // refreshed on pause / after the click
     const key = inside ? active.dataset.focusKey || null : null;
     const result = render();
-    if (key) { const again = [...container.querySelectorAll("[data-focus-key]")].find((el) => el.dataset.focusKey === key); if (again) again.focus({ preventScroll: true }); }
+    if (key) {
+      const again = [...container.querySelectorAll("[data-focus-key]")].find((el) => el.dataset.focusKey === key);
+      if (again) again.focus({ preventScroll: true });
+      else { container.tabIndex = -1; container.focus({ preventScroll: true }); } // the focused control is gone: keep focus in its panel, not on <body>
+    }
     return result;
   }
 
   const ui = () => ({ selected: S.selected, expanded: S.expanded, select, goStep, toggleExpand: () => { S.expanded = !S.expanded; S.panelsKey = ""; renderPanels(); } });
+
+  const refreshPanels = () => { S.panelsKey = ""; renderPanels(); };
 
   function renderPanels() {
     const ep = S.ep, step = curStep(), key = `${step}|${S.selected}|${S.expanded}`;
@@ -59,6 +85,7 @@
       keepingFocus(body("og-inspector"), () => OG.render.inspector(body("og-inspector"), ep, step, u));
       mountInspectorChart(step);
     }
+    settleRoving();
     renderBanner(step);
     renderStrip(step);
     if (S.timelineSel !== S.selected) { S.timelineSel = S.selected; renderTimelineMarks(); } else renderTimelineNotes();
@@ -71,6 +98,7 @@
     if (!S.chart.el) S.chart.el = document.createElement("div");
     S.chart.el.id = "og-inspector-chart";
     S.chart.el.className = "og-insp-chart";
+    S.chart.el.setAttribute("aria-hidden", "true"); // the readouts beside it carry the same numbers as text
     slot.replaceWith(S.chart.el);
     const key = `${S.ep.meta.scenario_id}|${S.ep.meta.policy}|${S.ep.shield}|${S.selected}`;
     if (S.chart.key !== key) {
@@ -161,11 +189,17 @@
     const fill = $("og-scrub-fill"), thumb = $("og-scrub-thumb");
     if (fill) fill.style.transform = `scaleX(${u})`;
     if (thumb) thumb.style.transform = `translateX(${(u * w).toFixed(1)}px)`;
-    const keys = ep.payload.key_steps, off = (id, disabled) => { const el = $(id); if (el) el.disabled = disabled; };
+    const keys = ep.payload.key_steps, off = (id, disabled) => { const el = $(id); if (el) el.setAttribute("aria-disabled", String(disabled)); };
     off("og-step-back", step <= 0); off("og-step-fwd", step >= ep.T);
     off("og-prev-event", OG.playback.prevKey(keys, step) === null); off("og-next-event", OG.playback.nextKey(keys, step) === null);
-    host.setAttribute("aria-valuenow", String(step));
-    host.setAttribute("aria-valuetext", `step ${step} of ${ep.T}, T+${OG.playback.clockText(step, ep.controlDtS).minutes} min`);
+    const clock = performance.now();
+    if (!S.playing || clock - lastAriaValue >= ARIA_VALUE_INTERVAL_MS) { // a screen reader must not be fed 30 updates a second
+      lastAriaValue = clock;
+      host.setAttribute("aria-valuenow", String(step));
+      host.setAttribute("aria-valuetext", `step ${step} of ${ep.T}, T+${OG.playback.clockText(step, ep.controlDtS).minutes} min`);
+    }
+    const scene = $("og-scene");
+    if (scene && !S.playing) scene.setAttribute("aria-label", `3D constellation view. ${stepSummary(step)}`);
     const head = $("og-timeline-head");
     if (head) head.style.transform = `translateX(${(u * head.parentElement.clientWidth).toFixed(1)}px)`;
   }
@@ -203,6 +237,7 @@
     });
     const head = $("og-timeline-head");
     if (head) head.style.height = `${height}px`;
+    canvas.setAttribute("role", "img");
     S.timelineSel = S.selected;
     renderTimelineNotes();
     moveScrubber();
@@ -214,6 +249,8 @@
     const notes = $("og-timeline-notes");
     if (!notes) return;
     const run = OG.models.runningCounts(S.ep, curStep()), v = S.ep.vocab.event;
+    const canvas = $("og-timeline-canvas");
+    if (canvas) canvas.setAttribute("aria-label", `${S.timeline === "counts" ? "Event counts per step" : "Events per satellite and step"}: ${[1, 2, 3].map((c) => `${v[c].label} ${[run.maneuver, run.shield, run.collision][c - 1]}`).join(", ")}. Use previous and next event to move between key steps.`);
     OG.dom.mount(notes, [[1, run.maneuver], [2, run.shield], [3, run.collision]].map(([code, text]) => OG.dom.h("span", { class: "og-tl-note", style: { "--c": v[code].color } }, `${v[code].glyph} ${v[code].label} ${text}`)));
   }
 
@@ -253,7 +290,7 @@
   function setPlaying(on) {
     if (!S.ep) return;
     if (on && S.p >= S.ep.T) S.p = 0;
-    if (!on && S.playing) S.p = Math.floor(S.p); // a paused scene shows a recorded frame, never an in-between one
+    if (!on && S.playing) { S.p = Math.floor(S.p); S.panelsKey = ""; }  // a paused scene shows a recorded frame, never an in-between one
     S.playing = on;
     const button = $("og-play");
     if (button) {
@@ -276,7 +313,7 @@
     if (!Number.isFinite(step)) return;
     const next = clamp(Math.round(step), 0, ep.T), from = curStep();
     S.p = next;
-    if (next !== from) startAnimations(OG.playback.runStartsBetween(ep, from, next), next, now, next !== from + 1);
+    if (next !== from) { startAnimations(OG.playback.runStartsBetween(ep, from, next), next, now, next !== from + 1); announce(stepSummary(next)); }
     requestDraw(false);
   }
 
@@ -363,7 +400,9 @@
     clearChrome();
     if (stage) stage.clear();
     for (const id of ["og-tracked", "og-inspector", "og-risk", "og-fuel", "og-timeline"]) { const body = $(`${id}-body`); if (body) body.replaceChildren(); }
-    setStatus(title, String((error && error.message) || error || "").slice(0, 160));
+    const detail = String((error && error.message) || error || "").slice(0, 160);
+    setStatus(title, detail);
+    alertText(`${title}. ${detail}`);
   }
 
   function frame(now) {
@@ -382,7 +421,11 @@
       S.p = next.p;
       if (!next.playing) setPlaying(false);
       const after = curStep();
-      if (after !== before) startAnimations(OG.playback.runStartsBetween(ep, before, after), after, now, after !== before + 1);
+      if (after !== before) {
+        const starts = OG.playback.runStartsBetween(ep, before, after);
+        startAnimations(starts, after, now, after !== before + 1);
+        if (starts.collision.length) alertText(`Collision at step ${after}: ${starts.collision.map((i) => `S${i}`).join(" and ")}`);
+      }
     }
     stepStripTween(dt);
     const step = curStep(), gestureActive = stage.gestureActive(now), settled = stage.settled(now);
@@ -417,12 +460,22 @@
     on("og-view-reset", "click", () => { stage.resetCamera(); requestDraw(true); });
     for (const button of document.querySelectorAll(".og-speed-btn")) button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
     bindScrubber();
+    bindScene();
+    const releasePress = () => { if (S.pressedIn) { S.pressedIn = null; if (S.ep) refreshPanels(); } };
+    document.addEventListener("pointerdown", (event) => { S.pressedIn = event.target.closest ? event.target.closest(".og-pane-body, #og-timeline-body") : null; root.setTimeout(releasePress, 1200); }, true);
+    document.addEventListener("click", () => root.setTimeout(releasePress, 0));
+    document.addEventListener("pointercancel", releasePress);
     for (const button of document.querySelectorAll(".og-phone-tab")) button.addEventListener("click", () => setPhoneTab(button.dataset.tab));
     if (root.matchMedia) root.matchMedia(PHONE_QUERY).addEventListener("change", placeDock);
     placeDock();
     document.addEventListener("keydown", (event) => {
       if (!S.ep || event.ctrlKey || event.metaKey || event.altKey || (event.repeat && event.key === " ")) return;
-      const t = event.target, action = OG.playback.keyAction(event.key, { shift: event.shiftKey, tag: t.tagName || "", editable: Boolean(t.isContentEditable), role: t.getAttribute ? t.getAttribute("role") || "" : "" });
+      if (event.key === "Escape") for (const id of ["og-scrub-hover", "og-timeline-tip"]) { const tip = $(id); if (tip) tip.hidden = true; }
+      if (rove(event)) return;
+      const t = event.target;
+      const scoped = t === document.body || t === document.documentElement || ["og-stage", "og-playback", "og-timeline", "og-phone-inspect"].some((id) => $(id) && $(id).contains(t)); // single-key shortcuts only act near the player (WCAG 2.1.4)
+      if (!scoped) return;
+      const action = OG.playback.keyAction(event.key, { shift: event.shiftKey, tag: t.tagName || "", editable: Boolean(t.isContentEditable), role: t.getAttribute ? t.getAttribute("role") || "" : "" });
       if (!action) return;
       event.preventDefault();
       if (action.type === "toggle") setPlaying(!S.playing);
@@ -435,11 +488,47 @@
         const next = Math.round(entries[entries.length - 1].contentRect.width);
         if (next === width || queued) return; // height changes come from our own re-renders: ignore them
         width = next; queued = true;
-        root.requestAnimationFrame(() => { queued = false; if (S.ep) { drawScrubber(); drawTimeline(); S.panelsKey = ""; renderPanels(); } });
+        root.requestAnimationFrame(() => { queued = false; placeDock(); if (S.ep) { drawScrubber(); drawTimeline(); S.panelsKey = ""; renderPanels(); } });
       }).observe($("og-app") || document.body);
     }
     root.addEventListener("blur", () => stage && stage.releaseGesture());
     document.addEventListener("visibilitychange", () => { if (document.hidden && stage) stage.releaseGesture(); });
+  }
+
+  /* Arrow keys inside the satellite cell strip and the picker: one tab stop each, arrows move between members. */
+  function rove(event) {
+    const group = event.target.closest && event.target.closest(".og-cells, .og-picker");
+    if (!group || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return false;
+    const buttons = [...group.querySelectorAll("button")], index = buttons.indexOf(event.target), columns = group.classList.contains("og-picker") ? PICKER_COLUMNS : 1;
+    const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[event.key];
+    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : clamp(index + delta, 0, buttons.length - 1);
+    if (index < 0 || (columns === 1 && (event.key === "ArrowUp" || event.key === "ArrowDown"))) return false;
+    event.preventDefault();
+    for (const [n, b] of buttons.entries()) b.tabIndex = n === next ? 0 : -1;
+    buttons[next].focus();
+    return true;
+  }
+
+  function settleRoving() {
+    for (const group of document.querySelectorAll(".og-cells, .og-picker")) {
+      const buttons = [...group.querySelectorAll("button")], keep = buttons.find((b) => b.tabIndex === 0 && b === document.activeElement) || buttons.find((b) => b.getAttribute("aria-pressed") === "true") || buttons[0];
+      for (const b of buttons) b.tabIndex = b === keep ? 0 : -1;
+    }
+  }
+
+  function bindScene() {
+    const scene = $("og-scene");
+    if (!scene) return;
+    scene.addEventListener("keydown", (event) => {
+      if (!S.ep || !stage) return;
+      const turn = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[event.key];
+      if (turn) stage.rotate(turn[0], turn[1]);
+      else if (event.key === "+" || event.key === "=") stage.zoom(1 / 1.25);
+      else if (event.key === "-") stage.zoom(1.25);
+      else return;
+      event.preventDefault(); event.stopPropagation();
+      requestDraw(true);
+    });
   }
 
   function bindScrubber() {
@@ -464,6 +553,7 @@
     host.addEventListener("pointerleave", () => { const tip = $("og-scrub-hover"); if (tip) tip.hidden = true; });
     host.addEventListener("keydown", (event) => {
       if (!S.ep) return;
+      if (event.key === " ") { event.preventDefault(); if (!event.repeat) setPlaying(!S.playing); return; }
       const next = OG.playback.sliderKey(event.key, { shift: event.shiftKey }, curStep(), S.ep.T);
       if (next === null) return;
       event.preventDefault(); goStep(next);
@@ -488,8 +578,10 @@
   function placeDock() {
     const dock = $("og-dock"), legend = $("og-legend"), stage = $("og-stage"), mount = $("og-phone-inspect");
     if (!dock || !legend || !stage || !mount) return;
-    if (isPhone()) mount.append(legend, dock);
-    else stage.append(legend, dock);
+    const column = document.querySelector(".og-col-main"), wide = !isPhone() && column && column.clientWidth >= DOCK_MIN_PX;
+    const target = wide ? stage : mount;
+    if (dock.parentElement === target) return;
+    target.append(legend, dock);
     S.panelsKey = ""; if (S.ep) { renderPanels(); drawTimeline(); requestDraw(true); }
   }
 

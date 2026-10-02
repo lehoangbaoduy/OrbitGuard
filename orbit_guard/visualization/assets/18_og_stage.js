@@ -12,9 +12,10 @@
   const DOCK_MARGIN_PX = 24, MIN_DOMAIN = 0.4, ZOOM_MIN = 0.5, ZOOM_MAX = 3;
   // While playing, frames update the live WebGL traces in place (≈ 15× cheaper than a react); a full Plotly.react (it also
   // refreshes the label plates and picking data) follows after this many in-place frames or this long, whichever is first.
+  const KEY_TURN_RAD = 0.2, MAX_ELEVATION = 1.45; // one arrow press turns ≈ 11°; elevation stops short of the poles
   const IN_PLACE_RUN_MAX = 5, LABEL_STALE_MS = 500;
   const STAR_LAYERS = { far: { id: "og-stars-far", count: 160, seed: 11 }, near: { id: "og-stars-near", count: 50, seed: 29 } };
-  const PLOT_CONFIG = { displayModeBar: false, responsive: true, scrollZoom: true, doubleClick: false };
+  const plotConfig = () => ({ displayModeBar: false, responsive: true, scrollZoom: !(root.matchMedia && root.matchMedia("(max-width: 759px)").matches), doubleClick: false }); // on a phone a wheel/touch over the scene must not trap page scrolling
   const $ = (id) => document.getElementById(id);
   /* Plotly builds no WebGL object for an empty trace, so a trace that is empty now and filled later cannot be updated in
      place. Every line/marker trace therefore always carries one point, hidden inside the (opaque) Earth. */
@@ -26,7 +27,7 @@
 
     function domainRight() {
       const stage = $("og-stage"), dock = $("og-dock");
-      if (!stage || !stage.clientWidth || !dock || getComputedStyle(dock).display === "none") return 1;
+      if (!stage || !stage.clientWidth || !dock || dock.parentElement !== stage || getComputedStyle(dock).display === "none") return 1;
       return Math.max(MIN_DOMAIN, (stage.clientWidth - dock.offsetWidth - DOCK_MARGIN_PX) / stage.clientWidth);
     }
 
@@ -126,7 +127,7 @@
       let layout = OG.scene.layout(S.ep, { camera: S.resetView ? null : S.camera, annotations, domainRight: domainRight(), revision: S.revision });
       if (!S.resetView && !S.zoomed) layout = OG.camera.withLive(layout, el);
       S.resetView = false; S.zoomed = false;
-      const done = root.Plotly.react(el, data, layout, PLOT_CONFIG);
+      const done = root.Plotly.react(el, data, layout, plotConfig());
       S.camera = OG.camera.live(el) || S.camera;
       moveStars(S.camera);
       bind(el);
@@ -141,6 +142,16 @@
       S.bound = false;
     }
 
+    /* Turn the camera about the vertical axis (`yaw`) or change its elevation (`pitch`), one fixed step per key press. */
+    function rotate(yaw, pitch) {
+      const camera = OG.camera.live($("og-scene")) || S.camera || JSON.parse(JSON.stringify(OG.scene.DEFAULT_CAMERA));
+      const { x, y, z } = camera.eye, angle = yaw * KEY_TURN_RAD, c = Math.cos(angle), s = Math.sin(angle), horizontal = Math.hypot(x, y);
+      const elevation = Math.max(-MAX_ELEVATION, Math.min(MAX_ELEVATION, Math.atan2(z, horizontal) + pitch * KEY_TURN_RAD)), radius = Math.hypot(x, y, z);
+      const azimuth = Math.atan2(x * s + y * c, x * c - y * s);
+      S.camera = { ...camera, eye: { x: radius * Math.cos(elevation) * Math.cos(azimuth), y: radius * Math.cos(elevation) * Math.sin(azimuth), z: radius * Math.sin(elevation) } };
+      S.zoomed = true;
+    }
+
     function resetCamera() { S.camera = null; S.resetView = true; S.revision += 1; }
 
     /* Dolly in or out by scaling the eye distance (clamped), keeping the viewing direction. */
@@ -152,7 +163,7 @@
       S.zoomed = true; // the next full draw uses this camera instead of the live one
     }
 
-    return { setEpisode, draw, clear, releaseGesture: () => { if (S.tracker.up()) handlers.requestDraw(true); }, resetCamera, zoom, settled: (now) => S.tracker.settled(now), gestureActive: (now) => S.tracker.active(now), hasEpisode: () => S.ep !== null };
+    return { setEpisode, draw, clear, rotate, releaseGesture: () => { if (S.tracker.up()) handlers.requestDraw(true); }, resetCamera, zoom, settled: (now) => S.tracker.settled(now), gestureActive: (now) => S.tracker.active(now), hasEpisode: () => S.ep !== null };
   }
 
   OG.createStage = createStage;

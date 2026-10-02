@@ -78,3 +78,34 @@
 /* Legend: the shield entry is dimmed and says "(off)" when the episode ran without the shield. */
 .og-legend-chip.is-off { opacity: .5; }
 .og-legend-off { margin-left: 4px; color: var(--og-text-3); }
+
+/* ---- accessibility ---- */
+.og-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.og-skip { position: absolute; left: 8px; top: -60px; z-index: 50; padding: 10px 14px; border-radius: var(--og-r-chip); background: var(--og-ground); color: var(--og-ice); border: 2px solid var(--og-ice); }
+.og-skip:focus { top: 8px; }
+.og-wordmark { margin: 0; }
+.og-scene:focus-visible { outline: 2px solid var(--og-ice); outline-offset: -4px; }
+/* transport buttons stay focusable at the ends; aria-disabled carries the state */
+.og-transport-btn[aria-disabled="true"] { opacity: .35; cursor: not-allowed; }
+.og-transport-btn[aria-disabled="true"]:hover { background: transparent; color: var(--og-text-2); }
+/* selected state: a solid ice edge, not a faint hairline */
+.og-row.is-selected, .og-fuel-row.is-selected, .og-cell-btn.is-selected, .og-pick.is-selected { border: 2px solid var(--og-ice); }
+.og-seg.is-active { color: var(--og-ice); border-color: var(--og-ice); }
+/* focus rings must not be clipped by scrolling or overflow-hidden panes */
+.og-dock button:focus-visible, .og-rows button:focus-visible, .og-pane-body button:focus-visible, .og-scenarios button:focus-visible { outline-offset: -2px; }
+/* target size: 24 px minimum everywhere, 44 px on phones */
+.og-more, button.og-chip, .og-fuel-row, .og-cell-btn, .og-pick, .og-step-btn { min-height: 24px; min-width: 24px; }
+.og-legend-chip.is-off { opacity: 1; }
+.og-legend-chip.is-off .og-legend-label { color: var(--og-text-3); }
+.og-legend-chip.is-off .og-legend-glyph { opacity: .6; }
+.og-legend-off { color: var(--og-text-2); }
+.og-clock-sub { text-shadow: 0 1px 6px rgba(0, 0, 0, .95), 0 0 2px rgba(0, 0, 0, .9); }
+@media (max-width: 759px) {
+  .og-more, button.og-chip, .og-fuel-row, .og-cell-btn, .og-pick, .og-step-btn, .og-stage-btn, .og-risk-row { min-height: 44px; min-width: 44px; }
+  .og-pick { min-width: 0; }
+}
+@media (forced-colors: active) {
+  .og-row.is-selected, .og-fuel-row.is-selected, .og-cell-btn.is-selected, .og-pick.is-selected, .og-seg.is-active, .og-phone-tab.is-active, .og-tab.is-active { outline: 2px solid Highlight; }
+  .og-play[aria-pressed="true"] { outline: 2px solid Highlight; }
+  .og-scrub-thumb, .og-scrub-fill { forced-color-adjust: none; background: Highlight; }
+}

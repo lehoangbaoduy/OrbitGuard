@@ -16,11 +16,14 @@ DEFAULT_SPEED = "1"
 
 _TRANSPORT = (
     ("og-prev-event", "Previous event", "[", "og-ico-prev-event"),
-    ("og-step-back", "Step back", "←", "og-ico-step-back"),
+    ("og-step-back", "Step back", "ArrowLeft", "og-ico-step-back"),
     ("og-play", "Play", "Space", "og-ico-play"),
-    ("og-step-fwd", "Step forward", "→", "og-ico-step-fwd"),
+    ("og-step-fwd", "Step forward", "ArrowRight", "og-ico-step-fwd"),
     ("og-next-event", "Next event", "]", "og-ico-next-event"),
 )
+
+
+_KEY_NAMES = {"ArrowLeft": "←", "ArrowRight": "→"}
 
 
 def _transport_button(button_id: str, label: str, key: str, icon: str) -> html.Button:
@@ -29,9 +32,9 @@ def _transport_button(button_id: str, label: str, key: str, icon: str) -> html.B
         html.Span(className=f"og-ico {icon}", **{"aria-hidden": "true"}),
         id=button_id,
         className="og-transport-btn" + (" og-play" if button_id == "og-play" else ""),
-        title=f"{label} ({key})",
+        title=f"{label} ({_KEY_NAMES.get(key, key)})",
         type="button",
-        **{"aria-label": label},
+        **{"aria-label": label, "aria-keyshortcuts": key},
         **extra,
     )
 
@@ -59,9 +62,10 @@ def _speed_group() -> html.Div:
         html.Button(
             f"{speed}×",
             id={"type": "og-speed", "id": speed},
+            title=f"Playback speed {speed}×",
             className="og-seg og-speed-btn" + (" is-active" if speed == DEFAULT_SPEED else ""),
             type="button",
-            **{"aria-pressed": speed == DEFAULT_SPEED, "data-speed": speed},
+            **{"aria-pressed": speed == DEFAULT_SPEED, "data-speed": speed, "aria-label": f"{speed}× speed"},
         )
         for speed in SPEEDS
     ]
@@ -81,5 +85,6 @@ def playback_bar(payload: Mapping[str, Any] | None) -> html.Div:
         id="og-playback",
         className="og-playback",
         role="group",
+        tabIndex=-1,
         **{"aria-label": "Playback"},
     )

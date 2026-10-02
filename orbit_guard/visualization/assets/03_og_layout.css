@@ -31,7 +31,8 @@
 }
 .og-seg:hover:not(.is-disabled) { background: color-mix(in oklab, var(--og-ice) 6%, transparent); }
 .og-seg:active:not(.is-disabled) { transform: scale(.97); }
-.og-seg.is-disabled, .og-tab.is-disabled { opacity: .5; }
+.og-seg.is-disabled, .og-tab.is-disabled { border-style: dashed; color: var(--og-text-3); } /* dimmed by border and colour, never by opacity: the reason text must stay readable */
+.og-seg.is-disabled .og-seg-reason, .og-tab.is-disabled .og-tab-reason { opacity: 1; }
 .og-seg.is-active { color: var(--og-ice); border-color: var(--og-hair-hi); box-shadow: var(--og-glow); }
 .og-seg-label { font-size: 13px; font-weight: 500; }
 .og-seg-sub { font-family: var(--og-font-mono); font-size: var(--og-fs-xs); color: var(--og-text-3); }
