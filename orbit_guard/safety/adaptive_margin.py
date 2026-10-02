@@ -15,7 +15,12 @@ by the PRD beyond the symbol. This module uses the provisional choice
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
+
+MarginFn = Callable[[float, float, float], float]
+"""`(sigma_rel_m, rho, risk) -> d_safe_m`: the injectable pairwise safety-margin function."""
 
 
 def compute_sigma_norm(sigma_rel_m: float, d_base_m: float = 1000.0) -> float:
@@ -81,3 +86,22 @@ def compute_d_safe(
 
     raw = d_base_m * (1.0 + alpha * sigma_norm + beta * rho + gamma * risk)
     return float(np.clip(raw, d_min_m, d_max_m))
+
+
+def make_adaptive_margin(
+    d_base_m: float = 1000.0,
+    d_min_m: float = 200.0,
+    d_max_m: float = 5000.0,
+    alpha: float = 1.0,
+    beta: float = 0.5,
+    gamma: float = 1.0,
+) -> MarginFn:
+    """The PRD §22 adaptive margin as a `MarginFn` (sigma_norm derived from `sigma_rel_m`, Q6)."""
+
+    def margin(sigma_rel_m: float, rho: float, risk: float) -> float:
+        return compute_d_safe(
+            compute_sigma_norm(sigma_rel_m, d_base_m), rho, risk,
+            d_base_m=d_base_m, d_min_m=d_min_m, d_max_m=d_max_m, alpha=alpha, beta=beta, gamma=gamma,
+        )
+
+    return margin
