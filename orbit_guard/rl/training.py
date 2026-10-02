@@ -17,6 +17,7 @@ Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -193,8 +194,17 @@ class TrainingReport:
     vf_explained_variances: tuple[float, ...] = ()
 
 
-def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | None = None) -> TrainingReport:
-    """Run `num_iterations` PPO iterations; optionally save a checkpoint to `checkpoint_dir`."""
+def train(
+    algo: Algorithm,
+    num_iterations: int,
+    checkpoint_dir: str | Path | None = None,
+    on_iteration: Callable[[int, float, float, float], None] | None = None,
+) -> TrainingReport:
+    """Run `num_iterations` PPO iterations; optionally save a checkpoint to `checkpoint_dir`.
+
+    `on_iteration(iteration, mean_return, entropy, vf_explained_variance)` fires after each
+    iteration so long runs can be watched live (the CLI prints through it).
+    """
     if num_iterations < 1:
         raise ValueError(f"num_iterations must be >= 1, got {num_iterations}")
 
@@ -208,6 +218,8 @@ def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | Non
         learner_metrics = result.get("learners", {}).get(POLICY_ID, {})
         entropies.append(float(learner_metrics.get("entropy", float("nan"))))
         explained_variances.append(float(learner_metrics.get("vf_explained_var", float("nan"))))
+        if on_iteration is not None:
+            on_iteration(len(returns), returns[-1], entropies[-1], explained_variances[-1])
 
     checkpoint_path = algo.save_to_path(str(checkpoint_dir)) if checkpoint_dir is not None else None
     return TrainingReport(
@@ -299,20 +311,21 @@ def main(argv: list[str] | None = None) -> None:
 
     algo = build_algo(env_factory, settings)
     try:
-        report = train(algo, args.iterations, args.checkpoint_dir)
-        for iteration, (mean_return, entropy, explained_variance) in enumerate(
-            zip(report.episode_return_means, report.entropies, report.vf_explained_variances, strict=True), start=1
-        ):
+
+        def print_iteration(iteration: int, mean_return: float, entropy: float, explained_variance: float) -> None:
             print(
                 f"iteration {iteration:3d}  return {mean_return:10.3f}  "
-                f"entropy {entropy:6.3f}  vf_explained_var {explained_variance:7.3f}"
+                f"entropy {entropy:6.3f}  vf_explained_var {explained_variance:7.3f}",
+                flush=True,
             )
+
+        train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
         baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)
         trained = evaluate(algo, env_factory, args.eval_episodes, args.eval_seed)
         budget_mps = env_factory({}).delta_v_budget_mps
-        print("baseline:", dataclasses.asdict(baseline))
-        print("trained: ", dataclasses.asdict(trained))
-        print("verdict: ", gate_verdict(trained, baseline, budget_mps))
+        print("baseline:", dataclasses.asdict(baseline), flush=True)
+        print("trained: ", dataclasses.asdict(trained), flush=True)
+        print("verdict: ", gate_verdict(trained, baseline, budget_mps), flush=True)
     finally:
         algo.stop()
 
