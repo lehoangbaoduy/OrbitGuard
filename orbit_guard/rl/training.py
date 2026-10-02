@@ -45,6 +45,7 @@ from orbit_guard.rl.rllib_env import (
     EnvFactory,
     register_orbit_guard_env,
 )
+from orbit_guard.safety.adaptive_margin import FixedMargin
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
@@ -224,6 +225,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--num-env-runners", type=int, default=None)
     parser.add_argument(
+        "--margin", choices=("adaptive", "fixed"), default="adaptive",
+        help="adaptive margin (PRD §22) or the Fixed-Margin baseline's constant from `fixed_margin:` in the config",
+    )
+    parser.add_argument(
         "--shield", action=argparse.BooleanOptionalAction, default=True,
         help="train/evaluate with the joint-action safety shield active (default); --no-shield is a separate run",
     )
@@ -256,7 +261,7 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, key) is not None
     }
     reward_weights = load_reward_weights(args.config, **weight_overrides)
-    print(settings, reward_weights, f"shield={args.shield}", flush=True)
+    print(settings, reward_weights, f"shield={args.shield} margin={args.margin}", flush=True)
 
     margin_overrides = {
         name: getattr(args, f"margin_{name}")
@@ -265,7 +270,11 @@ def main(argv: list[str] | None = None) -> None:
     }
     if args.margin_gamma_margin is not None:
         margin_overrides["gamma"] = args.margin_gamma_margin
-    margin_fn = load_margin_fn(args.config, **margin_overrides)
+    if args.margin == "fixed":
+        with Path(args.config).open() as handle:
+            margin_fn = FixedMargin(float(yaml.safe_load(handle)["fixed_margin"]["d_safe_m"]))
+    else:
+        margin_fn = load_margin_fn(args.config, **margin_overrides)
     env_factory = make_env_factory(args.agents, reward_weights, shielded=args.shield, margin_fn=margin_fn)
 
     algo = build_algo(env_factory, settings)
