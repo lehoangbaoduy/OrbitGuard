@@ -28,6 +28,7 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 
+from orbit_guard.rl.actor_policy import export_from_algo
 from orbit_guard.rl.ctde_module import (
     DEFAULT_ACTOR_HIDDEN_LAYERS,
     DEFAULT_CRITIC_HIDDEN_LAYERS,
@@ -42,6 +43,7 @@ from orbit_guard.rl.rllib_env import (
 from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
+ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
 
 
@@ -222,6 +224,9 @@ def train(
             on_iteration(len(returns), returns[-1], entropies[-1], explained_variances[-1])
 
     checkpoint_path = algo.save_to_path(str(checkpoint_dir)) if checkpoint_dir is not None else None
+    if checkpoint_path is not None:
+        # Ray-free copy of the trained actor, so evaluation can fan out over plain worker processes.
+        export_from_algo(algo, Path(checkpoint_path) / ACTOR_WEIGHTS_FILENAME)
     return TrainingReport(
         iterations=num_iterations,
         episode_return_means=tuple(returns),

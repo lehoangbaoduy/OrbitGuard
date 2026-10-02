@@ -190,3 +190,20 @@ def test_margin_fn_loads_the_configured_coefficients_and_accepts_overrides():
     )
     with pytest.raises(ValueError):
         load_margin_fn(delta=1.0)
+
+
+def test_saved_checkpoint_carries_a_ray_free_actor_that_agrees_with_the_rllib_greedy_policy(algo, tmp_path):
+    from orbit_guard.rl.actor_policy import NumpyActorPolicy, load_actor_weights
+    from orbit_guard.rl.training import ACTOR_WEIGHTS_FILENAME
+
+    report = train(algo, num_iterations=1, checkpoint_dir=tmp_path / "checkpoint")
+    exported = NumpyActorPolicy(load_actor_weights(f"{report.checkpoint_path}/{ACTOR_WEIGHTS_FILENAME}"))
+    rllib_policy = make_greedy_policy(algo, _env_factory)
+    raw_env = _env_factory({})
+    observations, _ = raw_env.reset(seed=3)
+
+    for _ in range(5):
+        actions = {agent: rllib_policy(agent, observations[agent]) for agent in raw_env.agents}
+        for agent in raw_env.agents:
+            assert exported(agent, observations[agent]) == actions[agent]
+        observations, _, _, _, _ = raw_env.step(actions)
