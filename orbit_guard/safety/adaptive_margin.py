@@ -105,3 +105,14 @@ def make_adaptive_margin(
         )
 
     return margin
+
+
+def make_fixed_margin(d_safe_m: float) -> MarginFn:
+    """The Fixed-Margin baseline (PRD §31 #3): `d_safe = constant`, blind to uncertainty, density and risk."""
+    if d_safe_m <= 0:
+        raise ValueError(f"d_safe_m must be > 0, got {d_safe_m}")
+
+    def margin(sigma_rel_m: float, rho: float, risk: float) -> float:
+        return d_safe_m
+
+    return margin

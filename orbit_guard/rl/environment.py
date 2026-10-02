@@ -49,7 +49,11 @@ from gymnasium.spaces.utils import flatten
 from pettingzoo import ParallelEnv
 
 from orbit_guard.conjunction.collision import detect_collision
-from orbit_guard.conjunction.pair_assessment import assess_all_pairs, predict_all
+from orbit_guard.conjunction.pair_assessment import (
+    assess_all_pairs,
+    pair_density,
+    predict_all,
+)
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.evaluation.seed_pools import TRAINING_SEED_FLOOR
 from orbit_guard.physics.dynamics import state_derivative_batch
@@ -74,7 +78,7 @@ from orbit_guard.rl.reward import (
     compute_reward,
     compute_safety_term,
 )
-from orbit_guard.safety.adaptive_margin import MarginFn
+from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
 from orbit_guard.scenarios.conjunction_generator import (
     DEFAULT_DISTRIBUTION_MIX,
@@ -287,6 +291,7 @@ class OrbitGuardEnv(ParallelEnv):
 
     def step(self, actions):
         pre_assessments = self._pending_assessments
+        pre_beliefs = self._pending_beliefs
         approved_actions, decision = self._approve_actions(actions)
         applied_delta_v, approved_requested = self._apply_actions(approved_actions)
         requested_delta_v = approved_requested if approved_actions is actions else self._requested_delta_v(actions)
@@ -300,7 +305,7 @@ class OrbitGuardEnv(ParallelEnv):
         post_beliefs = self._current_beliefs()
         post_assessments = self._store_pending(post_beliefs)
         self._record_step_metrics(
-            applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision
+            applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision, pre_beliefs
         )
 
         rewards = self._compute_rewards(
@@ -467,18 +472,33 @@ class OrbitGuardEnv(ParallelEnv):
                 collided_pairs.add((i, j))
         return newly_collided, collided_pairs, min_separations
 
+    def _reference_assessments(self, assessments, beliefs) -> list:
+        """Re-score `assessments` under the PRD §22 adaptive margin, whatever margin the run uses.
+
+        Outcome metrics must compare every model against ONE safety standard; a Fixed-Margin run
+        scoring itself against its own constant would be marking its own homework.
+        """
+        if self._margin_fn is None:
+            return assessments
+        positions = np.array([belief.state_vector[:3] for belief in beliefs])
+        reference = make_adaptive_margin()
+        return [
+            replace(a, d_safe_m=reference(a.sigma_rel_m, pair_density(a.i, a.j, positions), a.risk_proxy))
+            for a in assessments
+        ]
+
     def _record_step_metrics(
-        self, applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision
+        self, applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision, pre_beliefs
     ) -> None:
-        as_triples = lambda assessments: {
-            (a.i, a.j): (a.d_min_m, a.d_safe_m, a.risk_proxy) for a in assessments
-        }
+        def as_triples(assessments) -> dict:
+            return {(a.i, a.j): (a.d_min_m, a.d_safe_m, a.risk_proxy) for a in assessments}
+
         self._metrics.record_step(
             applied_delta_v_mps=[float(np.linalg.norm(dv)) for dv in applied_delta_v],
             collided=collided_pairs,
             min_separation_m=min_separations,
-            pre=as_triples(pre_assessments),
-            post=as_triples(post_assessments),
+            pre=as_triples(self._reference_assessments(pre_assessments, pre_beliefs)),
+            post=as_triples(self._reference_assessments(post_assessments, self._pending_beliefs)),
             mission_deviations=[self._pending_mission_deviations[self._agent_index[a]] for a in self.agents],
             shield=self._shield_step(decision),
         )

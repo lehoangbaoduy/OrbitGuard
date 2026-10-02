@@ -237,3 +237,13 @@ def test_compute_d_safe_signature_has_no_self_referential_input():
     params = set(inspect.signature(compute_d_safe).parameters)
     forbidden = {"d_safe", "d_safe_m", "margin", "previous_d_safe", "prior_margin"}
     assert not (params & forbidden)
+
+
+def test_fixed_margin_ignores_uncertainty_density_and_risk():
+    from orbit_guard.safety.adaptive_margin import make_fixed_margin
+
+    margin = make_fixed_margin(1500.0)
+
+    assert margin(0.0, 0.0, 0.0) == margin(500.0, 1.0, 1.0) == 1500.0
+    with pytest.raises(ValueError):
+        make_fixed_margin(0.0)

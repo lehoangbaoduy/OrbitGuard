@@ -120,3 +120,12 @@ def test_exhausted_budget_is_labelled():
     summary = _run_no_op(OrbitGuardEnv, _NEAR_MISS_SEED, capability_template=spent)
 
     assert "maneuver_budget_exhausted" in summary.failure_labels
+
+
+def test_unsafe_conjunctions_are_scored_against_the_adaptive_margin_even_for_a_fixed_margin_run():
+    from orbit_guard.safety.adaptive_margin import make_fixed_margin
+
+    # A 1 m fixed margin would call the 287 m near miss "safe"; the common reference margin does not.
+    summary = _run_no_op(OrbitGuardEnv, _NEAR_MISS_SEED, margin_fn=make_fixed_margin(1.0))
+
+    assert summary.unsafe_conjunction_count == 1
