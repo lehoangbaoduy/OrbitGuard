@@ -100,3 +100,22 @@ def test_env_creator_builds_a_wrapped_env_from_any_factory():
     env = creator({})
 
     assert isinstance(env, CTDEParallelPettingZooEnv)
+
+
+def test_reward_offset_and_scale_reshape_rewards_for_the_learner_only():
+    inner = StubOrbitGuardEnv(num_agents=_NUM_AGENTS)
+    plain = CTDEParallelPettingZooEnv(StubOrbitGuardEnv(num_agents=_NUM_AGENTS))
+    shaped = CTDEParallelPettingZooEnv(inner, reward_scale=0.5, reward_offset=-1.0)
+    plain.reset(seed=6)
+    shaped.reset(seed=6)
+
+    _, plain_rewards, _, _, _ = plain.step({"sat_0": 0, "sat_1": 0})
+    _, shaped_rewards, _, _, _ = shaped.step({"sat_0": 0, "sat_1": 0})
+
+    for agent in plain_rewards:
+        assert shaped_rewards[agent] == pytest.approx((plain_rewards[agent] - 1.0) * 0.5)
+
+
+def test_rejects_a_non_positive_reward_scale():
+    with pytest.raises(ValueError):
+        CTDEParallelPettingZooEnv(StubOrbitGuardEnv(num_agents=_NUM_AGENTS), reward_scale=0.0)

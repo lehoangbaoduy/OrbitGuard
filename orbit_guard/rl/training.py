@@ -59,6 +59,7 @@ class TrainingSettings:
     critic_hidden_layers: tuple[int, ...] = DEFAULT_CRITIC_HIDDEN_LAYERS
     vf_clip_param: float = 1.0e6
     reward_scale: float = 1.0
+    reward_offset: float = 0.0
     num_env_runners: int = 0
     seed: int | None = None
 
@@ -78,7 +79,7 @@ def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **ove
         "num_epochs": rl_block["num_sgd_iter"],
         "actor_hidden_layers": tuple(rl_block["actor_hidden_layers"]),
         "critic_hidden_layers": tuple(rl_block["critic_hidden_layers"]),
-        **{key: rl_block[key] for key in ("vf_clip_param", "reward_scale", "num_env_runners") if key in rl_block},
+        **{key: rl_block[key] for key in ("vf_clip_param", "reward_scale", "reward_offset", "num_env_runners") if key in rl_block},
     }
     settings.update(overrides)
     return TrainingSettings(**settings)
@@ -140,7 +141,9 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
 
 def build_algo(env_factory: EnvFactory, settings: TrainingSettings, env_name: str = DEFAULT_ENV_NAME) -> Algorithm:
     """Register `env_factory` and build the MAPPO/CTDE algorithm for it."""
-    register_orbit_guard_env(env_name, env_factory, reward_scale=settings.reward_scale)
+    register_orbit_guard_env(
+        env_name, env_factory, reward_scale=settings.reward_scale, reward_offset=settings.reward_offset
+    )
     probe_env = CTDEParallelPettingZooEnv(env_factory({}))
     local_obs_dim = probe_env.local_obs_dim
     probe_env.close()
@@ -218,9 +221,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--num-env-runners", type=int, default=None)
     parser.add_argument("--reward-scale", type=float, default=None)
+    parser.add_argument("--reward-offset", type=float, default=None)
     parser.add_argument("--train-batch-size", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--entropy-coeff", type=float, default=None)
+    parser.add_argument("--gamma", type=float, default=None)
     for weight in ("w1", "w2", "w3", "w4", "collision-penalty"):
         parser.add_argument(f"--{weight}", type=float, default=None)
     args = parser.parse_args(argv)
@@ -229,9 +234,11 @@ def main(argv: list[str] | None = None) -> None:
         "seed": args.seed,
         "num_env_runners": args.num_env_runners,
         "reward_scale": args.reward_scale,
+        "reward_offset": args.reward_offset,
         "train_batch_size": args.train_batch_size,
         "learning_rate": args.learning_rate,
         "entropy_coeff": args.entropy_coeff,
+        "gamma": args.gamma,
     }
     settings = load_training_settings(args.config, **{k: v for k, v in overrides.items() if v is not None})
     weight_overrides = {

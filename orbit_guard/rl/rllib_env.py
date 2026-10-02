@@ -39,16 +39,26 @@ class CTDEParallelPettingZooEnv(ParallelPettingZooEnv):
     """`ParallelPettingZooEnv` emitting flat ``[local | global_state]`` observations.
 
     With ``include_global_state=False`` it emits only the flattened local
-    observation (the plain, IPPO-style / execution-time view). `reward_scale`
-    multiplies rewards for the learner only: it keeps value targets within
-    reach of the critic and never changes which policy is optimal.
+    observation (the plain, IPPO-style / execution-time view). `reward_offset`
+    and `reward_scale` reshape rewards for the learner only, as
+    ``(reward + reward_offset) * reward_scale``. Centering (a negative offset
+    cancelling the constant ~+1 a calm step earns) shrinks value magnitudes so
+    the critic's error stays small next to the action-dependent signal; it
+    never changes evaluation rewards.
     """
 
-    def __init__(self, env: ParallelEnv, include_global_state: bool = True, reward_scale: float = 1.0):
+    def __init__(
+        self,
+        env: ParallelEnv,
+        include_global_state: bool = True,
+        reward_scale: float = 1.0,
+        reward_offset: float = 0.0,
+    ):
         super().__init__(env)
         if reward_scale <= 0:
             raise ValueError(f"reward_scale must be > 0, got {reward_scale}")
         self._reward_scale = reward_scale
+        self._reward_offset = reward_offset
         if include_global_state and not callable(getattr(env, "state", None)):
             raise ValueError("include_global_state=True requires the env to expose a state() method")
 
@@ -79,24 +89,31 @@ class CTDEParallelPettingZooEnv(ParallelPettingZooEnv):
 
     def step(self, action_dict: dict):
         observations, rewards, terminations, truncations, infos = super().step(action_dict)
-        scaled_rewards = {agent: reward * self._reward_scale for agent, reward in rewards.items()}
+        scaled_rewards = {agent: (reward + self._reward_offset) * self._reward_scale for agent, reward in rewards.items()}
         return self._assemble(observations), scaled_rewards, terminations, truncations, infos
 
 
 def make_env_creator(
-    env_factory: EnvFactory, include_global_state: bool = True, reward_scale: float = 1.0
+    env_factory: EnvFactory,
+    include_global_state: bool = True,
+    reward_scale: float = 1.0,
+    reward_offset: float = 0.0,
 ) -> Callable[[dict], MultiAgentEnv]:
     """Return the `env_creator(config)` RLlib's registry expects."""
 
     def env_creator(config: dict) -> MultiAgentEnv:
-        return CTDEParallelPettingZooEnv(env_factory(config), include_global_state, reward_scale)
+        return CTDEParallelPettingZooEnv(env_factory(config), include_global_state, reward_scale, reward_offset)
 
     return env_creator
 
 
 def register_orbit_guard_env(
-    name: str, env_factory: EnvFactory, include_global_state: bool = True, reward_scale: float = 1.0
+    name: str,
+    env_factory: EnvFactory,
+    include_global_state: bool = True,
+    reward_scale: float = 1.0,
+    reward_offset: float = 0.0,
 ) -> str:
     """Register `env_factory` under `name` with RLlib's env registry; returns `name`."""
-    register_env(name, make_env_creator(env_factory, include_global_state, reward_scale))
+    register_env(name, make_env_creator(env_factory, include_global_state, reward_scale, reward_offset))
     return name
