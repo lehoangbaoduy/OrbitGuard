@@ -220,7 +220,7 @@ class OrbitGuardEnv(ParallelEnv):
 
     def step(self, actions):
         pre_assessments = self._pending_assessments
-        applied_delta_v = self._apply_actions(actions)
+        applied_delta_v, requested_delta_v = self._apply_actions(actions)
         fine_trajectories = self._propagate_ground_truth(applied_delta_v)
         newly_collided = self._check_collisions(fine_trajectories)
         self._collided_agents |= newly_collided
@@ -233,7 +233,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._pending_assessments = post_assessments
 
         rewards = self._compute_rewards(
-            actions, applied_delta_v, pre_assessments, post_assessments, post_beliefs, self._shadow_states, newly_collided
+            actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, self._shadow_states, newly_collided
         )
 
         observations = self._observations_from(post_beliefs, post_assessments, self._shadow_states)
@@ -306,8 +306,10 @@ class OrbitGuardEnv(ParallelEnv):
             observations[agent] = {key: np.asarray(value, dtype=np.float32) for key, value in obs.items()}
         return observations
 
-    def _apply_actions(self, actions: dict) -> list[np.ndarray]:
+    def _apply_actions(self, actions: dict) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Apply capability-capped burns; also return what each agent REQUESTED (pre-cap)."""
         applied_delta_v = [np.zeros(3) for _ in range(self._num_agents)]
+        requested_delta_v = [np.zeros(3) for _ in range(self._num_agents)]
         for agent, action in actions.items():
             if action not in range(_NUM_ACTIONS):
                 raise ValueError(f"action {action} out of range for agent {agent}")
@@ -327,8 +329,9 @@ class OrbitGuardEnv(ParallelEnv):
                 applied = proposed * (applied_mag / proposed_mag)
 
             applied_delta_v[idx] = applied
+            requested_delta_v[idx] = proposed
             self._capabilities[idx] = cap.with_remaining_delta_v(cap.remaining_delta_v_mps - applied_mag)
-        return applied_delta_v
+        return applied_delta_v, requested_delta_v
 
     def _propagate_ground_truth(self, applied_delta_v: list[np.ndarray]) -> list[np.ndarray]:
         fine_trajectories = []
@@ -353,7 +356,7 @@ class OrbitGuardEnv(ParallelEnv):
         return newly_collided
 
     def _compute_rewards(
-        self, actions, applied_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided
+        self, actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided
     ) -> dict:
         total_risk_pre = sum(a.risk_proxy for a in pre_assessments)
         total_risk_post = sum(a.risk_proxy for a in post_assessments)
@@ -372,7 +375,10 @@ class OrbitGuardEnv(ParallelEnv):
             components = compute_mission_deviation(post_beliefs[idx].state_vector, shadow_states[idx])
             mission_term = compute_mission_term(components.d_a, components.d_e, components.d_i, components.d_m)
 
-            delta_v_term = compute_delta_v_term(applied_delta_v[idx])
+            # Charged on the REQUEST, not the capped burn: once the budget is spent every
+            # action is a physical no-op, and an applied-only cost would leave the policy
+            # no reason to stop asking (PRD §28: agents are penalized for their proposals).
+            delta_v_term = compute_delta_v_term(requested_delta_v[idx])
             collided = idx in newly_collided
 
             rewards[agent] = compute_reward(

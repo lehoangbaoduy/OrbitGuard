@@ -19,6 +19,7 @@ from orbit_guard.rl.evaluation import make_greedy_policy
 from orbit_guard.rl.training import (
     TrainingSettings,
     build_algo,
+    load_reward_weights,
     load_training_settings,
     restore,
     train,
@@ -138,3 +139,16 @@ def test_settings_expose_the_critic_fix_and_reward_scale_defaults():
 
 def test_the_critic_fix_reaches_the_ppo_config(algo):
     assert algo.config.vf_clip_param == _SETTINGS.vf_clip_param
+
+
+def test_reward_weights_load_the_prd_defaults_from_the_config():
+    assert load_reward_weights() == {"w1": 1.0, "w2": 0.3, "w3": 0.1, "w4": 0.5, "collision_penalty": -100}
+
+
+def test_reward_weight_overrides_win_over_the_config_file():
+    assert load_reward_weights(w3=1.0)["w3"] == 1.0
+
+
+def test_unknown_reward_weight_names_are_rejected():
+    with pytest.raises(ValueError):
+        load_reward_weights(w9=1.0)

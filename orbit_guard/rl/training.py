@@ -84,6 +84,24 @@ def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **ove
     return TrainingSettings(**settings)
 
 
+def load_reward_weights(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: float) -> dict[str, float]:
+    """Reward weights from the `reward:` block (PRD §25/§39), as `compute_reward` keyword args."""
+    with Path(config_path).open() as handle:
+        reward_block = yaml.safe_load(handle)["reward"]
+    weights = {
+        "w1": reward_block["w1_safety"],
+        "w2": reward_block["w2_mission"],
+        "w3": reward_block["w3_delta_v"],
+        "w4": reward_block["w4_coordination"],
+        "collision_penalty": reward_block["collision_penalty"],
+    }
+    unknown = set(overrides) - set(weights)
+    if unknown:
+        raise ValueError(f"unknown reward weights {sorted(unknown)}; expected {sorted(weights)}")
+    weights.update(overrides)
+    return weights
+
+
 def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSettings) -> PPOConfig:
     """PPOConfig with one shared actor and a centralized critic (true CTDE)."""
     module_spec = RLModuleSpec(
@@ -203,6 +221,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--train-batch-size", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--entropy-coeff", type=float, default=None)
+    for weight in ("w1", "w2", "w3", "w4", "collision-penalty"):
+        parser.add_argument(f"--{weight}", type=float, default=None)
     args = parser.parse_args(argv)
 
     overrides = {
@@ -214,10 +234,16 @@ def main(argv: list[str] | None = None) -> None:
         "entropy_coeff": args.entropy_coeff,
     }
     settings = load_training_settings(args.config, **{k: v for k, v in overrides.items() if v is not None})
-    print(settings)
+    weight_overrides = {
+        key: getattr(args, key)
+        for key in ("w1", "w2", "w3", "w4", "collision_penalty")
+        if getattr(args, key) is not None
+    }
+    reward_weights = load_reward_weights(args.config, **weight_overrides)
+    print(settings, reward_weights, flush=True)
 
     def env_factory(config: dict) -> OrbitGuardEnv:
-        return OrbitGuardEnv(num_agents=args.agents)
+        return OrbitGuardEnv(num_agents=args.agents, reward_weights=reward_weights)
 
     algo = build_algo(env_factory, settings)
     try:

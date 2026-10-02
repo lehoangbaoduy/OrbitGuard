@@ -147,7 +147,7 @@ def test_insufficient_budget_caps_applied_magnitude_not_substitutes_no_maneuver(
     )
     env = _fast_env(capability_template=tight_capability)
     env.reset(seed=7)
-    applied = env._apply_actions({agent: int(ManeuverIntent.RAISE_ORBIT) for agent in env.agents})
+    applied, _ = env._apply_actions({agent: int(ManeuverIntent.RAISE_ORBIT) for agent in env.agents})
     for idx in range(env._num_agents):
         magnitude = float(np.linalg.norm(applied[idx]))
         assert magnitude == pytest.approx(0.02, rel=1e-9)
@@ -215,3 +215,31 @@ def test_parallel_api_compliance():
 
 def test_parallel_seed_reproducibility():
     parallel_seed_test(lambda: _fast_env(), num_cycles=4)
+
+
+def test_delta_v_cost_is_charged_on_the_request_even_when_the_budget_is_exhausted():
+    spent = SatelliteCapability(
+        max_delta_v_per_action_mps=0.1, remaining_delta_v_mps=0.0,
+        maneuver_enabled=True, mission_deviation_limit=1.0,
+    )
+    weights = {"w1": 0.0, "w2": 0.0, "w3": 1.0, "w4": 0.0, "collision_penalty": 0.0}
+    env = _fast_env(capability_template=spent, reward_weights=weights, hard_body_radius_m=0.0)
+    env.reset(seed=12)
+
+    _, rewards, _, _, _ = env.step({agent: int(ManeuverIntent.RAISE_ORBIT) for agent in env.agents})
+
+    assert all(reward == pytest.approx(-0.1) for reward in rewards.values())
+
+
+def test_no_maneuver_request_costs_nothing_even_when_the_budget_is_exhausted():
+    spent = SatelliteCapability(
+        max_delta_v_per_action_mps=0.1, remaining_delta_v_mps=0.0,
+        maneuver_enabled=True, mission_deviation_limit=1.0,
+    )
+    weights = {"w1": 0.0, "w2": 0.0, "w3": 1.0, "w4": 0.0, "collision_penalty": 0.0}
+    env = _fast_env(capability_template=spent, reward_weights=weights, hard_body_radius_m=0.0)
+    env.reset(seed=12)
+
+    _, rewards, _, _, _ = env.step({agent: int(ManeuverIntent.NO_MANEUVER) for agent in env.agents})
+
+    assert all(reward == pytest.approx(0.0) for reward in rewards.values())
