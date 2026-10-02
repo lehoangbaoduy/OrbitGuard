@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 
 HIGH_RISK_THRESHOLD = 0.5
+BURN_EPSILON_MPS = 1.0e-12  # mirrors rl.episode_metrics._BURN_EPSILON_MPS: an applied delta-v above it is a maneuver
 _PAIR_RANK = {"nominal": 0, "inside_d_safe": 1, "high_risk": 2, "collision": 3}
 
 
@@ -121,7 +122,7 @@ def record_episode(env, policy, seed: int, meta: dict[str, Any] | None = None) -
         remaining_dv_mps=np.array([s["remaining_dv_mps"] for s in snapshots], dtype=float),
         mission_deviation=np.array([s["mission_deviation"] for s in snapshots], dtype=float),
         maneuver_enabled=np.array(snapshots[0]["maneuver_enabled"], dtype=bool),
-        pair_index=np.array([[i, j] for i, j, *_ in pair_rows], dtype=int),
+        pair_index=np.array([[i, j] for i, j, *_ in pair_rows], dtype=int).reshape(-1, 2),
         d_min_m=np.array([[row[2] for row in s["pairs"]] for s in snapshots]),
         d_safe_m=np.array([[row[3] for row in s["pairs"]] for s in snapshots]),
         risk=np.array([[row[4] for row in s["pairs"]] for s in snapshots]),
@@ -151,6 +152,7 @@ def load_trace(path: str | Path) -> EpisodeTrace:
     with np.load(path, allow_pickle=False) as data:
         header = json.loads(str(data["header"]))
         arrays = {name: data[name] for name in _ARRAY_FIELDS}
+    arrays["pair_index"] = arrays["pair_index"].reshape(-1, 2)  # N=1 has no pairs: keep the (0, 2) shape
     return EpisodeTrace(control_dt_s=header["control_dt_s"], meta=header["meta"], summary=header["summary"], **arrays)
 
 
@@ -196,7 +198,7 @@ def frame_at(trace: EpisodeTrace, t: int) -> Frame:
                 event = "collision"
             elif trace.intervened[t - 1, agent]:
                 event = "shield_intervention"
-            elif trace.applied_dv_mps[t - 1, agent] > 0:
+            elif trace.applied_dv_mps[t - 1, agent] > BURN_EPSILON_MPS:
                 event = "maneuver"
         status = "collided" if agent in collided_agents else worst[agent]
         satellites.append(

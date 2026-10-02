@@ -334,6 +334,11 @@ class OrbitGuardEnv(ParallelEnv):
     def delta_v_budget_mps(self) -> float:
         return self._capability_template.remaining_delta_v_mps
 
+    @property
+    def max_delta_v_per_action_mps(self) -> float:
+        """Delta-v of one full-size burn (phase burns use a fraction of it)."""
+        return self._capability_template.max_delta_v_per_action_mps
+
     def delta_v_used_mps(self) -> dict[str, float]:
         """Delta-v each satellite has spent so far this episode (budget minus remaining)."""
         return {

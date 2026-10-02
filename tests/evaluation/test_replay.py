@@ -134,3 +134,29 @@ def test_recording_works_with_a_heuristic_policy_on_a_larger_constellation():
 
     assert trace.num_agents == 10
     assert trace.num_pairs == 45
+
+
+_REPLAY_DATA_LAYER = (
+    "orbit_guard.visualization.replay_meta",
+    "orbit_guard.visualization.episodes",
+    "orbit_guard.visualization.summary",
+    "orbit_guard.visualization.source",
+    "orbit_guard.visualization.payload",
+    "orbit_guard.visualization.reference",
+    "orbit_guard.visualization.derived.status",
+    "orbit_guard.visualization.derived.fuel",
+    "orbit_guard.visualization.derived.metrics",
+    "orbit_guard.safety.maneuver_mapper",
+)
+
+
+@pytest.mark.parametrize("module", _REPLAY_DATA_LAYER)
+def test_replay_data_layer_needs_neither_ray_nor_torch(module):
+    """FR16: a saved episode replays with training and inference stopped, including the redesign's data layer."""
+    code = (
+        f"import sys, {module};"
+        "bad = [name for name in ('ray', 'torch', 'gymnasium') if name in sys.modules];"
+        "assert not bad, f'replay data layer pulled in {bad}'"
+    )
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr

@@ -97,3 +97,11 @@ def test_degradation_validates_its_arguments():
         CapabilityDegradation(disabled_count=-1)
     with pytest.raises(ValueError):
         CapabilityDegradation(disabled_count=0, reduced_budget_scale=0.0)
+
+
+def test_max_delta_v_per_action_is_public_and_matches_what_a_burn_applies():
+    env = OrbitGuardEnv(num_agents=2, **_KW)
+    env.reset(seed=0)
+    assert env.max_delta_v_per_action_mps == pytest.approx(0.1)
+    env.step({agent: 1 for agent in env.agents})  # RAISE_ORBIT: one full-size burn
+    assert max(env.delta_v_used_mps().values()) == pytest.approx(env.max_delta_v_per_action_mps)
