@@ -70,6 +70,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+from orbit_guard.physics.constants import MU_EARTH_M3_S2, R_EARTH_EQUATORIAL_M
 from orbit_guard.rl.observation import (
     DELTA_V_BUDGET_SCALE_MPS,
     MAX_DELTA_V_PER_ACTION_SCALE_MPS,
@@ -82,8 +84,6 @@ from orbit_guard.rl.observation import (
     NeighborCandidate,
     build_observation,
 )
-
-from orbit_guard.physics.constants import MU_EARTH_M3_S2, R_EARTH_EQUATORIAL_M
 
 _K_NEIGHBORS = 4
 

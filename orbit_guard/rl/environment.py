@@ -40,6 +40,7 @@ TypeError guards.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 from gymnasium import spaces
@@ -50,9 +51,15 @@ from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.physics.dynamics import state_derivative
 from orbit_guard.physics.integrator import propagate
-from orbit_guard.physics.mission_deviation import compute_mission_deviation, compute_weighted_mission_deviation
+from orbit_guard.physics.mission_deviation import (
+    compute_mission_deviation,
+    compute_weighted_mission_deviation,
+)
 from orbit_guard.physics.state import SatelliteCapability
-from orbit_guard.rl.conjunction_assessment import assess_all_pairs, build_neighbor_candidates
+from orbit_guard.rl.conjunction_assessment import (
+    assess_all_pairs,
+    build_neighbor_candidates,
+)
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
     compute_coordination_term,
@@ -63,10 +70,17 @@ from orbit_guard.rl.reward import (
     compute_safety_term,
 )
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
-from orbit_guard.scenarios.conjunction_generator import DEFAULT_DISTRIBUTION_MIX, generate_conjunction_scenario
-from orbit_guard.scenarios.constellation import MIN_SUPPORTED_N, fit_shell_distribution, load_tle_snapshot
+from orbit_guard.scenarios.conjunction_generator import (
+    DEFAULT_DISTRIBUTION_MIX,
+    generate_conjunction_scenario,
+)
+from orbit_guard.scenarios.constellation import (
+    MIN_SUPPORTED_N,
+    fit_shell_distribution,
+    load_tle_snapshot,
+)
 from orbit_guard.scenarios.small_n_scenario import generate_small_n_conjunction_scenario
-from orbit_guard.sensing.belief import GroundTruthState, observe, form_belief
+from orbit_guard.sensing.belief import GroundTruthState, form_belief, observe
 from orbit_guard.sensing.noise import NoiseModel
 
 _DEFAULT_TLE_PATH = Path(__file__).resolve().parents[2] / "data" / "TLE_snapshot_53deg_shell.csv"
@@ -94,7 +108,7 @@ _GLOBAL_SUMMARY_DIM = 4
 class OrbitGuardEnv(ParallelEnv):
     """Multi-agent satellite collision-avoidance environment (PRD §19)."""
 
-    metadata = {"name": "orbit_guard_env_v0", "is_parallelizable": True}
+    metadata: ClassVar[dict] = {"name": "orbit_guard_env_v0", "is_parallelizable": True}
 
     def __init__(
         self,

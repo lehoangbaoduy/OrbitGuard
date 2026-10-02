@@ -28,7 +28,7 @@ from orbit_guard.rl.environment import OrbitGuardEnv
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent
 from tests.rl.stub_env import StubOrbitGuardEnv
 
-_FAST_KWARGS = dict(episode_horizon_s=120.0, control_dt_s=60.0, physics_dt_s=10.0, lookahead_s=60.0)
+_FAST_KWARGS = {"episode_horizon_s": 120.0, "control_dt_s": 60.0, "physics_dt_s": 10.0, "lookahead_s": 60.0}
 
 
 def _fast_env(num_agents: int = 2, **overrides) -> OrbitGuardEnv:
@@ -167,7 +167,7 @@ def test_no_collision_with_zero_hard_body_radius_never_terminates_early():
     env.reset(seed=9)
     step_count = 0
     while env.agents:
-        _, _, terminations, truncations, _ = env.step({agent: 0 for agent in env.agents})
+        _, _, terminations, _, _ = env.step({agent: 0 for agent in env.agents})
         if any(terminations.values()):
             pytest.fail("spurious collision with zero hard-body radius")
         step_count += 1
@@ -187,9 +187,9 @@ def test_state_is_concatenation_of_each_agents_own_observation():
 
 def test_n_equals_ten_routes_through_the_phase_two_generator():
     env = _fast_env(num_agents=10)
-    obs, infos = env.reset(seed=11)
+    env.reset(seed=11)
     assert len(env.agents) == 10
-    obs, rewards, terminations, truncations, infos = env.step({agent: 0 for agent in env.agents})
+    _, rewards, _, _, _ = env.step({agent: 0 for agent in env.agents})
     assert len(rewards) == 10
 
 
