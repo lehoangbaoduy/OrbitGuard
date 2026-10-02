@@ -276,3 +276,15 @@ def test_generate_conjunction_scenario_can_reach_the_collision_course_band():
         if scenario.injected_conjunctions[0].achieved_d_min_m < 10.0:
             return  # found a collision-course episode; branch exercised
     raise AssertionError("No seed in range(300) produced a collision-course injection")
+
+
+def test_triple_conjunction_episode_injects_three_disjoint_pairs_beyond_the_training_maximum():
+    scenario = generate_conjunction_scenario(
+        12, seed=3, shell=_shell(), capability_template=_capability(), episode_horizon_s=3600.0,
+        distribution_mix={"triple_conjunction": 1.0},
+    )
+
+    assert scenario.episode_type == "triple_conjunction"
+    assert len(scenario.injected_conjunctions) == 3
+    members = [i for spec in scenario.injected_conjunctions for i in (spec.primary_index, spec.secondary_index)]
+    assert len(set(members)) == 6

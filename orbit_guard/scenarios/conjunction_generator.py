@@ -50,7 +50,14 @@ DEFAULT_DISTRIBUTION_MIX: Mapping[str, float] = {
     "multi_conjunction": 0.20,
 }
 
-_EPISODE_TYPE_CONJUNCTION_COUNT = {"benign": 0, "single_conjunction": 1, "multi_conjunction": 2}
+# "triple_conjunction" is outside the §17 training mix on purpose: it exists for the
+# simultaneous-conjunctions distribution shift (§32 #3), which must exceed the training maximum of two.
+_EPISODE_TYPE_CONJUNCTION_COUNT = {
+    "benign": 0,
+    "single_conjunction": 1,
+    "multi_conjunction": 2,
+    "triple_conjunction": 3,
+}
 
 _CROSSING_ANGLE_RANGE_RAD = (np.radians(0.5), np.radians(15.0))
 _NEAR_MISS_D_MIN_RANGE_M = (50.0, 300.0)
@@ -178,14 +185,22 @@ def generate_conjunction_scenario(
     episode_horizon_s: float,
     physics_dt_s: float = 10.0,
     distribution_mix: Mapping[str, float] = DEFAULT_DISTRIBUTION_MIX,
+    phase_spread_rad: float | None = None,
 ) -> ConjunctionScenario:
     """Sample a fresh constellation and layer a randomized conjunction mix on top (PRD §17).
+
+    `phase_spread_rad` (default None = uniform shell, the training distribution) packs the
+    satellites into a local neighbourhood for the density distribution shift (PRD §32 #2).
 
     `sample_constellation`'s own N-range check ([10, 20]) is relied on here
     rather than duplicated -- it already guarantees enough satellites for
     up to 2 disjoint injected pairs (multi_conjunction needs 4 of them).
     """
-    satellites = list(sample_constellation(n, seed=seed, shell=shell, capability_template=capability_template))
+    satellites = list(
+        sample_constellation(
+            n, seed=seed, shell=shell, capability_template=capability_template, phase_spread_rad=phase_spread_rad
+        )
+    )
 
     rng = np.random.default_rng(seed)
     episode_type = sample_episode_type(rng, distribution_mix)

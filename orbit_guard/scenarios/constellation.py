@@ -105,11 +105,26 @@ class GeneratedSatellite:
     capability: SatelliteCapability
 
 
+@dataclass(frozen=True)
+class ClusterWindow:
+    """A shared (RAAN, argument of periapsis, mean anomaly) centre plus a normal spread, in radians.
+
+    Used by the density distribution shift (PRD §32 #2) to pack a FIXED number of satellites into a
+    local orbital neighbourhood instead of spreading them uniformly around the shell.
+    """
+
+    raan_rad: float
+    arg_periapsis_rad: float
+    mean_anomaly_rad: float
+    spread_rad: float
+
+
 def sample_constellation(
     n: int,
     seed: int,
     shell: ShellDistribution,
     capability_template: SatelliteCapability,
+    phase_spread_rad: float | None = None,
 ) -> tuple[GeneratedSatellite, ...]:
     """Sample n fresh synthetic satellites (PRD §16-17).
 
@@ -127,11 +142,20 @@ def sample_constellation(
         )
 
     rng = np.random.default_rng(seed)
-    return tuple(_sample_one_satellite(rng, shell, capability_template) for _ in range(n))
+    cluster = None
+    if phase_spread_rad is not None:
+        if phase_spread_rad <= 0:
+            raise ValueError(f"phase_spread_rad must be > 0, got {phase_spread_rad}")
+        centre = rng.uniform(0.0, 2 * np.pi, size=3)
+        cluster = ClusterWindow(float(centre[0]), float(centre[1]), float(centre[2]), phase_spread_rad)
+    return tuple(_sample_one_satellite(rng, shell, capability_template, cluster) for _ in range(n))
 
 
 def _sample_one_satellite(
-    rng: np.random.Generator, shell: ShellDistribution, capability_template: SatelliteCapability
+    rng: np.random.Generator,
+    shell: ShellDistribution,
+    capability_template: SatelliteCapability,
+    cluster: ClusterWindow | None = None,
 ) -> GeneratedSatellite:
     """One synthetic satellite from the fitted shell distribution (PRD §16-17).
 
@@ -163,9 +187,15 @@ def _sample_one_satellite(
             shell.eccentricity_max,
         )
     )
-    raan_rad = float(rng.uniform(0.0, 2 * np.pi))
-    arg_periapsis_rad = float(rng.uniform(0.0, 2 * np.pi))
-    mean_anomaly_rad = float(rng.uniform(0.0, 2 * np.pi))
+    if cluster is None:
+        raan_rad = float(rng.uniform(0.0, 2 * np.pi))
+        arg_periapsis_rad = float(rng.uniform(0.0, 2 * np.pi))
+        mean_anomaly_rad = float(rng.uniform(0.0, 2 * np.pi))
+    else:
+        raan_rad, arg_periapsis_rad, mean_anomaly_rad = (
+            float((centre + rng.normal(0.0, cluster.spread_rad)) % (2 * np.pi))
+            for centre in (cluster.raan_rad, cluster.arg_periapsis_rad, cluster.mean_anomaly_rad)
+        )
 
     semi_major_axis_m = R_EARTH_EQUATORIAL_M + altitude_km * 1000.0
     r, v = coe_to_cartesian(

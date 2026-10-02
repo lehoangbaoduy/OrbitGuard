@@ -39,6 +39,7 @@ TypeError guards.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -110,6 +111,43 @@ _NEIGHBOR_DIM = 10
 _GLOBAL_SUMMARY_DIM = 4
 
 
+@dataclass(frozen=True)
+class CapabilityDegradation:
+    """Reduced-capability distribution shift (PRD §32 #4), deterministic given the scenario.
+
+    Victims are chosen in a fixed order -- primaries of the injected conjunctions first, then their
+    secondaries, then the remaining satellites by index -- so the satellites that most need to
+    manoeuvre are the ones that cannot, and every model faces the identical handicap. The first
+    `disabled_count` victims get `maneuver_enabled=False`; the next `reduced_count` keep it but
+    start with `reduced_budget_scale` of the delta-v budget.
+    """
+
+    disabled_count: int = 0
+    reduced_count: int = 0
+    reduced_budget_scale: float = 0.25
+
+    def __post_init__(self):
+        if self.disabled_count < 0 or self.reduced_count < 0:
+            raise ValueError("disabled_count and reduced_count must be >= 0")
+        if not 0.0 < self.reduced_budget_scale <= 1.0:
+            raise ValueError("reduced_budget_scale must be in (0, 1]")
+
+    def apply(self, capabilities: list[SatelliteCapability], conjunctions) -> list[SatelliteCapability]:
+        order: list[int] = [spec.primary_index for spec in conjunctions]
+        order += [spec.secondary_index for spec in conjunctions]
+        order += [i for i in range(len(capabilities)) if i not in order]
+        updated = list(capabilities)
+        for position, index in enumerate(order[: self.disabled_count + self.reduced_count]):
+            capability = updated[index]
+            if position < self.disabled_count:
+                updated[index] = replace(capability, maneuver_enabled=False)
+            else:
+                updated[index] = capability.with_remaining_delta_v(
+                    capability.remaining_delta_v_mps * self.reduced_budget_scale
+                )
+        return updated
+
+
 class OrbitGuardEnv(ParallelEnv):
     """Multi-agent satellite collision-avoidance environment (PRD §19)."""
 
@@ -130,6 +168,8 @@ class OrbitGuardEnv(ParallelEnv):
         tle_path: str | Path = _DEFAULT_TLE_PATH,
         reward_weights: dict | None = None,
         margin_fn: MarginFn | None = None,
+        phase_spread_rad: float | None = None,
+        capability_degradation: CapabilityDegradation | None = None,
     ):
         if num_agents < 2:
             raise ValueError("OrbitGuard is a multi-agent env; num_agents must be >= 2")
@@ -152,6 +192,9 @@ class OrbitGuardEnv(ParallelEnv):
         self._noise_model = noise_model
         self._reward_weights = reward_weights or _REWARD_WEIGHTS
         self._margin_fn = margin_fn
+        self._phase_spread_rad = phase_spread_rad
+        self._capability_degradation = capability_degradation
+        self._last_scenario = None
         self._shell = fit_shell_distribution(load_tle_snapshot(tle_path))
         self._substeps_per_control = round(control_dt_s / physics_dt_s)
         self._horizon_steps = round(episode_horizon_s / control_dt_s)
@@ -206,6 +249,8 @@ class OrbitGuardEnv(ParallelEnv):
         scenario_seed = int(self._rng.integers(0, 2**31 - 1))
 
         if self._num_agents < MIN_SUPPORTED_N:
+            if self._phase_spread_rad is not None:
+                raise ValueError("phase_spread_rad (density shift) needs num_agents >= 10")
             scenario = generate_small_n_conjunction_scenario(
                 self._num_agents, scenario_seed, self._shell, self._capability_template,
                 self._episode_horizon_s, self._physics_dt_s, self._distribution_mix,
@@ -214,10 +259,14 @@ class OrbitGuardEnv(ParallelEnv):
             scenario = generate_conjunction_scenario(
                 self._num_agents, scenario_seed, self._shell, self._capability_template,
                 self._episode_horizon_s, self._physics_dt_s, self._distribution_mix,
+                phase_spread_rad=self._phase_spread_rad,
             )
 
+        self._last_scenario = scenario
         self._ground_truth = [sat.state.as_vector() for sat in scenario.satellites]
         self._capabilities = [sat.capability for sat in scenario.satellites]
+        if self._capability_degradation is not None:
+            self._capabilities = self._capability_degradation.apply(self._capabilities, scenario.injected_conjunctions)
         self.agents = list(self.possible_agents)
         self._step_count = 0
         self._collided_agents = set()

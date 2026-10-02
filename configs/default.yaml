@@ -79,6 +79,18 @@ shield:
   exact_enumeration_max_agents: 4
   beam_width: 50
 
+# Zero-shot distribution-shift conditions (PRD §32). Magnitudes are provisional astro choices:
+# noise_scale multiplies the training sensing sigmas (3x is beyond the training range, which is a
+# single fixed value); phase_spread_rad is the std of the clustered RAAN/arg-periapsis/mean-anomaly
+# window (N is unchanged); simultaneous conjunctions use the 3-pair episode type (training maxes at 2);
+# capability_reduction disables/limits the satellites most in need of manoeuvring.
+shifts:
+  normal: {}
+  noise_increase: {noise_scale: 3.0}
+  density_increase: {phase_spread_rad: 0.015}
+  simultaneous_conjunctions: {distribution_mix: {triple_conjunction: 1.0}}
+  capability_reduction: {disabled_count: 2, reduced_count: 2, reduced_budget_scale: 0.25}
+
 experiment:
   training_distribution_mix: {benign: 0.30, single_conjunction: 0.50, multi_conjunction: 0.20}
   validation_seeds: 50
