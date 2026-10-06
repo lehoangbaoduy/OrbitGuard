@@ -14,7 +14,7 @@
   // a real GPU). A full Plotly.react (it also refreshes the picking data) follows after this many in-place frames or this
   // long, whichever is first, and at once when the plate count or a mesh size changes.
   const KEY_TURN_RAD = 0.2, MAX_ELEVATION = 1.45; // one arrow press turns ≈ 11°; elevation stops short of the poles
-  const IN_PLACE_RUN_MAX = 240, FULL_REDRAW_MS = 8000;
+  const IN_PLACE_RUN_MAX = 240, FULL_REDRAW_MS = 8000, REBUILD_LIMIT = { max: 3, windowMs: 10000 };
   const STAR_LAYERS = { far: { id: "og-stars-far", count: 160, seed: 11 }, near: { id: "og-stars-near", count: 50, seed: 29 } };
   const plotConfig = () => ({ displayModeBar: false, responsive: true, scrollZoom: !(root.matchMedia && root.matchMedia("(max-width: 759px)").matches), doubleClick: false }); // on a phone a wheel/touch over the scene must not trap page scrolling
   const $ = (id) => document.getElementById(id);
@@ -24,7 +24,7 @@
   const withHiddenPoint = (data) => data.map((d) => (d.type === "scatter3d" && d.x && d.x.length === 0 ? { ...d, ...HIDDEN_POINT } : d));
 
   function createStage(handlers) {
-    const S = { ep: null, st: null, earthMesh: null, camera: null, revision: 0, resetView: false, bound: false, tracker: OG.gesture.createTracker(), starsDrawn: false, texturesRequested: false, selectedRing: null, lastFull: -Infinity, inPlaceRun: 0, signature: "", nativeBound: false };
+    const S = { ep: null, st: null, earthMesh: null, camera: null, revision: 0, resetView: false, bound: false, tracker: OG.gesture.createTracker(), starsDrawn: false, texturesRequested: false, selectedRing: null, lastFull: -Infinity, inPlaceRun: 0, rebuilds: [], signature: "", nativeBound: false };
 
     function domainRight() {
       const stage = $("og-stage"), dock = $("og-dock");
@@ -120,8 +120,14 @@
       if (!S.ep || !el || !root.Plotly) return "skipped";
       let rebuilt = false;
       if (OG.gesture.contextLost(el)) { // the GPU reset under us: Plotly cannot recover, so start the scene afresh
-        root.Plotly.purge(el);
-        S.bound = false; S.signature = ""; S.inPlaceRun = 0; S.zoomed = true; // keep the camera the user had
+        const verdict = OG.gesture.rebuildAllowed(S.rebuilds, now, REBUILD_LIMIT);
+        S.rebuilds = verdict.history;
+        if (!verdict.allowed) throw new Error("the WebGL context keeps being lost"); // the controller shows its failure state
+        let live = null;
+        try { live = OG.camera.live(el); } catch (error) { /* the dead scene may not answer: fall back to the last known camera */ }
+        if (live) S.camera = live; // a loss in the middle of a drag keeps where the drag had got to
+        try { root.Plotly.purge(el); } catch (error) { el.replaceChildren(); } // a dead context can make the teardown throw
+        S.bound = false; S.signature = ""; S.inPlaceRun = 0;
         rebuilt = true;
         if (handlers.onNotice) handlers.onNotice("The 3D view lost its graphics context and was redrawn.");
       }

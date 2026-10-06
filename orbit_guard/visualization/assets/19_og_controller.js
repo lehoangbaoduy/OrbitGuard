@@ -14,7 +14,7 @@
   const ANNOUNCE_DELAY_MS = 350, ARIA_VALUE_INTERVAL_MS = 500, PICKER_COLUMNS = 5;
   const MAX_FRAME_DT_MS = 250; // a stall (hidden tab, slow draw) slows playback instead of skipping ahead
   const S = { ep: null, p: 0, playing: false, speed: 1, loop: false, selected: 0, orbits: true, expanded: false, timeline: "counts", last: 0, lastDraw: -Infinity, raf: 0,
-    anim: { plume: null, ring: null, lines: null, flash: null }, needDraw: true, panelsKey: "", stripVals: {}, stripTween: null, chart: { el: null, key: "" }, bound: false };
+    anim: { plume: null, ring: null, lines: null, flash: null }, needDraw: true, panelsKey: "", stripVals: {}, stripTween: null, chart: { el: null, last: null }, bound: false };
   let stage = null;
 
   const reduced = () => Boolean(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -109,11 +109,13 @@
     }
     slot.replaceWith(S.chart.wrap);
     const key = `${S.ep.meta.scenario_id}|${S.ep.meta.policy}|${S.ep.shield}|${S.selected}`;
-    if (S.chart.key !== key) {
-      S.chart.key = key;
+    const { clientWidth: width, clientHeight: height } = S.chart.wrap;
+    const plan = OG.charts.inspectorDrawPlan(S.chart.last, key, width, height);
+    if (plan === "draw") {
+      S.chart.last = { key, width, height };
       const fig = OG.charts.inspectorFigure(S.ep, S.selected);
-      root.Plotly.react(S.chart.el, fig.data, { ...fig.layout, height: S.chart.wrap.clientHeight || undefined }, { displayModeBar: false, staticPlot: true, responsive: true });
-    }
+      root.Plotly.react(S.chart.el, fig.data, { ...fig.layout, width, height }, { displayModeBar: false, staticPlot: true, responsive: true });
+    } else if (plan === "defer") S.chart.last = null; // hidden (a phone tab): drawn when it is shown
     movePlayhead(step);
   }
 

@@ -5,9 +5,12 @@
 #   monitor:  tail -f ~/orbitguard_runs/logs/queue_n15.log
 #   stop:     kill $(cat ~/orbitguard_runs/logs/queue_n15.pid)   # then stop the python training child
 #   then:     scripts/run_experiments.sh
+# Retraining with a tuned grid point (a non-default winner must be retrained before the freeze), into a fresh runs dir:
+#   RUNS=~/orbitguard_runs_tuned TUNED_FLAGS="--w4 1.5 --margin-alpha 0.5" scripts/queue_n15.sh
 set -uo pipefail
 RUNS="${RUNS:-$HOME/orbitguard_runs}"
 ITERATIONS="${ITERATIONS:-50}"
+TUNED_FLAGS="${TUNED_FLAGS:-}"  # extra `orbit_guard.rl.training` flags applied to every run (word-split on purpose)
 mkdir -p "$RUNS/logs"
 echo $$ > "$RUNS/logs/queue_n15.pid"
 export RAY_TMPDIR="$RUNS/ray_tmp"
@@ -25,7 +28,7 @@ for seed in 0 1 2; do
     rm -rf "$run"  # a partial checkpoint from an interrupted run
     echo "== N=15 $variant seed $seed $(date +%T)"
     uv run python -u -m orbit_guard.rl.training --agents 15 --iterations "$ITERATIONS" --num-env-runners 6 \
-      --seed "$seed" $flags --eval-episodes 2 --eval-seed 5000 --checkpoint-dir "$run" \
+      --seed "$seed" $flags $TUNED_FLAGS --eval-episodes 2 --eval-seed 5000 --checkpoint-dir "$run" \
       > "$RUNS/logs/n15_${variant}_s${seed}.log" 2>&1 \
       || echo "!! FAILED $variant seed $seed (see logs/n15_${variant}_s${seed}.log)"
   done

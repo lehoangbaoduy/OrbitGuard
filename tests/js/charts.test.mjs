@@ -149,3 +149,14 @@ test("lane marks label only the selected satellite's own runs, e.g. S3 x2, and s
   C.drawLaneMarks(quiet.g, 600, off, lanes, 0);
   assert.deepEqual(quiet.log.texts.slice().sort(), OG.models.laneMarks(off, 1, 0).map((m) => m.label).sort());
 });
+
+
+test("the inspector chart is drawn when its key or its size changes, and not while it is hidden", () => {
+  const plan = C.inspectorDrawPlan;
+  assert.equal(plan(null, "k", 296, 150), "draw");
+  assert.equal(plan({ key: "k", width: 296, height: 150 }, "k", 296, 150), "keep");
+  assert.equal(plan({ key: "k", width: 296, height: 150 }, "other", 296, 150), "draw");
+  assert.equal(plan({ key: "k", width: 296, height: 150 }, "k", 340, 190), "draw", "the phone tab opened or the dock moved: re-fit");
+  assert.equal(plan(null, "k", 0, 0), "defer", "a hidden panel is measured as 0x0: wait until it is shown");
+  assert.equal(plan({ key: "k", width: 296, height: 150 }, "k", 0, 150), "defer");
+});

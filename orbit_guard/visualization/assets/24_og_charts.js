@@ -145,5 +145,12 @@
     return Math.min(1, Math.max(0, step / steps)) * plot;
   }
 
-  OG.charts = { drawScrubDensity, drawLanes, drawLaneMarks, drawMatrix, drawFuelArea, inspectorFigure, playheadOffset, INSPECTOR_MARGIN };
+  /* Whether the inspector chart must be (re)drawn: its key or its measured size changed (a phone tab opened, the dock
+     moved), never while hidden (a hidden panel measures 0x0 and Plotly would size the chart to garbage). */
+  function inspectorDrawPlan(last, key, width, height) {
+    if (!(width > 0) || !(height > 0)) return "defer";
+    return last && last.key === key && last.width === width && last.height === height ? "keep" : "draw";
+  }
+
+  OG.charts = { inspectorDrawPlan, drawScrubDensity, drawLanes, drawLaneMarks, drawMatrix, drawFuelArea, inspectorFigure, playheadOffset, INSPECTOR_MARGIN };
 })(globalThis);

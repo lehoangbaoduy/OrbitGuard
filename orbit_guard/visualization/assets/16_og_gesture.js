@@ -43,10 +43,9 @@
     return Array.isArray(live) && live.length === annotations.length;
   }
 
-  function movePlates(el, annotations, scene) {
+  function writePlates(el, annotations) {
     const live = el._fullLayout.scene.annotations;
     annotations.forEach((next, n) => PLATE_KEYS.forEach((key) => { if (key in next) live[n][key] = next[key]; }));
-    try { if (scene.drawAnnotations) scene.drawAnnotations(scene); } catch (error) { /* a stale plate must not freeze the view */ }
   }
 
   /* Push `data` into the live WebGL traces. Returns false when that is not possible (the caller then redraws fully).
@@ -59,6 +58,7 @@
     if (strict && data.some((next, n) => n >= FIRST_DYNAMIC_TRACE && needsRedraw(el._fullData[n], next, scene))) return false;
     const platesInPlace = Boolean(annotations) && platesFit(el, annotations);
     if (strict && annotations && !platesInPlace) return false;
+    if (platesInPlace) writePlates(el, annotations); // before the redraw: Plotly's render() ends by drawing the plates
     for (let n = FIRST_DYNAMIC_TRACE; n < data.length; n += 1) {
       const full = el._fullData[n], next = data[n], trace = full && scene.traces[full.uid];
       if (!trace || !next.x || !full.x) continue;
@@ -66,11 +66,14 @@
       full.x = next.x; full.y = next.y; full.z = next.z; full._length = next.x.length;
       if (next.type === "mesh3d") { full.i = next.i; full.j = next.j; full.k = next.k; full.vertexcolor = next.vertexcolor; }
       if (next.text) full.text = next.text;
+      // Plotly reads these from _fullData: hover text when the trace updates, customdata on a click, opacity for the fades.
+      for (const key of ["hovertext", "customdata", "opacity"]) if (next[key] !== undefined) full[key] = next[key];
       if (next.line && next.line.color && full.line) full.line.color = next.line.color;
       try { trace.update(full); } catch (error) { /* one bad trace must not freeze the view */ }
     }
-    try { if (scene.glplot.redraw) scene.glplot.redraw(); else scene.glplot.dirty = true; } catch (error) { /* ignore */ }
-    if (platesInPlace) movePlates(el, annotations, scene);
+    let redrawn = false;
+    try { if (scene.glplot.redraw) { scene.glplot.redraw(); redrawn = true; } else scene.glplot.dirty = true; } catch (error) { /* ignore */ }
+    if (platesInPlace && !redrawn) { try { if (scene.drawAnnotations) scene.drawAnnotations(scene); } catch (error) { /* a stale plate must not freeze the view */ } }
     return true;
   }
 
@@ -94,5 +97,12 @@
     if (scene && typeof scene.recoverContext === "function") scene.recoverContext = () => {};
   }
 
-  OG.gesture = { createTracker, applyInPlace, contextLost, disableRecovery, WHEEL_HOLD_MS, FIRST_DYNAMIC_TRACE };
+  /* A flapping GPU must not turn into an endless purge/redraw loop: allow `max` rebuilds per `windowMs`, then the caller
+     fails the replay visibly. Returns {allowed, history} without mutating the input. */
+  function rebuildAllowed(history, now, { max, windowMs }) {
+    const recent = history.filter((t) => now - t < windowMs);
+    return recent.length >= max ? { allowed: false, history: recent } : { allowed: true, history: [...recent, now] };
+  }
+
+  OG.gesture = { createTracker, applyInPlace, contextLost, disableRecovery, rebuildAllowed, WHEEL_HOLD_MS, FIRST_DYNAMIC_TRACE };
 })(globalThis);

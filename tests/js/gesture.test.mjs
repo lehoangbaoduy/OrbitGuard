@@ -82,10 +82,13 @@ test("strict mode (playback frames) refuses, touching nothing, when a mesh chang
 });
 
 function withPlates(plot, count) {
-  const calls = { drawn: 0 };
+  const calls = { drawn: 0, textsWhenDrawn: [] };
   const plates = Array.from({ length: count }, (_, k) => ({ x: k, y: k, z: k, text: `old${k}`, bordercolor: "#000", _pdata: [1], _xa: {} }));
+  const scene = plot.el._fullLayout.scene._scene;
   plot.el._fullLayout.scene.annotations = plates;
-  plot.el._fullLayout.scene._scene.drawAnnotations = () => { calls.drawn += 1; };
+  scene.drawAnnotations = () => { calls.drawn += 1; calls.textsWhenDrawn.push(plates.map((p) => p.text)); };
+  const redraw = scene.glplot.redraw;
+  scene.glplot.redraw = () => { redraw(); scene.drawAnnotations(scene); }; // like Plotly's render(), which ends by drawing the annotations
   return { calls, plates };
 }
 const plateFor = (k) => ({ x: 10 + k, y: 20 + k, z: 30 + k, text: `new${k}`, bordercolor: "#fff", font: { color: "#fff" } });
@@ -96,6 +99,15 @@ test("playback frames move the label plates in place when the plate count is unc
   assert.equal(G.applyInPlace(plot.el, dataFor(10, {}), { strict: true, annotations: [plateFor(0), plateFor(1)] }), true);
   assert.deepEqual(plates.map((p) => [p.x, p.text, p.bordercolor]), [[10, "new0", "#fff"], [11, "new1", "#fff"]]);
   assert.equal(plates[0]._pdata[0], 1, "Plotly's derived fields survive the update");
+  assert.equal(calls.drawn, 1, "the plates are drawn once per frame, by the redraw itself");
+  assert.deepEqual(calls.textsWhenDrawn[0], ["new0", "new1"], "the new values are in place before that draw");
+});
+
+test("without a redraw hook the plates are drawn explicitly", () => {
+  const plot = fakePlot(10);
+  const { calls } = withPlates(plot, 1);
+  delete plot.el._fullLayout.scene._scene.glplot.redraw;
+  assert.equal(G.applyInPlace(plot.el, dataFor(10, {}), { annotations: [plateFor(0)] }), true);
   assert.equal(calls.drawn, 1);
 });
 
@@ -111,11 +123,11 @@ test("a different plate count cannot be done in place: playback frames ask for a
   assert.deepEqual(drag.plates.map((p) => p.text), ["old0", "old1"]);
 });
 
-test("without annotations the call behaves as before", () => {
+test("without annotations the plate values are left untouched", () => {
   const plot = fakePlot(10);
-  const { calls } = withPlates(plot, 1);
+  const { plates } = withPlates(plot, 1);
   assert.equal(G.applyInPlace(plot.el, dataFor(10, {})), true);
-  assert.equal(calls.drawn, 0);
+  assert.deepEqual(plates.map((p) => p.text), ["old0"]);
 });
 
 const sceneWith = (glplot, gl) => ({ _fullLayout: { scene: { _scene: { glplot, gl } } } });
@@ -146,4 +158,29 @@ test("Plotly's own context recovery is switched off, so it cannot race the stage
   assert.equal(called, 0);
   assert.doesNotThrow(() => G.disableRecovery(null));
   assert.doesNotThrow(() => G.disableRecovery({}));
+});
+
+
+test("hover text, click data and opacity follow the coordinates in place (they used to wait for the periodic full redraw)", () => {
+  const { el, fullData } = fakePlot(10);
+  const data = dataFor(10, { 8: [1, 2, 3] }).map((d, k) => (k === 8 ? { ...d, hovertext: ["a", "b", "c"], customdata: [4, 5, 7], opacity: 0.6 } : d));
+  assert.equal(G.applyInPlace(el, data, { strict: true }), true);
+  assert.deepEqual(fullData[8].hovertext, ["a", "b", "c"]);
+  assert.deepEqual(fullData[8].customdata, [4, 5, 7], "a click on the third marker must name the third satellite now, not at the last full redraw");
+  assert.equal(fullData[8].opacity, 0.6);
+});
+
+test("a trace without those fields keeps whatever it had", () => {
+  const { el, fullData } = fakePlot(10);
+  fullData[8].opacity = 0.9;
+  assert.equal(G.applyInPlace(el, dataFor(10, {})), true);
+  assert.equal(fullData[8].opacity, 0.9);
+});
+
+test("rebuilds after a lost context are limited, so a flapping GPU ends in the failure state instead of a redraw loop", () => {
+  const limit = { max: 3, windowMs: 10000 };
+  let history = [];
+  for (const now of [0, 1000, 2000]) { const r = G.rebuildAllowed(history, now, limit); assert.equal(r.allowed, true); history = r.history; }
+  assert.equal(G.rebuildAllowed(history, 3000, limit).allowed, false);
+  assert.equal(G.rebuildAllowed(history, 10500, limit).allowed, true, "old losses age out of the window");
 });
