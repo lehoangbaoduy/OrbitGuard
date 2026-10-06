@@ -111,8 +111,10 @@
 
   const AXIS_STYLE = { gridcolor: "rgba(219,230,243,0.08)", zeroline: false, linecolor: "rgba(219,230,243,0.2)", tickfont: { family: MONO, size: 11, color: TEXT_3 } };
 
+  const INSPECTOR_MARGIN = Object.freeze({ l: 44, r: 8, t: 8, b: 22 });
+
   /* Inspector figure: three rows sharing the step axis (Δv left with event marks, mission deviation, closest d_min against d_safe on a log scale). */
-  function inspectorFigure(ep, sat, step) {
+  function inspectorFigure(ep, sat) {
     const s = OG.models.inspectorSeries(ep, sat), c = colors(ep);
     const at = (steps, values) => steps.map((t) => values[t]);
     const line = (name, y, extra) => ({ type: "scatter", mode: "lines", name, x: s.t, y, hoverinfo: "x+y", ...extra });
@@ -126,17 +128,22 @@
     ];
     const note = (y, text) => ({ xref: "paper", yref: "paper", x: 0, y, text, showarrow: false, xanchor: "left", yanchor: "bottom", font: { family: MONO, size: 11, color: TEXT_3 } });
     const layout = {
-      paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { l: 44, r: 8, t: 8, b: 22 }, showlegend: false, hovermode: "x",
+      paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { ...INSPECTOR_MARGIN }, showlegend: false, hovermode: "x",
       xaxis: { ...AXIS_STYLE, range: [0, ep.T], anchor: "y3" },
       yaxis: { ...AXIS_STYLE, domain: [0.70, 0.92], nticks: 3 }, yaxis2: { ...AXIS_STYLE, domain: [0.36, 0.58], nticks: 3 }, yaxis3: { ...AXIS_STYLE, domain: [0, 0.22], type: "log", nticks: 3 },
-      shapes: [{ type: "line", name: "playhead", xref: "x", yref: "paper", x0: step, x1: step, y0: 0, y1: 1, line: { color: OG.ICE, width: 1 } }],
       annotations: [note(0.93, "Δv LEFT · m/s"), note(0.59, "MISSION DEVIATION"), note(0.23, "CLOSEST d_min · ┄ d_safe (m, log)")],
     };
     return { data, layout };
   }
 
-  /* relayout() arguments that move only the playhead. */
-  const playheadUpdate = (step) => ({ "shapes[0].x0": step, "shapes[0].x1": step });
+  /* The playhead is a thin element laid over the chart and moved with a transform: as a Plotly shape every step cost a
+     relayout (~33 ms on a real GPU, 60+ per 5 s of 4x playback). `playheadOffset` is its x offset in px from the plot
+     area's left edge (the chart's own left margin is applied in CSS), clamped to the plot. */
+  function playheadOffset(step, steps, widthPx) {
+    const plot = widthPx - INSPECTOR_MARGIN.l - INSPECTOR_MARGIN.r;
+    if (!(plot > 0) || !(steps > 0) || !Number.isFinite(step)) return 0;
+    return Math.min(1, Math.max(0, step / steps)) * plot;
+  }
 
-  OG.charts = { drawScrubDensity, drawLanes, drawLaneMarks, drawMatrix, drawFuelArea, inspectorFigure, playheadUpdate };
+  OG.charts = { drawScrubDensity, drawLanes, drawLaneMarks, drawMatrix, drawFuelArea, inspectorFigure, playheadOffset, INSPECTOR_MARGIN };
 })(globalThis);

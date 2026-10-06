@@ -82,7 +82,10 @@ button.og-chip { cursor: pointer; }
 .og-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
 .og-pick { height: 22px; border-radius: 4px; border: 1px solid var(--og-hair); background: transparent; color: var(--og-text-2); font-family: var(--og-font-mono); font-size: var(--og-fs-xs); cursor: pointer; }
 .og-pick.is-selected { border-color: var(--og-ice); color: var(--og-ice); }
-.og-insp-chart { height: 150px; }
+.og-insp-chart { position: relative; height: 150px; }
+.og-insp-plot { height: 100%; }
+/* The playhead sits over the plot area (chart margins: left 44, right 8, top 8, bottom 22; see INSPECTOR_MARGIN). */
+.og-insp-playhead { position: absolute; top: 8px; bottom: 22px; left: 44px; width: 1px; background: var(--og-ice); pointer-events: none; will-change: transform; }
 .og-decision { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .og-decision.is-dim { color: var(--og-text-3); font-size: var(--og-fs-sm); }
 .og-decision-line { font-family: var(--og-font-mono); font-size: var(--og-fs-sm); }

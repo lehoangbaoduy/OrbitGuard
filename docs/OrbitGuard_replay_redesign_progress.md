@@ -128,7 +128,7 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 - [x] 12 real recorded episodes (3 scenarios × untrained/trained × shield on/off) discovered from meta; missing combinations disabled.
 - [x] Every status carries colour + marker + text label (ui evidence), with ◆ / ○ glyphs; the legend lists all of them plus the two capability marks.
 - [x] Zero horizontal overflow at 320/390/768/1024/1440 and after live resize; ≥ 44 px targets on phone.
-- [x] Camera drag/zoom works during playback; playback is continuous (rAF) at 1/2/4/8× — **frame rate measured only on software GL (SwiftShader), see §9**.
+- [x] Camera drag/zoom works during playback; playback is continuous (rAF) at 1/2/4/8× — measured on a real GPU (RTX 4070 Ti via D3D12/ANGLE, headless Chromium 149): 59–60 fps at every speed, see §9.
 - [x] Reduced-motion verified; no layout-triggering animation.
 - [x] Console clean in every checked state (also with the enforcing CSP); FR16 import test green; full suite green (946 passed); ruff clean.
 - [x] Code review per PR (typescript-reviewer ×2, a11y-architect, python-reviewer, security-reviewer); CRITICAL/HIGH findings fixed.
@@ -278,9 +278,25 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-06 | Security review (security-reviewer): `security.py` (CSP by sha256 of Dash's inline renderer script, TRUSTED_HOSTS, nosniff/XFO/Referrer/Permissions/COOP), `--allow-remote`, header/summary/zip-size guards | DONE; enforcing CSP verified in the browser (gl3d, Plotly, Dash callbacks, 0 console errors) |
 | 2026-10-06 | Final python-reviewer pass fixed test-first (`test_visualization_robustness.py`): payload-cache lock, named `ReplayMetaError` for damaged/inconsistent arrays and bad `control_dt_s`, callback surfaces a load failure in `og-alert` instead of a 500, `main()` converts startup errors to `parser.error` and checks the reference log early, reference-log UTF-8/non-string/recursion guards, atomic `save_trace` | DONE; suite 946 passed, ruff clean |
 
-## 9. Honest gaps (known, not hidden)
+## 9. Real-GPU results and honest gaps
 
-- **Real-GPU performance is unmeasured.** Every frame-rate check ran on software GL; the in-place frame path and 60 fps claim need one run on a machine with a GPU.
+**Real-GPU run (2026-10-06).** Chromium launched with `--use-gl=angle --use-angle=gl` reaches the RTX 4070 Ti through D3D12 on WSL (the default launch falls back to SwiftShader). Playing the real 15-satellite, 360-step episode from step 0, 6 s per speed, full-page 1440×900:
+
+| | before fixes | after fixes |
+|---|---|---|
+| 1× / 2× | 28 / 25 fps, 150 ms hitch every ~300 ms | 59.7 / 60 fps, no frame over 33 ms |
+| 4× / 8× | 13–35 fps | 60 / 60 fps (warm), 59–60 (cold) |
+| camera drag during playback | scene went blank (see below) | continues playing, 60 fps |
+
+What the measurement found and what was fixed (each test-first):
+1. **Periodic full `Plotly.react` (~150 ms on a real GPU) every 5 in-place frames** — the label plates were the only reason. Plates are now moved in place (`applyInPlace(..., {annotations})` writes `_fullLayout.scene.annotations` and re-runs `scene.drawAnnotations`; full react only if the plate count or a mesh size changes, or after 240 frames / 8 s). 16 reacts per 5 s became 0–1.
+2. **Inspector playhead moved with `Plotly.relayout` every step (~33 ms each, ≈45 % of main-thread time at 4×).** It is now an overlay element moved with a `transform`; the figure no longer depends on the step. Setting `className` on the Plotly node at every mount (which wiped Plotly's `js-plotly-plot` class and stacked its SVG layers) was caught by looking at the screenshot and fixed by setting classes once.
+3. **WebGL context loss was unrecoverable.** The GPU process crashed once (`exit_code=11`, Mesa/D3D12 on WSL — an environment fault, not ours) and the 3D view stayed blank because Plotly never `preventDefault`s the loss and its own recovery loop waits forever (and throws after a purge). The stage now detects a lost context (`OG.gesture.contextLost`), purges and rebuilds the scene with the camera kept, tells the user in the alert region, and neutralises Plotly's recovery (`disableRecovery`). Verified live by forcing `WEBGL_lose_context.loseContext()` on GPU and software renderers: new context, alert, camera kept, playback continues, 0 page errors.
+
+Remaining measurements caveat: numbers are from headless Chromium on WSL2, not a desktop Chrome on Windows.
+
+**Honest gaps**
+
 - ✕ ring at 800 ms exists only as the static halo marker (Plotly scatter3d cannot animate a ring), not the handoff's expanding pulse.
 - The risk table is a div grid with roles, not a `<table>` element.
 - Inspector chart is 150 px tall, the handoff shows 210 px.

@@ -91,23 +91,36 @@
     if (S.timelineSel !== S.selected) { S.timelineSel = S.selected; renderTimelineMarks(); } else renderTimelineNotes();
   }
 
-  /* The inspector chart is a persistent Plotly element: panel re-renders only re-parent it. */
+  /* The inspector chart is a persistent Plotly element inside a wrapper that also holds the playhead; panel re-renders
+     only re-parent the wrapper, and a step only moves the playhead (a transform, no Plotly call). */
   function mountInspectorChart(step) {
     const slot = $("og-inspector-chart");
     if (!slot || !root.Plotly) return;
-    if (!S.chart.el) S.chart.el = document.createElement("div");
-    S.chart.el.id = "og-inspector-chart";
-    S.chart.el.className = "og-insp-chart";
-    S.chart.el.setAttribute("aria-hidden", "true"); // the readouts beside it carry the same numbers as text
-    slot.replaceWith(S.chart.el);
+    if (!S.chart.el) {
+      S.chart.el = document.createElement("div");
+      S.chart.head = document.createElement("div");
+      S.chart.wrap = document.createElement("div");
+      S.chart.wrap.append(S.chart.el, S.chart.head);
+      S.chart.wrap.id = "og-inspector-chart";
+      S.chart.wrap.className = "og-insp-chart";
+      S.chart.el.className = "og-insp-plot"; // set once: Plotly adds its own classes to this node and its CSS depends on them
+      S.chart.head.className = "og-insp-playhead";
+      S.chart.wrap.setAttribute("aria-hidden", "true"); // the readouts beside it carry the same numbers as text
+    }
+    slot.replaceWith(S.chart.wrap);
     const key = `${S.ep.meta.scenario_id}|${S.ep.meta.policy}|${S.ep.shield}|${S.selected}`;
     if (S.chart.key !== key) {
       S.chart.key = key;
-      const fig = OG.charts.inspectorFigure(S.ep, S.selected, step);
-      root.Plotly.react(S.chart.el, fig.data, { ...fig.layout, height: S.chart.el.clientHeight || undefined }, { displayModeBar: false, staticPlot: true, responsive: true });
-    } else if (S.chart.el._fullLayout) {
-      root.Plotly.relayout(S.chart.el, OG.charts.playheadUpdate(step));
+      const fig = OG.charts.inspectorFigure(S.ep, S.selected);
+      root.Plotly.react(S.chart.el, fig.data, { ...fig.layout, height: S.chart.wrap.clientHeight || undefined }, { displayModeBar: false, staticPlot: true, responsive: true });
     }
+    movePlayhead(step);
+  }
+
+  function movePlayhead(step) {
+    const { wrap, head } = S.chart;
+    if (!wrap || !head) return;
+    head.style.transform = `translateX(${OG.charts.playheadOffset(step, S.ep.T, wrap.clientWidth)}px)`;
   }
 
   function renderBanner(step) {
@@ -601,7 +614,7 @@
   function boot(payload) {
     if (!payload) { fail("NO TRACE", ""); return "empty"; }
     try {
-      if (!stage) stage = OG.createStage({ onSelect: select, requestDraw });
+      if (!stage) stage = OG.createStage({ onSelect: select, requestDraw, onNotice: alertText });
       const ep = OG.decodeEpisode(payload);
       setStatus("LOADING TRACE", `pre-recorded episode · ${ep.T + 1} frames · ${ep.P} pairs`);
       adopt(ep);

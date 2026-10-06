@@ -33,13 +33,32 @@
     return next.type === "mesh3d" && Boolean(full.x) && next.x.length !== full.x.length;
   }
 
+  const PLATE_KEYS = ["x", "y", "z", "text", "width", "height", "bgcolor", "bordercolor", "borderwidth", "arrowcolor", "ax", "ay", "font"];
+
+  /* Label plates are scene annotations. Plotly redraws them from `fullSceneLayout.annotations`, so with an unchanged
+     plate count the new values can be written there and `drawAnnotations` re-run: DOM only, no scene rebuild (a full
+     react costs ~150 ms on a real GPU, an in-place frame 3-7 ms). Plotly's derived fields (_pdata, _xa) are kept. */
+  function platesFit(el, annotations) {
+    const live = el._fullLayout.scene.annotations;
+    return Array.isArray(live) && live.length === annotations.length;
+  }
+
+  function movePlates(el, annotations, scene) {
+    const live = el._fullLayout.scene.annotations;
+    annotations.forEach((next, n) => PLATE_KEYS.forEach((key) => { if (key in next) live[n][key] = next[key]; }));
+    try { if (scene.drawAnnotations) scene.drawAnnotations(scene); } catch (error) { /* a stale plate must not freeze the view */ }
+  }
+
   /* Push `data` into the live WebGL traces. Returns false when that is not possible (the caller then redraws fully).
-     `strict` (playback frames) also refuses when a mesh changed vertex count; during a gesture such a mesh just waits
-     for the single redraw when the gesture settles. */
-  function applyInPlace(el, data, { strict = false } = {}) {
+     `strict` (playback frames) also refuses when a mesh changed vertex count or the plate count changed; during a
+     gesture such a change just waits for the single redraw when the gesture settles. `annotations` (the label plates)
+     are moved in place when their count is unchanged. */
+  function applyInPlace(el, data, { strict = false, annotations = null } = {}) {
     const scene = el && el._fullLayout && el._fullLayout.scene && el._fullLayout.scene._scene;
     if (!scene || !scene.traces || !el._fullData || el._fullData.length !== data.length) return false;
     if (strict && data.some((next, n) => n >= FIRST_DYNAMIC_TRACE && needsRedraw(el._fullData[n], next, scene))) return false;
+    const platesInPlace = Boolean(annotations) && platesFit(el, annotations);
+    if (strict && annotations && !platesInPlace) return false;
     for (let n = FIRST_DYNAMIC_TRACE; n < data.length; n += 1) {
       const full = el._fullData[n], next = data[n], trace = full && scene.traces[full.uid];
       if (!trace || !next.x || !full.x) continue;
@@ -51,8 +70,29 @@
       try { trace.update(full); } catch (error) { /* one bad trace must not freeze the view */ }
     }
     try { if (scene.glplot.redraw) scene.glplot.redraw(); else scene.glplot.dirty = true; } catch (error) { /* ignore */ }
+    if (platesInPlace) movePlates(el, annotations, scene);
     return true;
   }
 
-  OG.gesture = { createTracker, applyInPlace, WHEEL_HOLD_MS, FIRST_DYNAMIC_TRACE };
+  /* True when the scene's WebGL context is gone (a GPU reset, a driver crash). Plotly never restores it, so the stage
+     must throw the scene away and build a new one. A context that cannot even be asked is treated as lost. */
+  function contextLost(el) {
+    const scene = el && el._fullLayout && el._fullLayout.scene && el._fullLayout.scene._scene;
+    if (!scene) return false;
+    try {
+      if (scene.glplot && scene.glplot.contextLost) return true;
+      return Boolean(scene.gl && scene.gl.isContextLost && scene.gl.isContextLost());
+    } catch (error) {
+      return true;
+    }
+  }
+
+  /* Plotly's recoverContext waits for a restore that never comes (it does not cancel the loss event) and then reads a scene
+     the stage has already purged. The stage rebuilds the scene itself, so Plotly's attempt is replaced by a no-op. */
+  function disableRecovery(el) {
+    const scene = el && el._fullLayout && el._fullLayout.scene && el._fullLayout.scene._scene;
+    if (scene && typeof scene.recoverContext === "function") scene.recoverContext = () => {};
+  }
+
+  OG.gesture = { createTracker, applyInPlace, contextLost, disableRecovery, WHEEL_HOLD_MS, FIRST_DYNAMIC_TRACE };
 })(globalThis);

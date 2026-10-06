@@ -10,10 +10,11 @@
   const TEXTURES = { day: `${ASSET_BASE}earth-day-1k.jpg`, night: `${ASSET_BASE}earth-night-1k.jpg` };
   const TEXTURE_SIZE = { w: 1024, h: 512 };
   const DOCK_MARGIN_PX = 24, MIN_DOMAIN = 0.4, ZOOM_MIN = 0.5, ZOOM_MAX = 3;
-  // While playing, frames update the live WebGL traces in place (≈ 15× cheaper than a react); a full Plotly.react (it also
-  // refreshes the label plates and picking data) follows after this many in-place frames or this long, whichever is first.
+  // While playing, frames update the live WebGL traces and the label plates in place (3-7 ms against ~150 ms for a react on
+  // a real GPU). A full Plotly.react (it also refreshes the picking data) follows after this many in-place frames or this
+  // long, whichever is first, and at once when the plate count or a mesh size changes.
   const KEY_TURN_RAD = 0.2, MAX_ELEVATION = 1.45; // one arrow press turns ≈ 11°; elevation stops short of the poles
-  const IN_PLACE_RUN_MAX = 5, LABEL_STALE_MS = 500;
+  const IN_PLACE_RUN_MAX = 240, FULL_REDRAW_MS = 8000;
   const STAR_LAYERS = { far: { id: "og-stars-far", count: 160, seed: 11 }, near: { id: "og-stars-near", count: 50, seed: 29 } };
   const plotConfig = () => ({ displayModeBar: false, responsive: true, scrollZoom: !(root.matchMedia && root.matchMedia("(max-width: 759px)").matches), doubleClick: false }); // on a phone a wheel/touch over the scene must not trap page scrolling
   const $ = (id) => document.getElementById(id);
@@ -87,6 +88,7 @@
       });
       if (S.nativeBound) return;
       S.nativeBound = true;
+      el.addEventListener("webglcontextlost", () => handlers.requestDraw(true), true); // non-bubbling: capture sees it
       el.addEventListener("pointerdown", () => S.tracker.down(), true);
       el.addEventListener("touchstart", () => S.tracker.down(), { capture: true, passive: true });
       el.addEventListener("wheel", () => { S.tracker.wheel(performance.now()); handlers.requestDraw(false); }, { capture: true, passive: true });
@@ -116,18 +118,27 @@
     function draw(view, now, force, playing) {
       const el = $("og-scene");
       if (!S.ep || !el || !root.Plotly) return "skipped";
-      const gesture = S.tracker.active(now);
+      let rebuilt = false;
+      if (OG.gesture.contextLost(el)) { // the GPU reset under us: Plotly cannot recover, so start the scene afresh
+        root.Plotly.purge(el);
+        S.bound = false; S.signature = ""; S.inPlaceRun = 0; S.zoomed = true; // keep the camera the user had
+        rebuilt = true;
+        if (handlers.onNotice) handlers.onNotice("The 3D view lost its graphics context and was redrawn.");
+      }
+      const gesture = !rebuilt && S.tracker.active(now);
       const { data: traces, annotations } = OG.scene.sceneTraces(S.ep, { ...view, static: S.st, selectedRing: selectedRing(view.selected) });
       const data = withHiddenPoint(traces);
       const signature = `${view.selected}|${view.orbits}`;
-      if (gesture && !force && OG.gesture.applyInPlace(el, data)) return "inplace";
-      const light = playing && !force && signature === S.signature && S.inPlaceRun < IN_PLACE_RUN_MAX && now - S.lastFull < LABEL_STALE_MS;
-      if (light && OG.gesture.applyInPlace(el, data, { strict: true })) { S.inPlaceRun += 1; return "inplace"; }
+      if (gesture && !force && OG.gesture.applyInPlace(el, data, { annotations })) return "inplace";
+      const light = playing && !force && signature === S.signature && S.inPlaceRun < IN_PLACE_RUN_MAX && now - S.lastFull < FULL_REDRAW_MS;
+      if (light && OG.gesture.applyInPlace(el, data, { strict: true, annotations })) { S.inPlaceRun += 1; return "inplace"; }
       S.signature = signature; S.lastFull = now; S.inPlaceRun = 0;
       let layout = OG.scene.layout(S.ep, { camera: S.resetView ? null : S.camera, annotations, domainRight: domainRight(), revision: S.revision });
       if (!S.resetView && !S.zoomed) layout = OG.camera.withLive(layout, el);
       S.resetView = false; S.zoomed = false;
       const done = root.Plotly.react(el, data, layout, plotConfig());
+      OG.gesture.disableRecovery(el);
+      if (done && done.then) done.then(() => OG.gesture.disableRecovery(el)); // the scene object exists only once the draw settles
       S.camera = OG.camera.live(el) || S.camera;
       moveStars(S.camera);
       bind(el);

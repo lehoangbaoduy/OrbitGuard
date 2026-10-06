@@ -80,3 +80,70 @@ test("strict mode (playback frames) refuses, touching nothing, when a mesh chang
   assert.equal(calls.redraws, 0);
   assert.equal(G.applyInPlace(el, dataFor(10, { 5: [1, 2, 3] }), { strict: true }), true);
 });
+
+function withPlates(plot, count) {
+  const calls = { drawn: 0 };
+  const plates = Array.from({ length: count }, (_, k) => ({ x: k, y: k, z: k, text: `old${k}`, bordercolor: "#000", _pdata: [1], _xa: {} }));
+  plot.el._fullLayout.scene.annotations = plates;
+  plot.el._fullLayout.scene._scene.drawAnnotations = () => { calls.drawn += 1; };
+  return { calls, plates };
+}
+const plateFor = (k) => ({ x: 10 + k, y: 20 + k, z: 30 + k, text: `new${k}`, bordercolor: "#fff", font: { color: "#fff" } });
+
+test("playback frames move the label plates in place when the plate count is unchanged (no full react needed)", () => {
+  const plot = fakePlot(10);
+  const { calls, plates } = withPlates(plot, 2);
+  assert.equal(G.applyInPlace(plot.el, dataFor(10, {}), { strict: true, annotations: [plateFor(0), plateFor(1)] }), true);
+  assert.deepEqual(plates.map((p) => [p.x, p.text, p.bordercolor]), [[10, "new0", "#fff"], [11, "new1", "#fff"]]);
+  assert.equal(plates[0]._pdata[0], 1, "Plotly's derived fields survive the update");
+  assert.equal(calls.drawn, 1);
+});
+
+test("a different plate count cannot be done in place: playback frames ask for a full redraw, a gesture just leaves the plates", () => {
+  const strictPlot = fakePlot(10);
+  const strict = withPlates(strictPlot, 2);
+  assert.equal(G.applyInPlace(strictPlot.el, dataFor(10, {}), { strict: true, annotations: [plateFor(0)] }), false);
+  assert.equal(strictPlot.calls.updates.length, 0, "nothing was pushed before refusing");
+  assert.equal(strict.calls.drawn, 0);
+  const dragPlot = fakePlot(10);
+  const drag = withPlates(dragPlot, 2);
+  assert.equal(G.applyInPlace(dragPlot.el, dataFor(10, {}), { annotations: [plateFor(0)] }), true);
+  assert.deepEqual(drag.plates.map((p) => p.text), ["old0", "old1"]);
+});
+
+test("without annotations the call behaves as before", () => {
+  const plot = fakePlot(10);
+  const { calls } = withPlates(plot, 1);
+  assert.equal(G.applyInPlace(plot.el, dataFor(10, {})), true);
+  assert.equal(calls.drawn, 0);
+});
+
+const sceneWith = (glplot, gl) => ({ _fullLayout: { scene: { _scene: { glplot, gl } } } });
+
+test("a scene whose WebGL context was lost is detected, from Plotly's flag or from the context itself", () => {
+  assert.equal(G.contextLost(sceneWith({ contextLost: true })), true);
+  assert.equal(G.contextLost(sceneWith({}, { isContextLost: () => true })), true);
+  assert.equal(G.contextLost(sceneWith({ contextLost: false }, { isContextLost: () => false })), false);
+});
+
+test("a missing or not-yet-drawn scene is not reported as lost", () => {
+  assert.equal(G.contextLost(null), false);
+  assert.equal(G.contextLost({}), false);
+  assert.equal(G.contextLost({ _fullLayout: {} }), false);
+  assert.equal(G.contextLost(sceneWith(undefined)), false);
+});
+
+test("a context that throws when asked is treated as lost (the scene cannot be trusted)", () => {
+  assert.equal(G.contextLost(sceneWith({}, { isContextLost: () => { throw new Error("gone"); } })), true);
+});
+
+test("Plotly's own context recovery is switched off, so it cannot race the stage's rebuild", () => {
+  let called = 0;
+  const el = sceneWith({});
+  el._fullLayout.scene._scene.recoverContext = () => { called += 1; };
+  G.disableRecovery(el);
+  el._fullLayout.scene._scene.recoverContext();
+  assert.equal(called, 0);
+  assert.doesNotThrow(() => G.disableRecovery(null));
+  assert.doesNotThrow(() => G.disableRecovery({}));
+});

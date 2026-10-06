@@ -91,7 +91,7 @@ test("the inspector figure has three rows that share the step axis and a log dis
   const dMin = fig.data.find((d) => d.name === "closest d_min");
   assert.equal(dMin.x.length, ep.T + 1);
   assert.equal(fig.layout.yaxis3.type, "log");
-  assert.ok(fig.layout.shapes.some((s) => s.name === "playhead" && s.x0 === 7 && s.x1 === 7));
+  assert.equal(fig.layout.shapes, undefined, "the playhead is an overlay element, not a Plotly shape (moving a shape costs a relayout per step)");
 });
 
 test("event marks sit at the recorded steps, and d_safe is dotted in the pair-status colour", () => {
@@ -112,11 +112,25 @@ test("no stale distance is plotted after a satellite is retired", () => {
   assert.equal(dMin.y[ep.T], null);
 });
 
-test("the playhead moves without rebuilding the data", () => {
+test("the figure does not depend on the step, so playback never rebuilds it", () => {
   const ep = load("shielded");
   const a = C.inspectorFigure(ep, 0, 3), b = C.inspectorFigure(ep, 0, 9);
-  assert.deepEqual(a.data.map((d) => d.y), b.data.map((d) => d.y));
-  assert.notDeepEqual(a.layout.shapes, b.layout.shapes);
+  assert.deepEqual(a, b);
+});
+
+test("the playhead offset is the step's share of the plot area, inside the chart's own margins", () => {
+  const { l, r } = C.INSPECTOR_MARGIN;
+  assert.equal(C.playheadOffset(0, 360, 400), 0);
+  assert.equal(C.playheadOffset(360, 360, 400), 400 - l - r);
+  assert.equal(C.playheadOffset(180, 360, 400), (400 - l - r) / 2);
+});
+
+test("the playhead offset stays inside the plot for out-of-range steps and degenerate sizes", () => {
+  assert.equal(C.playheadOffset(-5, 360, 400), 0);
+  assert.equal(C.playheadOffset(999, 360, 400), 400 - 44 - 8);
+  assert.equal(C.playheadOffset(5, 0, 400), 0, "a zero-length episode has no extent");
+  assert.equal(C.playheadOffset(5, 360, 20), 0, "a chart narrower than its margins has no plot area");
+  assert.equal(C.playheadOffset(NaN, 360, 400), 0);
 });
 
 test("lane marks label only the selected satellite's own runs, e.g. S3 x2, and skip the shield lane when the shield was off", () => {
