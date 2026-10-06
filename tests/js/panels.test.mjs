@@ -117,7 +117,7 @@ test("hover lines for a scrubber position list events and pair statuses, or say 
 test("risk rows are ordered by status, then risk, then closest approach; a collided pair shows no distance", () => {
   const ep = load("fleet_collision");
   const rows = PN.riskRows(ep, ep.T, 8);
-  assert.ok(rows.length <= 8 && rows.length === Math.min(8, ep.P));
+  assert.ok(rows.length >= 1 && rows.length <= 8 && rows.length < ep.P, "pairs with a retired satellite dropped out");
   const key = (r) => [r.statusCode, r.risk];
   for (let k = 1; k < rows.length; k += 1) {
     const [a, b] = [key(rows[k - 1]), key(rows[k])];
@@ -141,4 +141,24 @@ test("risk rows survive NaN risk and distance without breaking the order", () =>
   const rows = OG.panels.riskRows(ep, 3, 8);
   assert.ok(rows.length >= 1);
   assert.ok(rows.every((r) => r.risk === null || Number.isFinite(r.risk) || Number.isNaN(r.risk)));
+});
+
+test("pairs that involve a retired satellite leave the ranking, except the collided pair itself", () => {
+  const ep = load("fleet_collision");
+  const rows = OG.panels.riskRows(ep, ep.T, 50);
+  const retired = new Set(Array.from({ length: ep.N }, (_, i) => i).filter((i) => ep.satStatus[ep.T * ep.N + i] === 3));
+  assert.equal(retired.size, 2);
+  for (const r of rows) assert.ok(r.statusCode === 3 || (!retired.has(r.i) && !retired.has(r.j)), `${r.pair} should have dropped out`);
+  assert.ok(rows.some((r) => r.statusCode === 3), "the collided pair stays, first in the table");
+  assert.equal(rows[0].statusCode, 3);
+});
+
+test("rows involving the selected satellite are flagged and a click targets the other satellite of the pair", () => {
+  const ep = load("shielded");
+  const rows = OG.panels.riskRows(ep, 5, 8, 1);
+  assert.ok(rows.length > 0);
+  for (const r of rows) {
+    assert.equal(r.involvesSelected, r.i === 1 || r.j === 1);
+    if (r.involvesSelected) assert.equal(r.target, r.i === 1 ? r.j : r.i);
+  }
 });

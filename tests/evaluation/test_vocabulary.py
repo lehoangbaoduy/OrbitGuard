@@ -75,3 +75,12 @@ def test_the_stage_scripts_use_the_ice_token_colour():
     core = (TOKENS.parent / "10_og_core.js").read_text()
 
     assert f'const ICE = "{_token("og-ice")}"' in core
+
+
+def test_payload_vocabulary_carries_the_capability_marks_the_ui_prints():
+    from orbit_guard.visualization.vocabulary import vocabulary_payload
+
+    capability = vocabulary_payload()["capability"]
+
+    assert set(capability) == {"offline", "limited"}
+    assert capability["offline"]["glyph"] == "⊘" and capability["limited"]["glyph"] == "◐"

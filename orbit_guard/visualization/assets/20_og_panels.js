@@ -141,12 +141,13 @@
   /* The conjunction table: pairs ordered by status, then risk, then closest approach. A collided pair has no stale distance. */
   const finiteOr = (v, fallback) => (Number.isFinite(v) ? v : fallback);
 
-  function riskRows(ep, step, limit) {
-    const rows = [];
+  function riskRows(ep, step, limit, selected = -1) {
+    const rows = [], gone = (s) => ep.satStatus[step * ep.N + s] === STATUS_COLLIDED;
     for (let k = 0; k < ep.P; k += 1) {
       const a = step * ep.P + k, code = ep.pairStatus[a], v = ep.vocab.pair_status[code], collided = code === PAIR_COLLISION;
       const i = ep.pairs[2 * k], j = ep.pairs[2 * k + 1];
-      rows.push({ pair: `${satName(i)}–${satName(j)}`, i, j, statusCode: code, statusName: v.name, glyph: v.glyph, label: v.label, color: v.color,
+      if (!collided && (gone(i) || gone(j))) continue; // a pair with a retired satellite (other than the collided pair itself) leaves the ranking
+      rows.push({ involvesSelected: i === selected || j === selected, target: selected === i ? j : selected === j ? i : i, pair: `${satName(i)}–${satName(j)}`, i, j, statusCode: code, statusName: v.name, glyph: v.glyph, label: v.label, color: v.color,
         dMin: collided ? null : ep.dMin[a], dSafe: collided ? null : ep.dSafe[a], risk: collided ? null : ep.risk[a],
         note: collided ? `impact T+${minutesAt(ep, firstCollisionStep(ep, k))}` : null });
     }

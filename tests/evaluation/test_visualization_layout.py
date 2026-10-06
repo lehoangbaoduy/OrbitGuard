@@ -311,3 +311,17 @@ def test_the_scrubber_has_a_canvas_for_the_density_bars_and_a_hover_preview():
     ids = _by_id(_layout(payload=_payload(shielded_trace())))
 
     assert {"og-scrub-density", "og-scrub-fill", "og-scrub-thumb", "og-scrub-hover"} <= set(ids)
+
+
+def test_legend_has_three_rows_satellite_event_pair_line_and_capability_from_the_vocabulary():
+    from orbit_guard.visualization.vocabulary import CAPABILITY_VOCAB, PAIR_VOCAB
+
+    legend = next(c for c in _walk(_layout()) if getattr(c, "id", None) == "og-legend")
+    rows = [c for c in legend.children if getattr(c, "className", "") == "og-legend-chips"]
+    text = _text(legend)
+
+    assert len(rows) == 3
+    for style in (PAIR_VOCAB[1], PAIR_VOCAB[2], *CAPABILITY_VOCAB.values()):
+        assert style.label in text
+    lines = [c for c in _walk(legend) if "og-legend-line" in str(getattr(c, "className", ""))]
+    assert {c.className.split()[-1] for c in lines} == {"is-dot", "is-dash"}  # dotted inside d_safe, dashed high risk, as drawn in the scene

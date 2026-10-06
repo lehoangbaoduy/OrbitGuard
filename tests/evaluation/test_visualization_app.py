@@ -239,7 +239,7 @@ def test_a_stale_output_id_from_an_old_page_does_not_crash_the_callback(index):
     app = create_app(index)
     key = next(k for k in app.callback_map if "og-selection.data" in k)
     outputs = _expand_outputs(index, key)
-    outputs[5].append({"id": {"type": "og-scenario", "id": "old:1"}, "property": "className"})  # a scenario this server no longer has
+    outputs[6].append({"id": {"type": "og-scenario", "id": "old:1"}, "property": "className"})  # a scenario this server no longer has
     inputs = []
     for item in app.callback_map[key]["inputs"]:
         kind = json.loads(item["id"])["type"]

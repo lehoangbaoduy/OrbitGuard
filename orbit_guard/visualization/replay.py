@@ -17,11 +17,16 @@ collision, high risk, inside-d_safe, shield intervention and applied manoeuvre s
 from __future__ import annotations
 
 import json
+import math
+import os
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from orbit_guard.visualization.replay_meta import ReplayMetaError
 
 HIGH_RISK_THRESHOLD = 0.5
 BURN_EPSILON_MPS = 1.0e-12  # mirrors rl.episode_metrics._BURN_EPSILON_MPS: an applied delta-v above it is a maneuver
@@ -143,17 +148,53 @@ _ARRAY_FIELDS = (
 
 
 def save_trace(trace: EpisodeTrace, path: str | Path) -> None:
+    """Write the trace atomically: a crash mid-write leaves no half-written `.npz` for the app to discover."""
+    target = Path(path)
     arrays = {name: getattr(trace, name) for name in _ARRAY_FIELDS}
     header = json.dumps({"control_dt_s": trace.control_dt_s, "meta": trace.meta, "summary": trace.summary})
-    np.savez_compressed(path, header=np.array(header), **arrays)
+    partial = target.with_name(target.name + ".part")
+    try:
+        with partial.open("wb") as handle:  # a file object, so numpy does not append its own ".npz"
+            np.savez_compressed(handle, header=np.array(header), **arrays)
+        os.replace(partial, target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def _expected_shapes(arrays: dict[str, np.ndarray]) -> dict[str, tuple[int, ...]]:
+    steps, agents, _ = arrays["positions_m"].shape
+    pairs = arrays["pair_index"].shape[0]
+    return {
+        "positions_m": (steps, agents, 3), "alive": (steps, agents), "remaining_dv_mps": (steps, agents),
+        "mission_deviation": (steps, agents), "maneuver_enabled": (agents,), "pair_index": (pairs, 2),
+        "d_min_m": (steps, pairs), "d_safe_m": (steps, pairs), "risk": (steps, pairs),
+        "proposed": (steps - 1, agents), "approved": (steps - 1, agents), "applied_dv_mps": (steps - 1, agents),
+        "intervened": (steps - 1, agents), "collided_pair": (steps - 1, pairs),
+    }
 
 
 def load_trace(path: str | Path) -> EpisodeTrace:
-    with np.load(path, allow_pickle=False) as data:
-        header = json.loads(str(data["header"]))
-        arrays = {name: data[name] for name in _ARRAY_FIELDS}
-    arrays["pair_index"] = arrays["pair_index"].reshape(-1, 2)  # N=1 has no pairs: keep the (0, 2) shape
-    return EpisodeTrace(control_dt_s=header["control_dt_s"], meta=header["meta"], summary=header["summary"], **arrays)
+    """Load a saved trace; a damaged or inconsistent file raises `ReplayMetaError` naming it."""
+    name = Path(path).name
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            header = json.loads(str(data["header"]))
+            arrays = {field_name: data[field_name] for field_name in _ARRAY_FIELDS}
+        arrays["pair_index"] = arrays["pair_index"].reshape(-1, 2)  # N=1 has no pairs: keep the (0, 2) shape
+        if arrays["positions_m"].ndim != 3:
+            raise ValueError("positions_m must be (T+1, N, 3)")
+        dt = header["control_dt_s"]
+        if isinstance(dt, bool) or not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0:
+            raise ReplayMetaError(f"{name}: control_dt_s must be a finite number above 0, got {dt!r}")
+        wrong = [f"{field_name} {arrays[field_name].shape} != {want}" for field_name, want in _expected_shapes(arrays).items() if arrays[field_name].shape != want]
+        if wrong:
+            raise ValueError("inconsistent array shapes: " + "; ".join(wrong[:3]))
+        return EpisodeTrace(control_dt_s=float(dt), meta=header["meta"], summary=header["summary"], **arrays)
+    except ReplayMetaError:
+        raise
+    except (KeyError, ValueError, OSError, TypeError, EOFError, zipfile.BadZipFile, RecursionError) as error:
+        raise ReplayMetaError(f"{name}: cannot load as a replay trace ({type(error).__name__}: {str(error)[:160]})") from error
 
 
 def _pair_status(trace: EpisodeTrace, t: int, k: int) -> str:

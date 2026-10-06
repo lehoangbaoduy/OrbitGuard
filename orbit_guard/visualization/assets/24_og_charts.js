@@ -60,6 +60,7 @@
   function drawLaneMarks(g, w, ep, lanes, selected) {
     const kinds = { maneuver: 1, shield: 2 }, c = colors(ep);
     for (const lane of lanes) {
+      let labelEnd = -Infinity; // labels never stack: one that would overlap the previous one is dropped
       const code = kinds[lane.type];
       if (!code || (lane.type === "shield" && ep.payload.density["2"] === null)) continue;
       for (const mark of OG.models.laneMarks(ep, code, selected)) {
@@ -68,8 +69,12 @@
         g.strokeStyle = c[lane.type]; g.lineWidth = 2; g.shadowColor = c[lane.type]; g.shadowBlur = 6;
         g.beginPath(); g.moveTo(x0, lane.top + 2); g.lineTo(x1, lane.top + 2); g.stroke();
         g.restore();
-        g.fillStyle = "#cfd3e5"; g.font = `11px ${MONO}`; g.textAlign = x1 > w - 60 ? "right" : "left";
-        g.fillText(mark.label, x1 > w - 60 ? x1 : x0, lane.top + 14);
+        g.fillStyle = "#cfd3e5"; g.font = `11px ${MONO}`;
+        const right = x1 > w - 60, width = g.measureText ? g.measureText(mark.label).width : mark.label.length * 7, left = right ? x1 - width : x0;
+        if (left < labelEnd + 4) continue;
+        g.textAlign = right ? "right" : "left";
+        g.fillText(mark.label, right ? x1 : x0, lane.top + 14);
+        labelEnd = left + width;
       }
     }
   }

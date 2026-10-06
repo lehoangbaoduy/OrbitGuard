@@ -155,3 +155,27 @@ test("the running mean deviation has no value before the first step, and the shi
   assert.equal(M.stripRunning(off, 0).mean_deviation, "T+0: —");
   assert.equal(M.stripRunning(off, 3).shield, "—");
 });
+
+test("a retired satellite names who it collided with and when (first step of that pair's collision)", () => {
+  const ep = load("fleet_collision");
+  const retired = Array.from({ length: ep.N }, (_, i) => i).filter((i) => ep.satStatus[ep.T * ep.N + i] === 3);
+  const [a, b] = retired;
+  const m = M.inspector(ep, ep.T, a);
+  assert.equal(m.retired, true);
+  assert.equal(m.collision.partner, b);
+  let first = ep.T;
+  const k = Array.from({ length: ep.P }, (_, p) => p).find((p) => new Set([ep.pairs[2 * p], ep.pairs[2 * p + 1]]).has(a) && new Set([ep.pairs[2 * p], ep.pairs[2 * p + 1]]).has(b));
+  while (first > 0 && ep.pairStatus[(first - 1) * ep.P + k] === 3) first -= 1;
+  assert.equal(m.collision.step, first);
+  assert.equal(M.inspector(ep, 0, a).collision, null);
+});
+
+test("the inspector's Δv bar is the share of that satellite's own budget left, and absent when unknown", () => {
+  const ep = load("depletion");
+  const m = M.inspector(ep, 0, 0);
+  assert.ok(m.dvFrac >= 0 && m.dvFrac <= 1);
+  const empty = M.inspector(ep, ep.T, 0);
+  assert.ok(empty.dvFrac !== null);
+  ep.payload.fuel.budget_mps[0] = 0;
+  assert.equal(M.inspector(ep, 0, 0).dvFrac, null);
+});

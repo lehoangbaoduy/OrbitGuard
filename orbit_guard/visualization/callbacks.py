@@ -7,6 +7,7 @@ wildcard outputs (not rebuilt), so keyboard focus survives a click.
 
 from __future__ import annotations
 
+import threading
 from collections import OrderedDict
 from dataclasses import asdict
 from pathlib import Path
@@ -25,7 +26,7 @@ from orbit_guard.visualization.layout import (
 from orbit_guard.visualization.payload import build_payload, build_strip
 from orbit_guard.visualization.reference import reference_note
 from orbit_guard.visualization.replay import load_trace
-from orbit_guard.visualization.replay_meta import ReplayMeta
+from orbit_guard.visualization.replay_meta import ReplayMeta, ReplayMetaError
 from orbit_guard.visualization.selection import (
     Selection,
     initial_selection,
@@ -39,7 +40,7 @@ _CONTROL_PROPS = {
     "og-policy": ("className", "aria-disabled", "title", "aria-pressed", "children"),
     "og-shield": ("className", "aria-disabled", "title", "aria-pressed", "children"),
 }
-_FIXED_OUTPUTS = 5  # selection, payload, strip, shield-off slot, meta line; the control outputs follow
+_FIXED_OUTPUTS = 6  # selection, payload, strip, shield-off slot, meta line, alert; the control outputs follow
 _SHIELD_KEYS = {"on": True, "off": False}
 _BASELINE_MODEL = "no_maneuver"
 
@@ -51,6 +52,7 @@ class PayloadProvider:
         self._index = index
         self._reference_log = reference_log
         self._cache: OrderedDict[Selection, dict[str, Any]] = OrderedDict()
+        self._lock = threading.Lock()  # Flask serves requests on threads; the LRU's reorder/evict must not interleave
 
     def __call__(self, selection: Selection) -> dict[str, Any] | None:
         if selection.scenario_id is None or selection.policy is None:
@@ -58,14 +60,18 @@ class PayloadProvider:
         entry = self._index.find(selection.scenario_id, selection.policy, selection.shield)
         if entry is None:
             return None
-        cached = self._cache.get(selection)
+        with self._lock:
+            cached = self._cache.get(selection)
+            if cached is not None:
+                self._cache.move_to_end(selection)
         if cached is not None:
-            self._cache.move_to_end(selection)
             return cached
-        payload = self._build(selection, entry.path, entry.meta)
-        self._cache[selection] = payload
-        while len(self._cache) > _CACHE_SIZE:
-            self._cache.popitem(last=False)
+        payload = self._build(selection, entry.path, entry.meta)  # outside the lock: building takes a second
+        with self._lock:
+            self._cache[selection] = payload
+            self._cache.move_to_end(selection)
+            while len(self._cache) > _CACHE_SIZE:
+                self._cache.popitem(last=False)
         return payload
 
     def _build(self, selection: Selection, path: Path, meta: ReplayMeta) -> dict[str, Any]:
@@ -105,6 +111,7 @@ def register_callbacks(app: Dash, index: EpisodeIndex, provider: PayloadProvider
         Output("og-strip", "children"),
         Output("og-shield-off-slot", "children"),
         Output("og-meta-line", "children"),
+        Output("og-alert", "children"),
         *(Output({"type": kind, "id": ALL}, prop) for kind, props in _CONTROL_PROPS.items() for prop in props),
     ]
     inputs = [Input({"type": kind, "id": ALL}, "n_clicks") for kind in _CONTROL_PROPS]
@@ -118,10 +125,21 @@ def register_callbacks(app: Dash, index: EpisodeIndex, provider: PayloadProvider
         selection = apply_click(index, current, str(triggered.get("type")), str(triggered.get("id")))
         if selection == current:  # nothing changed (active or unavailable control): the stage must not see a new episode
             raise PreventUpdate
-        payload = provider(selection)
+        try:
+            payload = provider(selection)
+        except (ReplayMetaError, FileNotFoundError) as error:  # a trace damaged or removed since the index was built
+            return _failure(ctx.outputs_list, str(error))
         states = control_states(index, selection)
         control_lists = [[_control_value(states, spec) for spec in group] for group in ctx.outputs_list[_FIXED_OUTPUTS:]]
-        return [asdict(selection), payload, summary_strip(payload).children, shield_off_bar(selection), meta_children(index, selection, payload), *control_lists]
+        return [asdict(selection), payload, summary_strip(payload).children, shield_off_bar(selection), meta_children(index, selection, payload), "", *control_lists]
+
+
+def _failure(outputs_list: list[Any], message: str) -> list[Any]:
+    """Leave everything as it is and say why in the alert region (the episode could not be loaded)."""
+    alert = f"Could not load this episode: {message}"
+    untouched = [[no_update] * len(group) if isinstance(group, list) else no_update for group in outputs_list]
+    untouched[_FIXED_OUTPUTS - 1] = alert
+    return untouched
 
 
 def _control_value(states: dict[str, dict[str, dict[str, Any]]], spec: dict[str, Any]) -> Any:

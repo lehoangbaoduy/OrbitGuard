@@ -109,3 +109,10 @@
   .og-play[aria-pressed="true"] { outline: 2px solid Highlight; }
   .og-scrub-thumb, .og-scrub-fill { forced-color-adjust: none; background: Highlight; }
 }
+
+/* legend rows: pair-line samples and capability marks */
+.og-legend-kicker { font-size: var(--og-fs-xs); letter-spacing: var(--og-track-kicker); color: var(--og-text-3); }
+.og-legend-line { display: inline-block; width: 20px; height: 0; border-top: 3px solid var(--chip); vertical-align: middle; }
+.og-legend-line.is-dot { border-top-style: dotted; }
+.og-legend-line.is-dash { border-top-style: dashed; }
+.og-legend-chip.is-capability { border: 1px dashed var(--og-hair-hi); border-radius: var(--og-r-chip); padding: 0 6px; }

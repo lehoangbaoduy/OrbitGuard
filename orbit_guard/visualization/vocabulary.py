@@ -49,10 +49,18 @@ EVENT_VOCAB = (
 )
 
 
+# Thruster capability marks: neutral and dashed, never a status hue (the capability set itself comes from the trace).
+CAPABILITY_VOCAB = {
+    "offline": Style("offline", "THRUSTER OFFLINE", "⊘", NOMINAL),
+    "limited": Style("limited", "LIMITED Δv", "◐", NOMINAL),
+}
+
+
 def vocabulary_payload() -> dict[str, list[dict]]:
     """Plain-JSON form of the vocabulary, aligned with the status and event code arrays in the payload."""
     return {
         "sat_status": [asdict(style) for style in SAT_VOCAB],
         "pair_status": [asdict(style) for style in PAIR_VOCAB],
         "event": [asdict(style) for style in EVENT_VOCAB],
+        "capability": {key: asdict(style) for key, style in CAPABILITY_VOCAB.items()},
     }

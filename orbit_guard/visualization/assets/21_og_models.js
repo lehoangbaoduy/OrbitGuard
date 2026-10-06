@@ -49,12 +49,26 @@
     return out;
   }
 
+  /* The satellite a retired satellite collided with, and the step of impact, from the recorded pair statuses. */
+  function collisionOf(ep, step, sat) {
+    for (let k = 0; k < ep.P; k += 1) {
+      const i = ep.pairs[2 * k], j = ep.pairs[2 * k + 1];
+      if ((i !== sat && j !== sat) || ep.pairStatus[step * ep.P + k] !== 3) continue;
+      let first = step;
+      while (first > 0 && ep.pairStatus[(first - 1) * ep.P + k] === 3) first -= 1;
+      return { partner: i === sat ? j : i, step: first };
+    }
+    return null;
+  }
+
   function inspector(ep, step, sat) {
     const a = step * ep.N + sat, status = ep.satStatus[a], retired = status === STATUS_COLLIDED;
     const partner = ep.partnerIdx[a], dMin = ep.partnerDMin[a], hasPartner = !retired && partner >= 0 && Number.isFinite(dMin);
     const k = (step - 1) * ep.N + sat;
     return {
-      sat, retired, status: ep.vocab.sat_status[status], event: ep.vocab.event[ep.event[a]], capability: capabilityOf(ep, sat),
+      sat, retired, collision: retired ? collisionOf(ep, step, sat) : null,
+      dvFrac: ep.payload.fuel.budget_mps[sat] > 0 && Number.isFinite(ep.remaining[a]) ? Math.min(1, Math.max(0, ep.remaining[a] / ep.payload.fuel.budget_mps[sat])) : null,
+      status: ep.vocab.sat_status[status], event: ep.vocab.event[ep.event[a]], capability: capabilityOf(ep, sat),
       dv: finiteOrNull(ep.remaining[a]), dvText: fixed(ep.remaining[a], 2), dev: finiteOrNull(ep.deviation[a]), devText: fixed(ep.deviation[a], 3),
       closest: hasPartner ? { partner, dMin, dSafe: ep.partnerDSafe[a] } : null,
       closestText: hasPartner ? `${Math.round(dMin).toLocaleString("en-US")} m` : DASH,
@@ -120,5 +134,5 @@
     return out;
   }
 
-  OG.models = { fuelBars, inspector, inspectorSeries, countsLanes, laneMarks, collisionMarks, runningCounts, stripRunning, MERGE_GAP_STEPS, DASH };
+  OG.models = { capabilityOf, fuelBars, inspector, inspectorSeries, countsLanes, laneMarks, collisionMarks, runningCounts, stripRunning, MERGE_GAP_STEPS, DASH };
 })(globalThis);

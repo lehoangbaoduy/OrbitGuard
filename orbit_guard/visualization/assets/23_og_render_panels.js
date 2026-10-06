@@ -55,11 +55,11 @@ const fmtM = (m) => (Number.isFinite(m) ? Math.round(m).toLocaleString("en-US") 
 
   /* Conjunction & risk: the top pairs by status, risk and closest approach; a collided pair has no distance. */
   function risk(container, ep, step, ui) {
-    const rows = OG.panels.riskRows(ep, step, RISK_ROWS);
+    const rows = OG.panels.riskRows(ep, step, RISK_ROWS, ui.selected);
     mount(container, h("div", { class: "og-risk" },
       h("div", { class: "og-risk-head" }, h("span", {}, "pair"), h("span", {}, "status"), h("span", {}, "d_min (m)"), h("span", {}, "risk")),
-      rows.map((r) => h("button", { type: "button", class: "og-risk-row", "data-focus-key": `risk-${r.pair}`, on: { click: () => ui.select(r.i) }, title: `${r.pair} · ${r.label}` },
-        h("span", { class: "og-risk-pair" }, r.pair),
+      rows.map((r) => h("button", { type: "button", class: "og-risk-row", "data-focus-key": `risk-${r.pair}`, on: { click: () => ui.select(r.target) }, title: `${r.pair} · ${r.label}` },
+        h("span", { class: `og-risk-pair${r.involvesSelected ? " is-selected-pair" : ""}` }, r.pair),
         h("span", { class: "og-chip", style: { "--c": r.color } }, `${r.glyph} ${r.label}`),
         h("span", { class: "og-risk-dist" }, r.dMin === null ? h("span", {}, "—") : h("span", {}, fmtM(r.dMin)), h("span", { class: "og-risk-sub" }, r.note || `d_safe ${fmtM(r.dSafe)}`)),
         h("span", { class: "og-risk-val" }, h("span", {}, fixed(r.risk, 3)), h("span", { class: "og-risk-bar" }, h("span", { style: { "--r": String(Number.isFinite(r.risk) ? Math.min(1, r.risk) : 0) } })))))));
@@ -89,9 +89,11 @@ const fmtM = (m) => (Number.isFinite(m) ? Math.round(m).toLocaleString("en-US") 
     const chips = [
       h("span", { class: "og-chip", style: { "--c": m.status.color } }, `${m.status.glyph} ${m.status.label}`),
       m.event.label ? h("span", { class: "og-chip", style: { "--c": m.event.color } }, `${m.event.glyph} ${m.event.label}`) : null,
-      m.capability ? h("span", { class: "og-chip is-neutral" }, m.capability === "offline" ? "⊘ THRUSTER OFFLINE" : "◐ LIMITED Δv") : null,
+      m.capability ? h("span", { class: "og-chip is-neutral" }, `${ep.vocab.capability[m.capability].glyph} ${ep.vocab.capability[m.capability].label}`) : null,
     ];
-    const picker = Array.from({ length: ep.N }, (_, i) => h("button", { type: "button", class: `og-pick${i === ui.selected ? " is-selected" : ""}`, on: { click: () => ui.select(i) }, "data-focus-key": `pick-${i}`, "aria-label": `Select satellite ${i}`, "aria-pressed": i === ui.selected }, `${i}`));
+    const cellInfo = OG.panels.stepCells(ep, step);
+    const picker = Array.from({ length: ep.N }, (_, i) => h("button", { type: "button", class: `og-pick${i === ui.selected ? " is-selected" : ""}${cellInfo[i].flagged ? " is-flagged" : ""}`, style: { "--c": cellInfo[i].color || NEUTRAL }, on: { click: () => ui.select(i) }, "data-focus-key": `pick-${i}`, "aria-label": `Select satellite ${i}${OG.models.capabilityOf(ep, i) ? `, ${ep.vocab.capability[OG.models.capabilityOf(ep, i)].label.toLowerCase()}` : ""}`, "aria-pressed": i === ui.selected },
+      `${i}`, OG.models.capabilityOf(ep, i) ? h("span", { class: "og-pick-cap", "aria-hidden": "true" }, ep.vocab.capability[OG.models.capabilityOf(ep, i)].glyph) : null));
     const decision = m.noActions
       ? h("div", { class: "og-decision is-dim" }, `Step 0: no decision yet — actions exist for steps 1–${ep.T}`)
       : h("div", { class: "og-decision" }, h("span", { class: "og-kicker" }, "decision"), h("span", { class: "og-decision-line" }, `${m.decision.proposed} → ${m.decision.approved}`),
@@ -102,8 +104,10 @@ const fmtM = (m) => (Number.isFinite(m) ? Math.round(m).toLocaleString("en-US") 
         h("span", { class: "og-insp-id" }, `S${m.sat}`),
         h("button", { type: "button", class: "og-step-btn", "aria-label": "Next satellite", "data-focus-key": "insp-next", on: { click: step1(1) } }, "›"),
         h("span", { class: "og-chips" }, chips)),
+      m.retired ? h("div", { class: "og-retired-strip", style: { "--c": m.status.color } }, `${m.status.glyph} RETIRED${m.collision ? ` · collided with S${m.collision.partner} at T+${OG.playback.clockText(m.collision.step, ep.controlDtS).minutes}` : ""}`) : null,
       h("div", { class: "og-readouts" },
-        h("div", {}, h("span", { class: "og-kicker" }, "Δv left"), h("span", { class: "og-readout" }, m.dvText), h("span", { class: "og-unit" }, "m/s")),
+        h("div", {}, h("span", { class: "og-kicker" }, "Δv left"), h("span", { class: "og-readout" }, m.dvText), h("span", { class: "og-unit" }, "m/s"),
+          m.dvFrac === null ? null : h("span", { class: "og-budget-bar", title: "share of this satellite's own Δv budget left" }, h("span", { style: { "--f": String(m.dvFrac) } }))),
         h("div", {}, h("span", { class: "og-kicker" }, "dev"), h("span", { class: "og-readout" }, m.devText)),
         h("div", { title: m.closestNote }, h("span", { class: "og-kicker" }, "closest"), h("span", { class: "og-readout" }, m.closestText), h("span", { class: "og-unit" }, m.closest ? `S${m.closest.partner}` : m.closestNote))),
       h("div", { class: "og-picker", role: "group", "aria-label": "Satellites" }, picker),

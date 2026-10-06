@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -20,14 +21,25 @@ class SummaryTotals:
     mean_deviation: float
 
 
+def _number(summary: Mapping[str, Any], field: str, kind: type) -> Any:
+    """A number of `kind`, or a `ReplayMetaError` naming the field (a header is operator-supplied data, not trusted).
+
+    A non-finite float is a recorded "no value" and is kept (the UI prints a dash); counts must be finite integers.
+    """
+    value = summary[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or (kind is int and not math.isfinite(value)):
+        raise ReplayMetaError(f"trace summary field {field} must be a number, got {value!r}"[:200])
+    return kind(value)
+
+
 def summary_totals(summary: Mapping[str, Any], meta: ReplayMeta) -> SummaryTotals:
     missing = [field for field in _FIELDS if field not in summary]
     if missing:
         raise ReplayMetaError(f"trace summary is missing field(s): {', '.join(missing)}")
     return SummaryTotals(
-        delta_v_mps=float(summary["total_delta_v_mps"]),
-        maneuvers=int(summary["maneuver_count"]),
-        shield=int(summary["shield_intervention_count"]) if meta.shield else None,
-        collisions=int(summary["collision_count"]),
-        mean_deviation=float(summary["mean_mission_deviation"]),
+        delta_v_mps=_number(summary, "total_delta_v_mps", float),
+        maneuvers=_number(summary, "maneuver_count", int),
+        shield=_number(summary, "shield_intervention_count", int) if meta.shield else None,
+        collisions=_number(summary, "collision_count", int),
+        mean_deviation=_number(summary, "mean_mission_deviation", float),
     )

@@ -16,15 +16,31 @@ Status legend: `TODO` · `DOING` · `DONE` · `BLOCKED`. Updated after every ste
 | PRD "Testing & edge-case catalog" | README "States", DS "Empty & loading states", "Designing for both densities", "Shield OFF state", real-data rule 8 → catalog in §4 |
 | Acceptance checklist / Definition of Done | The 8 real-data rules + colour/marker/label + no overflow + reduced motion → §5 |
 
-## 1. What exists today, and what the handoff changes
+## 1. Before and after
 
-Today: `replay.py` (trace I/O, `frame_at`), `figures.py` (Plotly figure builders + `SAT/PAIR/EVENT_STYLE`),
-`app.py` (single-trace Dash app, `dcc.Graph`s, 450 ms `dcc.Interval`). Tests: `tests/evaluation/test_replay.py`,
-`test_visualization_figures.py`, `test_visualization_app.py`.
+Before (up to commit `34affec`): `replay.py` (trace I/O, `frame_at`), `figures.py` (Plotly figure builders), `app.py` (single-trace Dash app,
+`dcc.Graph`s, 450 ms `dcc.Interval`).
 
-The handoff replaces the layout and interaction model: scenario selector × BEFORE/AFTER tabs × SHIELD ON|OFF
-(12 recorded episodes), textured 3D stage with docked rail + inspector, continuous playback engine, density-aware
-views (histogram lanes, 15×360 matrix, fleet-fuel heatmap), explicit empty/shield-off states, phone layout.
+After: the handoff's layout and interaction model — scenario selector × BEFORE/AFTER tabs × SHIELD ON|OFF (12 recorded episodes), textured 3D stage
+with docked rail + inspector, continuous playback engine, density-aware views (histogram lanes, 15×360 matrix, fleet-fuel bars), explicit
+empty/shield-off states, phone layout. Python builds one payload per episode from a recorded trace; the browser draws everything from it.
+`figures.py` and its test are gone (D11).
+
+## 1b. Running it
+
+```bash
+# record the 12 episodes once (needs the trained checkpoints; see scripts/record_replay_traces.py --help)
+.venv/bin/python scripts/record_replay_traces.py
+# serve them
+.venv/bin/python -m orbit_guard.visualization.app --episodes ~/orbitguard_runs/replay_traces --port 8060
+# or one saved trace
+.venv/bin/python -m orbit_guard.visualization.app --trace path/to/episode.npz
+# optional reference collision note (hidden without it) from an evaluation log written by the runner
+.venv/bin/python -m orbit_guard.visualization.app --episodes <dir> --reference-log <episodes.jsonl>
+```
+
+Tests: `.venv/bin/python -m pytest tests` (the JS unit tests run `node --test` from `tests/evaluation/test_js_units.py`; node is required, or set
+`OG_ALLOW_NO_NODE=1`). The app imports no ray/torch/gymnasium (FR16).
 
 ## 2. Architecture decisions (D) — with evidence
 
@@ -108,15 +124,15 @@ Test locations: `py` = pytest under `tests/evaluation/` (or named), `js` = `node
 
 ## 5. Exit criteria (Definition of Done)
 
-- [ ] All 8 real-data rules hold and are test-enforced (guard, assets, meta, catalog, reference, derived tests).
-- [ ] 12 real recorded episodes (3 scenarios × untrained/trained × shield on/off) discovered from meta; missing combinations disabled.
-- [ ] Every status carries colour + marker + text label (ui evidence), with ◆ / ○ glyphs.
-- [ ] Zero horizontal overflow at 320/390/768/1024/1440 and after live resize; ≥ 44 px targets on phone.
-- [ ] Camera drag/zoom works during playback; playback is continuous (rAF) at 1/2/4/8×.
-- [ ] Reduced-motion verified; no layout-triggering animation.
-- [ ] Console clean in every checked state; FR16 import test green; full suite green; ruff clean.
-- [ ] Code review (code-reviewer + security-reviewer for JS) done per PR; CRITICAL/HIGH findings fixed.
-- [ ] Evidence screenshots committed under `docs/redesign/evidence/`; this tracker current.
+- [x] All 8 real-data rules hold and are test-enforced (guard, assets, meta, catalog, reference, derived tests).
+- [x] 12 real recorded episodes (3 scenarios × untrained/trained × shield on/off) discovered from meta; missing combinations disabled.
+- [x] Every status carries colour + marker + text label (ui evidence), with ◆ / ○ glyphs; the legend lists all of them plus the two capability marks.
+- [x] Zero horizontal overflow at 320/390/768/1024/1440 and after live resize; ≥ 44 px targets on phone.
+- [x] Camera drag/zoom works during playback; playback is continuous (rAF) at 1/2/4/8× — **frame rate measured only on software GL (SwiftShader), see §9**.
+- [x] Reduced-motion verified; no layout-triggering animation.
+- [x] Console clean in every checked state (also with the enforcing CSP); FR16 import test green; full suite green (946 passed); ruff clean.
+- [x] Code review per PR (typescript-reviewer ×2, a11y-architect, python-reviewer, security-reviewer); CRITICAL/HIGH findings fixed.
+- [x] Evidence screenshots committed under `docs/redesign/evidence/`; this tracker current.
 
 ## 6. Plan — PR0 … PR7 (exact files per step)
 
@@ -258,3 +274,16 @@ EC-12, EC-16 (final), EC-17, EC-19, EC-29; perf (≤ 33 fps redraw), accessibili
 | 2026-10-02 | PR6: states verified live on fixture directories (empty, partial, collision, capability, shield-off); legend dimming + reference note added | DONE pending review |
 | 2026-10-02 | PR4/5 review (typescript-reviewer): 4 HIGH + 9 MEDIUM fixed, fake-DOM tests added (node 116); phone layout, reduced motion, in-place playback, figures.py removed | DONE; suite 914 passed |
 | 2026-10-02 | A11y audit: both blockers and the major findings fixed; verified live (dock at 800/1024/1440, tab order, rotate keys, live region, roving picker, aria-disabled focus) | DONE; suite green |
+| 2026-10-06 | Handoff-coverage pass: legend rows, retired-pair filtering + retired strip, Δv budget bar, picker capability marks, selected-pair highlight, lane-label overlap guard | DONE; node + eval tests added |
+| 2026-10-06 | Security review (security-reviewer): `security.py` (CSP by sha256 of Dash's inline renderer script, TRUSTED_HOSTS, nosniff/XFO/Referrer/Permissions/COOP), `--allow-remote`, header/summary/zip-size guards | DONE; enforcing CSP verified in the browser (gl3d, Plotly, Dash callbacks, 0 console errors) |
+| 2026-10-06 | Final python-reviewer pass fixed test-first (`test_visualization_robustness.py`): payload-cache lock, named `ReplayMetaError` for damaged/inconsistent arrays and bad `control_dt_s`, callback surfaces a load failure in `og-alert` instead of a 500, `main()` converts startup errors to `parser.error` and checks the reference log early, reference-log UTF-8/non-string/recursion guards, atomic `save_trace` | DONE; suite 946 passed, ruff clean |
+
+## 9. Honest gaps (known, not hidden)
+
+- **Real-GPU performance is unmeasured.** Every frame-rate check ran on software GL; the in-place frame path and 60 fps claim need one run on a machine with a GPU.
+- ✕ ring at 800 ms exists only as the static halo marker (Plotly scatter3d cannot animate a ring), not the handoff's expanding pulse.
+- The risk table is a div grid with roles, not a `<table>` element.
+- Inspector chart is 150 px tall, the handoff shows 210 px.
+- Phone playback speed-cycling button is not implemented (speed buttons are in the desktop bar only).
+- Reference log is re-read on each uncached episode build (cheap for the sizes involved); not memoised.
+- Earth texture licence/attribution should be confirmed before any public release.

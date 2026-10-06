@@ -18,7 +18,12 @@ from orbit_guard.visualization.episodes import EpisodeIndex
 from orbit_guard.visualization.layout_playback import playback_bar
 from orbit_guard.visualization.layout_strip import DASH, NO_TRACE, summary_strip
 from orbit_guard.visualization.selection import Selection
-from orbit_guard.visualization.vocabulary import EVENT_VOCAB, SAT_VOCAB
+from orbit_guard.visualization.vocabulary import (
+    CAPABILITY_VOCAB,
+    EVENT_VOCAB,
+    PAIR_VOCAB,
+    SAT_VOCAB,
+)
 
 __all__ = ["build_layout", "control_states", "meta_children", "policy_label", "shield_off_bar", "summary_strip"]
 
@@ -181,17 +186,21 @@ def _loading(selection: Selection) -> html.Div:
 SCALE_CAPTION = "Satellite models are enlarged for visibility, not drawn to scale, and the light direction is fixed: visual aids, not data."
 
 
+_DASH_CLASS = {"dot": "is-dot", "dash": "is-dash", "solid": "is-solid"}
+
+
 def _legend() -> html.Div:
-    """Status vocabulary chips: colour + glyph + label, straight from the single vocabulary (PRD §41)."""
-    chips = [
-        html.Span(
-            [html.Span(style.glyph, className="og-legend-glyph", style={"--chip": style.color}), html.Span(style.label, className="og-legend-label"), html.Span(className="og-legend-off")],
-            className="og-legend-chip",
-            **{"data-legend": style.name},
-        )
-        for style in (*SAT_VOCAB[1:], *EVENT_VOCAB[1:3])
-    ]
-    return html.Div([html.Div(chips, className="og-legend-chips"), html.Div(SCALE_CAPTION, className="og-legend-caption")], id="og-legend", className="og-legend")
+    """Three rows from the single vocabulary: satellite and event chips, pair-line samples, capability marks (PRD §41)."""
+    def chip(style, tag: str, sample: html.Span | None = None) -> html.Span:
+        mark = sample if sample is not None else html.Span(style.glyph, className="og-legend-glyph", style={"--chip": style.color})
+        return html.Span([mark, html.Span(style.label, className="og-legend-label"), html.Span(className="og-legend-off")], className="og-legend-chip", **{"data-legend": tag})
+
+    sat_row = [chip(style, style.name) for style in (*SAT_VOCAB[1:], *EVENT_VOCAB[1:3])]
+    pair_row = [chip(style, f"pair-{style.name}", html.Span(className=f"og-legend-line {_DASH_CLASS[style.dash]}", style={"--chip": style.color})) for style in PAIR_VOCAB[1:3]]
+    pair_row = [html.Span("PAIR LINE", className="og-legend-kicker"), *pair_row]
+    capability_row = [html.Span([html.Span(style.glyph, className="og-legend-glyph"), html.Span(style.label, className="og-legend-label")], className="og-legend-chip is-capability", **{"data-legend": f"capability-{key}"}) for key, style in CAPABILITY_VOCAB.items()]
+    rows = [html.Div(row, className="og-legend-chips") for row in (sat_row, pair_row, capability_row)]
+    return html.Div([*rows, html.Div(SCALE_CAPTION, className="og-legend-caption")], id="og-legend", className="og-legend")
 
 
 def _stage_controls() -> html.Div:

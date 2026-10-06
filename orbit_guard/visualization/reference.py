@@ -18,17 +18,21 @@ class ReferenceLogError(ValueError):
 
 
 def _records(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
-    with path.open(encoding="utf-8") as handle:
-        for number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ReferenceLogError(f"{path.name}:{number}: not valid JSON ({error.msg})") from error
-            if not isinstance(record, dict):
-                raise ReferenceLogError(f"{path.name}:{number}: expected a JSON object per line")
-            yield number, record
+    number = 0
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, RecursionError) as error:
+                    raise ReferenceLogError(f"{path.name}:{number}: not valid JSON ({getattr(error, 'msg', 'too deeply nested')})") from error
+                if not isinstance(record, dict):
+                    raise ReferenceLogError(f"{path.name}:{number}: expected a JSON object per line")
+                yield number, record
+    except UnicodeDecodeError as error:
+        raise ReferenceLogError(f"{path.name}:{number + 1}: not UTF-8 text") from error
 
 
 def _collided(path: Path, number: int, record: dict[str, Any]) -> bool:
@@ -47,10 +51,11 @@ def reference_note(log_path: str | Path | None, condition: str, models: Sequence
     wanted = set(models)
     tally: dict[str, list[bool]] = {model: [] for model in wanted}
     for number, record in _records(path):
-        if record.get("model_name") not in wanted or record.get("shift_type") != condition or record.get("status") != "ok":
+        model = record.get("model_name")
+        if not isinstance(model, str) or model not in wanted or record.get("shift_type") != condition or record.get("status") != "ok":
             continue
         if n_agents is not None and record.get("n_satellites") != n_agents:
             continue
-        tally[record["model_name"]].append(_collided(path, number, record))
-    parts = [f"{model} {sum(rows)}/{len(rows)}" for model in dict.fromkeys(models) if (rows := tally[model])]
+        tally[model].append(_collided(path, number, record))
+    parts = [f"{model} {sum(tally[model])}/{len(tally[model])}" for model in dict.fromkeys(models) if tally[model]]
     return " · ".join(parts) + " episodes with a collision" if parts else None

@@ -58,6 +58,10 @@ _MAX_HEADER_BYTES = 8 * 1024 * 1024  # a real header is a few kB; refuse anythin
 def _read_header(path: Path) -> dict:
     """The trace's JSON header; every failure becomes a `ReplayMetaError` naming the file."""
     try:
+        with zipfile.ZipFile(path) as archive:  # the stored size is known before anything is decompressed
+            stored = next((info.file_size for info in archive.infolist() if info.filename == "header.npy"), None)
+        if stored is not None and stored > _MAX_HEADER_BYTES:
+            raise ReplayMetaError(f"{path.name}: header is implausibly large ({stored} bytes)")
         with np.load(path, allow_pickle=False) as data:
             if "header" not in data.files:
                 raise ReplayMetaError(f"{path.name}: not a replay trace (no header); keep weights and other arrays out of the traces directory")

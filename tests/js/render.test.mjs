@@ -50,3 +50,15 @@ test("selection is exposed with aria-pressed on rows, fuel bars and the picker",
   const pressed = host.walk().filter((n) => n.attrs["aria-pressed"] === "true").map((n) => n.attrs["data-focus-key"]);
   assert.deepEqual(pressed, ["fuel-2"]);
 });
+
+test("the inspector shows a retired strip for a collided satellite and capability marks come from the payload vocabulary", () => {
+  const ep = load("fleet_collision");
+  const host = new FakeNode("div");
+  const retired = Array.from({ length: ep.N }, (_, i) => i).find((i) => ep.satStatus[ep.T * ep.N + i] === 3);
+  OG.render.inspector(host, ep, ep.T, ui(retired));
+  assert.match(text(host), /RETIRED · collided with S\d+ at T\+\d+/);
+  const cap = load("capability");
+  const offline = cap.payload.capability.offline[0];
+  OG.render.inspector(host, cap, 3, ui(offline));
+  assert.ok(text(host).includes(cap.vocab.capability.offline.label));
+});
