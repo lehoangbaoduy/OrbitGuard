@@ -20,6 +20,33 @@ Every table below adds an **"Agent coverage"** column: whether the implementing 
 
 ---
 
+## 0b. Status snapshot — 2026-10-06 (read this first)
+
+**Where we are: the end of Phase 6's engineering and the middle of Phase 4/5's compute.** Phases 0–3 are complete (Phase 0 except three human items). Phases 4–6 are fully implemented and tested; what is missing is *results*, not code. The user asked to stop after Phase 6, so Phase 7 (paper/poster) is out of scope. Branch `finished_project` (local; nothing pushed) = `replay_redesign` at `ab2f650`; 946 tests pass, ruff clean. PRD §44 checkboxes were synced to this file on 2026-10-06 (30 of 43 now checked; the 13 open ones are listed below).
+
+| Phase | State | Evidence / what is open |
+|---|---|---|
+| 0 Setup & Freeze | Engineering done; **3 human items open** | P0-M4 roles, P0-M5 OSC allocation, P0-M6 team acknowledgement, and the "everyone can state the MVP scope" exit criterion |
+| 1 Physics | **Done** | Acceptance A, Skyfield match |
+| 2 Sensing/conjunction/risk | **Done** | Acceptance B, C |
+| 3 Env + 2-agent GATE | **Done** (gate clean on 2 of 3 training seeds; seed 2 missed C2 by 0.037 m/s, reported as is) | P3-M5 record |
+| 4 N=15 + shield | **Code done; N=15 trained; grid RUNNING** | all nine N=15 trainings finished 2026-10-02 (no crash, 3 seeds × 3 variants); P4-M5 validation grid started 2026-10-06 12:18 (8 points, sequential, `~/orbitguard_runs/logs/grid.log`) |
+| 5 Baselines & experiments | **Code done; compute pending** | P5-M2 adaptive-vs-fixed comparison, P5-M3 shifts *run* zero-shot, P5-M4 full seed protocol — all wait for `scripts/run_experiments.sh` |
+| 6 Ablation/viz/analysis | **Viz done (redesigned 2026-10-06); analysis pending compute** | P6-M2 ✓ and P6-M3 ✓; P6-M1 shield ablation and P6-M4 tables/figures need the sweep |
+| 7 Paper | Not started (out of scope) | |
+
+**Open PRD §44 boxes (13):** P0 ×3 (human), P4 grid search, P5 ×3 (comparison, shifts run, seed protocol), P6 ×2 (ablation, tables), P7 ×4.
+
+**Finding from the nine N=15 trainings (2026-10-06 review of `~/orbitguard_runs/logs/n15_*.log`) — must be read before any claim:**
+- All nine ran 50 iterations without a crash, but the **critic did not learn at N=15**: `vf_explained_var` peaks at 0.12–0.22 and averages 0.01–0.04 over the last ten iterations (it was 0.8–0.97 in the N=2 gate run). Training return (centered, as logged) rose from about −2400 to −520 and entropy fell from 1.75 to 0.2–0.3, which is the policy learning to stop burning Δv rather than learning to avoid conjunctions: the trained policies fire on only 0.6–2.1 % of steps in the 2-episode evaluations.
+- Those 2-episode evaluations had **0 collisions for both the baseline and the trained policy** in all nine runs, and almost no threat steps, so they say nothing about safety. The C4 conditioning check fails (undefined: threat-step fraction ≈ 0).
+- Shield behaviour from the 12 recorded replay traces (one episode each, 15 satellites × 360 steps): trained policy + shield intervenes on **0.22 % / 2.70 % / 1.06 %** of agent-steps (normal / capability reduction / simultaneous conjunctions), i.e. non-zero and far from saturating, which satisfies the Phase 4 exit wording; the untrained random policy is intervened on **69–72 %**. **No collision occurs in any of the 12 episodes, even the untrained, shield-off ones**, so at N=15 collisions are rare and a collision-count headline may have little statistical power.
+- Consequence: the headline adaptive-vs-fixed comparison is at risk of being a null result for reasons unrelated to the margin. This is a research-validity risk, not a code defect, and it is logged here rather than tuned away.
+
+**Next steps (in order):** (1) let the validation grid finish (~4–5 h); (2) before spending the final-test compute, run a cheap **power check on the validation split only** — collision rate of the no-maneuver and rule-based baselines per condition — to learn whether collisions are frequent enough for the comparison to be able to show anything; (3) apply the pre-registered rule: if the grid winner is not `default`, retrain the nine N=15 models with it (`RUNS=~/orbitguard_runs_tuned TUNED_FLAGS=... scripts/queue_n15.sh`, ~7 h); consider more iterations and a critic check (`vf_explained_var`) as part of that retrain, logged as a deviation; (4) `scripts/run_experiments.sh` (validation pass, then the one-way freeze, then the final-test sweep and tables); (5) re-record the replay traces from the final checkpoints (`scripts/record_replay_traces.py`) so the app shows the models that produced the results; (6) only then, if asked, Phase 7.
+
+---
+
 ## 1. Governance tooling — Harness OS (verified live)
 
 `mcp__harness-os__*` is a real, running MCP server (docker container `harness-os:latest`, network `harness_os_default`, Postgres-backed), not a hypothetical from the master prompt. `get_constitution` was called against this project path on 2026-09-22 and returned **17 active rules**. The ones that gate implementation work directly:
@@ -316,11 +343,11 @@ Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were
 
 | ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
 |---|---|---|---|---|---|---|---|
-| P4-M1 | Scale env/training to N=10–20, N=15 primary | RL | Trains without crash across ≥3 seeds | Phase 3 GATE cleared | training runs | §44 | **Implemented; runs in progress** — shielded N=15 trains/evaluates end-to-end (partial-termination and CTDE-dimension tests pass); 3-seed runs queued (see Phase 4 record) |
+| P4-M1 | Scale env/training to N=10–20, N=15 primary | RL | Trains without crash across ≥3 seeds | Phase 3 GATE cleared | training runs | §44 | **Done 2026-10-02 (training) / evidence open** — all nine N=15 trainings (3 seeds × adaptive/fixed/no-shield, 50 iterations) finished without a crash; shield intervention rate logged from the replay traces: 0.2–2.7 % of agent-steps for trained policies (non-zero, not saturating). **Caveat:** the critic did not learn at N=15 (`vf_explained_var` ≈ 0.01–0.04) and the policies are near no-op — see §0b |
 | P4-M2 | Joint-action safety shield, all 7 steps | Safety | Capability validation, short-horizon sim, safety checks, accept/repair | P3-M3, P2-M6 | `safety/shield.py` | §29 | **Done 2026-10-02** — `safety/shield.py`, all 7 steps; 23 tests incl. capability rejections, joint-consequence recomputation, determinism, belief-only guard |
 | P4-M3 | Shield repair search: exact enum ≤4 agents, beam search width=50 otherwise | Safety | Threshold=4 boundary test; beam width exactly 50 (not approximate); deterministic tie-break test | P4-M2 | `safety/shield.py` (repair module) | §29 | **Done 2026-10-02** — `safety/repair_search.py`; threshold 4 (exact 6^4=1296) vs 5 (beam) boundary tests, `max_beam_size == 50` exactly, deterministic tie-breaks |
 | P4-M4 | Acceptance Test **E** | Safety | Unsafe proposal rejected/repaired when feasible alt exists | P4-M2, M3 | test log | §38 | **Done 2026-10-02** — `tests/acceptance/test_acceptance_e_shield.py` (+ shield-level tests): colliding no-op proposals survive only under the shield |
-| P4-M5 | Coarse grid search: reward weights + margin coefficients on **validation split only** | RL | Structural check: grid search code path cannot import test-seed file | Validation seed pool (§33) | tuning logs, frozen config | §25, §33 | **Harness done 2026-10-02; grid not yet run** — validation pool + structural guard + grid harness; the compute run is queued behind the N=15 trainings |
+| P4-M5 | Coarse grid search: reward weights + margin coefficients on **validation split only** | RL | Structural check: grid search code path cannot import test-seed file | Validation seed pool (§33) | tuning logs, frozen config | §25, §33 | **Harness done 2026-10-02; grid RUNNING since 2026-10-06 12:18** (8 points × 25 iterations, 20 validation episodes each, sequential; log `~/orbitguard_runs/logs/grid.log`, output `~/orbitguard_runs/grid/`). Winner is frozen to a hashed overlay by `freeze_best`; a non-default winner means the nine N=15 models are retrained before the freeze |
 
 **Exit criteria:** N=15 shielded MAPPO trains end-to-end, ≥3 seeds, no crash; shield intervention rate logged and plausible (not ~0%, not saturating).
 
@@ -335,7 +362,7 @@ Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were
 | ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
 |---|---|---|---|---|---|---|---|
 | P5-M1 | All 5 baselines runnable from config alone | Evaluation | Baseline switch via config diff only, no code edit | Phase 4 pipeline | `evaluation/baselines.py` | §31, FR14 | **Code done 2026-10-02** — `evaluation/baselines.py`; model name in config alone selects env class, margin, policy (tests) |
-| P5-M2 | Adaptive-vs-Fixed-Margin comparison, full 3-seed protocol | Evaluation (+ RL pipeline) | Paired stats across matched seeds | P5-M1 | results table | §44 | **Pending compute** — pipeline ready (`scripts/run_experiments.sh`); needs the nine N=15 trainings |
+| P5-M2 | Adaptive-vs-Fixed-Margin comparison, full 3-seed protocol | Evaluation (+ RL pipeline) | Paired stats across matched seeds | P5-M1 | results table | §44 | **Pending compute** — pipeline ready (`scripts/run_experiments.sh`); the nine N=15 trainings exist (default config) but may be retrained if the grid selects another point |
 | P5-M3 | All 4 core distribution shifts, zero-shot, from config | Evaluation (+ Astro defines shift params) | No fine-tuning code path exists | Astro Q5 resolved | `evaluation/shifts.py` | §32, FR15 | **Code done 2026-10-02** — `evaluation/shifts.py` + env hooks; all five conditions run from config (Acceptance G) |
 | P5-M4 | Full seed protocol: 3 training × 10 eval × 5 conditions | Evaluation | Episode count matches exactly 150 (learned) / 50 (non-learned) per §33 | P5-M1..M3 | experiment artifacts | §33 | **Pending compute** — task matrix builder + runner done, episode counts pinned by tests; sweep not yet run |
 | P5-M5 | Acceptance Tests **F**, **G** | RL+Evaluation (F), Evaluation (G) | Reproducibility check; single-config-interface shift run | P5-M1..M4 | test logs | §38 | **Done 2026-10-02** — `tests/acceptance/test_acceptance_f_reproducibility.py`, `..._g_distribution_shift.py` |
@@ -349,7 +376,7 @@ Astro questions Q1–Q5 (docs/OrbitGuard_progress.md §3, superseded below) were
 
 | ID | Task | Owner | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
 |---|---|---|---|---|---|---|---|
-| P6-M1 | Shield-vs-no-shield ablation (separate training run) | RL (train), Evaluation (compare), Safety (interpret) | Confirms P4-M6 distinction empirically | P4-M6 | ablation report | §28, §46 | **Pending compute** — no-shield training is a separate CLI run (`--no-shield`) already queued; comparison not yet run |
+| P6-M1 | Shield-vs-no-shield ablation (separate training run) | RL (train), Evaluation (compare), Safety (interpret) | Confirms P4-M6 distinction empirically | P4-M6 | ablation report | §28, §46 | **Pending compute** — the three no-shield N=15 trainings exist (separate CLI run, `--no-shield`); comparison not yet run |
 | P6-M2 | Dash/Plotly visualization; standalone replay (FR16) | Visualization | **Playwright MCP inspection of live rendered app**, not code-only review; replay works with RL trainer stopped | Phase 5 logged episodes | `visualization/app.py` | §41 | **Done 2026-10-02** — Dash app; inspected live with Playwright at 1440 and 390 px (0 console errors, no overflow, play/slider/step work), standalone from a saved `.npz`; **replay redesign finished 2026-10-06** on branch `replay_redesign` (see `docs/OrbitGuard_replay_redesign_progress.md`) |
 | P6-M3 | Failure-mode taxonomy (§36) applied to logged episodes | Evaluation (reviewed by Astro) | All 9 categories machine-readable, not collapsed to one flag | P5 artifacts | tagged episode logs | §36 | **Done 2026-10-02** — nine labels logged per episode (`rl/episode_metrics.py`), counted per model in `evaluation/results.py` |
 | P6-M4 | Result tables/figures generated from logged data, not hand-typed | Evaluation | Script/notebook reads experiment DB/files directly | P5-M6 | figures/tables | §49 | **Code done 2026-10-02** — `python -m orbit_guard.evaluation.results` writes table/taxonomy/figure from the log; no real data yet |
@@ -364,7 +391,7 @@ Everything below is code + tests (553 passing, ruff clean) unless marked otherwi
 - *P4-M5*: validation pool, structural test-pool guard, grid harness exist; **the grid has NOT been run**.
 - *Phase 5/6 pipeline*: baselines from config, five shift conditions, per-episode metrics + nine failure labels, resumable multiprocess runner, freeze-gated final-test pool, statistics, replay app, results generator, `scripts/run_experiments.sh`.
 - *Robustness of the Phase 3 gate result* (default tuned config, N=2, fresh seeds 5000-5039, no-maneuver baseline 7 collision episodes): seed 0 -> 0 collisions, all four checks pass; seed 1 -> 0 collisions, all pass; seed 2 -> 0 collisions (baseline 7) and a higher return, threat/calm maneuver rate 44%/1.9%, but **C2 fails narrowly: 0.537 m/s of Δv used vs the pre-registered 0.50 m/s limit** (so the gate is clean on 2 of 3 training seeds, not 3 of 3). Reported as is; the criteria were not relaxed and no re-tune was done.
-- ***Not done (compute-bound)***: the nine N=15 trainings (queued via `scripts/queue_n15.sh`, resumable, logs in `~/orbitguard_runs/logs/`; 50 iterations each, default hyperparameters; each configuration was smoke-tested through RLlib at N=15, and partial termination through RLlib's sampler at N=4), hence the P4-M1 3-seed exit evidence, the validation grid, the final-test sweep (5 models x 5 conditions x 10 seeds x 3 training seeds), the shield/no-shield ablation, and the headline adaptive-vs-fixed table. No result in this repository supports any adaptive-vs-fixed claim yet. If the grid selects a non-default point, the N=15 models must be retrained with it before the freeze.
+- ***Update 2026-10-06***: the nine N=15 trainings finished on 2026-10-02 (50 iterations each, default hyperparameters; results and the critic caveat in §0b). The validation grid is running. ***Still not done (compute-bound)***: the validation grid, the final-test sweep (5 models x 5 conditions x 10 seeds x 3 training seeds), the shield/no-shield ablation, and the headline adaptive-vs-fixed table. No result in this repository supports any adaptive-vs-fixed claim yet. If the grid selects a non-default point, the N=15 models must be retrained with it before the freeze.
 
 ---
 

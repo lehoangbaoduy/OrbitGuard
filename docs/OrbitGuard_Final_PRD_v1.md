@@ -845,9 +845,9 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** No team member should be blocked on an undecided question once Phase 1 starts.
 
-- [ ] Repo scaffolding created matching §8's module layout — **RL**
-- [ ] Reference config (§39) committed as `configs/default.yaml` — **RL**
-- [ ] TLE snapshot pulled from CelesTrak and frozen — `data/TLE_snapshot_53deg_shell.csv` committed, never re-pulled — **Astro**
+- [x] Repo scaffolding created matching §8's module layout — **RL**
+- [x] Reference config (§39) committed as `configs/default.yaml` — **RL**
+- [x] TLE snapshot pulled from CelesTrak and frozen — `data/TLE_snapshot_53deg_shell.csv` committed, never re-pulled — **Astro**
 - [ ] Team roles assigned (§47), adjusted from the suggested split to actual skills — **Joint**
 - [ ] OSC compute allocation requested (don't wait until it's needed — §48) — **RL** (heaviest compute user; request under whichever account the team agrees on)
 - [ ] This PRD reviewed and acknowledged by every team member, including the design-decision log (§50) — **Joint**
@@ -886,12 +886,12 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Prove the entire learning loop works end-to-end at the smallest possible scale, before committing the remaining seven weeks to it.
 
-- [ ] `OrbitGuardEnv` implemented as a PettingZoo **`ParallelEnv`** (not AEC), typed with Gymnasium spaces: observation (§24), action mapping (§23), reward (§25) — **RL**
-- [ ] PettingZoo's `parallel_api_test` and seed/reproducibility test pass against `OrbitGuardEnv` (§28) — **RL**
-- [ ] Deterministic maneuver-intent → Δv mapper, unit tested — **Safety** *(owned per §47.3; deliver early in this phase — RL's environment depends on it for the action step)*
-- [ ] MAPPO/CTDE training pipeline wired up in RLlib (§28) — **RL**
-- [ ] 2-satellite training run converges to sensible, inspectable behavior — **RL**
-- [ ] Acceptance Test D (§38) passes — train → evaluate completes with no code changes in between — **RL**
+- [x] `OrbitGuardEnv` implemented as a PettingZoo **`ParallelEnv`** (not AEC), typed with Gymnasium spaces: observation (§24), action mapping (§23), reward (§25) — **RL**
+- [x] PettingZoo's `parallel_api_test` and seed/reproducibility test pass against `OrbitGuardEnv` (§28) — **RL**
+- [x] Deterministic maneuver-intent → Δv mapper, unit tested — **Safety** *(owned per §47.3; deliver early in this phase — RL's environment depends on it for the action step)*
+- [x] MAPPO/CTDE training pipeline wired up in RLlib (§28) — **RL**
+- [x] 2-satellite training run converges to sensible, inspectable behavior — **RL**
+- [x] Acceptance Test D (§38) passes — train → evaluate completes with no code changes in between — **RL**
 
 > **GATE:** This is the highest-risk phase in the project. If the 2-agent case isn't cleanly working by the end of Week 8, invoke §46 immediately — cut every stretch goal and re-plan the remaining weeks around it. Do not proceed to Phase 4 on a shaky 2-agent result; a scaling failure at N=15 is far more expensive to debug than a 2-agent one.
 
@@ -899,10 +899,10 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** The complete proposed system, running at the primary benchmark scale.
 
-- [ ] Environment/training scaled to N=10–20 (primary benchmark N=15) — **RL**
-- [ ] Joint-action safety shield implemented, all 7 steps (§29) — **Safety**
-- [ ] Shield repair search implemented and tested — exact enumeration for ≤4 affected agents, beam search (width 50) otherwise — **Safety**
-- [ ] Acceptance Test E (§38) passes — an intentionally unsafe proposal is rejected or replaced when a feasible alternative exists — **Safety**
+- [x] Environment/training scaled to N=10–20 (primary benchmark N=15) — **RL**
+- [x] Joint-action safety shield implemented, all 7 steps (§29) — **Safety**
+- [x] Shield repair search implemented and tested — exact enumeration for ≤4 affected agents, beam search (width 50) otherwise — **Safety**
+- [x] Acceptance Test E (§38) passes — an intentionally unsafe proposal is rejected or replaced when a feasible alternative exists — **Safety**
 - [ ] Coarse grid search of reward weights and margin coefficients run on the **validation** split only (§25, §33 — never touch test seeds here) — **RL**
 
 **Exit criteria:** N=15 shielded MAPPO trains end-to-end without crashing across at least 3 training seeds; shield intervention rate is logged and its magnitude looks sane (neither ~0%, which suggests the diagnostic isn't wired up, nor so high it's clearly suppressing all learning).
@@ -911,12 +911,12 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Generate the actual numbers the paper's central claim depends on.
 
-- [ ] All 5 baselines implemented, runnable from configuration alone (§31, FR14) — **Evaluation** *(No-Maneuver and Rule-Based are Evaluation's own build; the 3 MARL-based baselines reuse RL's config-driven pipeline from Phase 3–4)*
+- [x] All 5 baselines implemented, runnable from configuration alone (§31, FR14) — **Evaluation** *(No-Maneuver and Rule-Based are Evaluation's own build; the 3 MARL-based baselines reuse RL's config-driven pipeline from Phase 3–4)*
 - [ ] Adaptive-vs-Fixed-Margin comparison run across the full 3-training-seed protocol — **Evaluation** orchestrates, on top of **RL**'s pipeline
 - [ ] All 4 core distribution-shift scenarios implemented and run zero-shot (§32, FR15) — **Evaluation** builds the harness; **Astro** defines the physical scenario parameters (e.g. what "increased density" or the stuck-thruster capability-down case concretely means)
 - [ ] Full seed protocol executed: 3 training seeds × 10 evaluation seeds × 5 conditions (§33) — **Evaluation**
-- [ ] Acceptance Tests F and G (§38) pass — same config + seed reproduces the same result; the shift-scenario suite runs from one config interface — **F: RL + Evaluation jointly · G: Evaluation**
-- [ ] Metrics/statistics pipeline producing means, spread, and degradation scores (§34) — **Evaluation**
+- [x] Acceptance Tests F and G (§38) pass — same config + seed reproduces the same result; the shift-scenario suite runs from one config interface — **F: RL + Evaluation jointly · G: Evaluation**
+- [x] Metrics/statistics pipeline producing means, spread, and degradation scores (§34) — **Evaluation**
 
 **Exit criteria:** the headline adaptive-vs-fixed-margin result exists, with paired statistics across matched scenario seeds, and is reproducible from a fresh checkout.
 
@@ -925,8 +925,8 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 **Goal:** Fill in the supporting evidence and make the system's behavior visible to someone other than the person who built it.
 
 - [ ] Shield-vs-no-shield ablation run (§28) — prioritized per §46 over any remaining stretch feature — **RL** trains the no-shield policy (a separate training run, per §28) · **Evaluation** runs the comparison · **Safety** supports interpreting shield-specific results
-- [ ] Dash/Plotly visualization built (§41); replay mode works standalone, no live training/inference required (FR16) — **Visualization**
-- [ ] Failure-mode taxonomy (§36) applied to logged episodes — **Evaluation**, reviewed by **Astro** for physical plausibility
+- [x] Dash/Plotly visualization built (§41); replay mode works standalone, no live training/inference required (FR16) — **Visualization**
+- [x] Failure-mode taxonomy (§36) applied to logged episodes — **Evaluation**, reviewed by **Astro** for physical plausibility
 - [ ] Result tables and figures generated directly from logged experiment data, not hand-copied numbers — **Evaluation**
 
 #### Phase 7 — Paper, Poster & Buffer (Week 15)
