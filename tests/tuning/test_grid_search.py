@@ -133,3 +133,68 @@ def test_no_tuning_module_references_the_test_seed_pool():
         text = source.read_text()
         assert "test_seed" not in text, source
         assert "TEST_SEED" not in text, source
+
+
+_SETTINGS = {"agents": 15, "iterations": 25, "validation_episodes": 20, "seed": 0, "shield": True}
+
+
+def test_a_resumed_grid_skips_points_already_logged_with_the_same_settings(tmp_path):
+    log = tmp_path / "grid_log.jsonl"
+    reports = {"a": _report(2, 0.1), "b": _report(0, 0.5), "c": _report(0, 0.1)}
+    first = []
+    run_grid([GridPoint("a"), GridPoint("b")], lambda p, s: first.append(p.name) or reports[p.name], _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=10)
+    second = []
+
+    results = run_grid(
+        [GridPoint(n) for n in reports], lambda p, s: second.append(p.name) or reports[p.name], _BUDGET_MPS,
+        log_path=log, settings=_SETTINGS, max_seeds=10, resume=True,
+    )
+
+    assert first == ["a", "b"] and second == ["c"], "only the unfinished point runs again"
+    assert [r.point.name for r in results] == ["c", "b", "a"], "the logged points still take part in the ranking"
+    assert results[1].report == reports["b"]
+
+
+def test_a_resumed_grid_reruns_points_logged_under_different_settings(tmp_path):
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=10)
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1), _BUDGET_MPS,
+             log_path=log, settings={**_SETTINGS, "iterations": 50}, max_seeds=10, resume=True)
+
+    assert reran == ["a"]
+
+
+def test_a_resumed_grid_ignores_a_logged_point_whose_episode_count_does_not_match_the_pool(tmp_path):
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1, episodes=3), _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=3)
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1, episodes=7), _BUDGET_MPS,
+             log_path=log, settings=_SETTINGS, max_seeds=7, resume=True)
+
+    assert reran == ["a"]
+
+
+def test_a_torn_last_log_line_from_a_killed_run_is_ignored_on_resume(tmp_path):
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=10)
+    with log.open("a") as handle:
+        handle.write('{"point": "b", "score": 0.1, "episo')  # the process died mid-write
+    reran = []
+
+    run_grid([GridPoint("a"), GridPoint("b")], lambda p, s: reran.append(p.name) or _report(0, 0.1), _BUDGET_MPS,
+             log_path=log, settings=_SETTINGS, max_seeds=10, resume=True)
+
+    assert reran == ["b"]
+
+
+def test_without_resume_every_point_runs_even_if_logged(tmp_path):
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=10)
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1), _BUDGET_MPS, log_path=log, settings=_SETTINGS, max_seeds=10)
+
+    assert reran == ["a"]

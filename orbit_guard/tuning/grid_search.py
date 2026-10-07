@@ -20,6 +20,7 @@ final-test evaluation (PRD §33, "freeze tuned params before final test").
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from collections.abc import Callable, Sequence
@@ -73,6 +74,26 @@ def validation_score(report: EvaluationReport, delta_v_budget_mps: float) -> flo
     return report.collision_episodes / report.episodes + _FUEL_WEIGHT * report.mean_delta_v_used_mps / delta_v_budget_mps
 
 
+def _logged_reports(log_path: Path, settings: dict | None, episodes: int) -> dict[str, EvaluationReport]:
+    """Reports already in the grid log for these settings and this many validation episodes (latest per point).
+
+    A line torn by a killed process, or one written under other settings, is ignored: that point simply runs again.
+    """
+    if not log_path.is_file():
+        return {}
+    fields = {f.name for f in dataclasses.fields(EvaluationReport)}
+    found: dict[str, EvaluationReport] = {}
+    for line in log_path.read_text().splitlines():
+        try:
+            record = json.loads(line)
+            if record.get("settings") != settings or record.get("episodes") != episodes:
+                continue
+            found[record["point"]] = EvaluationReport(**{key: value for key, value in record.items() if key in fields})
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+            continue
+    return found
+
+
 def run_grid(
     points: Sequence[GridPoint],
     run_point: Callable[[GridPoint, Sequence[int]], EvaluationReport],
@@ -81,8 +102,15 @@ def run_grid(
     validation_config: str | Path = _VALIDATION_CONFIG,
     max_seeds: int | None = None,
     log_path: str | Path | None = None,
+    settings: dict | None = None,
+    resume: bool = False,
 ) -> list[GridResult]:
-    """Evaluate every point on the validation pool (or its first `max_seeds`); best score first."""
+    """Evaluate every point on the validation pool (or its first `max_seeds`); best score first.
+
+    Each finished point is logged with the run `settings`. With `resume`, points already logged under identical
+    settings (and the same episode count) are not run again but still take part in the ranking, so a killed grid
+    continues where it stopped instead of starting over.
+    """
     config = yaml.safe_load(Path(validation_config).read_text())
     pool_path = Path(config["seed_pool_file"])
     if not pool_path.is_absolute():
@@ -91,14 +119,18 @@ def run_grid(
     if max_seeds is not None:
         seeds = seeds[:max_seeds]
 
+    logged = _logged_reports(Path(log_path), settings, len(seeds)) if resume and log_path is not None else {}
     results = []
     for point in points:
+        if point.name in logged:
+            results.append(GridResult(point, logged[point.name], validation_score(logged[point.name], delta_v_budget_mps)))
+            continue
         report = run_point(point, seeds)
         result = GridResult(point, report, validation_score(report, delta_v_budget_mps))
         results.append(result)
         if log_path is not None:
             with Path(log_path).open("a") as handle:
-                handle.write(json.dumps({"point": point.name, "score": result.score, **report.__dict__}) + "\n")
+                handle.write(json.dumps({"point": point.name, "score": result.score, "settings": settings, **report.__dict__}) + "\n")
     return sorted(results, key=lambda result: (result.score, result.point.name))
 
 
@@ -125,7 +157,6 @@ def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
 def main(argv: list[str] | None = None) -> None:
     """CLI: train + validate every grid point (sequentially), log each, freeze the winner."""
     import argparse
-    import dataclasses
 
     from orbit_guard.rl.evaluation import evaluate
     from orbit_guard.rl.training import (
@@ -146,6 +177,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--shield", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--only", nargs="*", default=None, help="restrict to these grid point names")
     parser.add_argument("--out-dir", default="grid_runs")
+    parser.add_argument("--resume", action="store_true", help="skip points already in the log under the same settings (a killed run continues)")
     args = parser.parse_args(argv)
 
     out_dir = Path(args.out_dir)
@@ -169,7 +201,8 @@ def main(argv: list[str] | None = None) -> None:
     probe = make_env_factory(args.agents, load_reward_weights(), args.shield)({})
     results = run_grid(
         points, run_point, probe.delta_v_budget_mps,
-        max_seeds=args.validation_episodes, log_path=out_dir / "grid_log.jsonl",
+        max_seeds=args.validation_episodes, log_path=out_dir / "grid_log.jsonl", resume=args.resume,
+        settings={"agents": args.agents, "iterations": args.iterations, "validation_episodes": args.validation_episodes, "seed": args.seed, "shield": args.shield},
     )
     for result in results:
         print(f"{result.score:8.4f}  {result.point.name}")
