@@ -39,16 +39,21 @@ rl:
   algorithm: mappo
   parameter_sharing: true
   num_training_seeds: 3
-  learning_rate: 3.0e-4
-  gamma: 0.99
+  # Tuned for the P3-M5 2-satellite gate (docs/OrbitGuard_progress.md, tuning record); PRD §39 start: lr 3e-4, gamma 0.99, entropy 0.01.
+  learning_rate: 5.0e-4
+  gamma: 0.95
   gae_lambda: 0.95
   clip_param: 0.2
-  entropy_coeff: 0.01
+  entropy_coeff: 0.005
   train_batch_size: 4000
   sgd_minibatch_size: 256
   num_sgd_iter: 10
   actor_hidden_layers: [128, 128]
   critic_hidden_layers: [256, 256]
+  vf_clip_param: 1000000.0
+  reward_scale: 1.0
+  reward_offset: -1.0  # training-only centering of the +1/step baseline; evaluation uses raw rewards
+  num_env_runners: 0
 
 observation:
   k_neighbors: 4
@@ -64,7 +69,7 @@ capability:
 reward:
   w1_safety: 1.0
   w2_mission: 0.3
-  w3_delta_v: 0.1
+  w3_delta_v: 5.0  # PRD §39 start was 0.1; too weak to discourage indiscriminate burns (tuning record)
   w4_coordination: 0.5
   collision_penalty: -100
   mission_weights: {q_a: 0.25, q_e: 0.25, q_i: 0.25, q_M: 0.25}
