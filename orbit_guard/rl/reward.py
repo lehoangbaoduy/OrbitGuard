@@ -35,12 +35,11 @@ def compute_pairwise_margin(
         separation exceeds d_safe_m, zero indicates exactly d_safe_m,
         negative indicates encroachment inside the safety bubble.
     """
-    denom = d_safe_m + epsilon_m
-    if denom <= 0.0:
-        raise ValueError(
-            f"d_safe_m + epsilon_m must be strictly positive, got {d_safe_m} + {epsilon_m} = {denom}"
-        )
-    return float((d_min_m - d_safe_m) / denom)
+    if d_safe_m < 0.0:
+        raise ValueError(f"d_safe_m must be >= 0, got {d_safe_m}")
+    if epsilon_m <= 0.0:
+        raise ValueError(f"epsilon_m must be > 0, got {epsilon_m}")
+    return float((d_min_m - d_safe_m) / (d_safe_m + epsilon_m))
 
 
 def compute_safety_term(

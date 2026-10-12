@@ -1,11 +1,22 @@
-"""RLlib multi-agent environment wrappers and factory helpers (PRD §28).
+"""RLlib env-wrapping for MAPPO/CTDE (PRD §28), verified against Ray 2.58.
 
-Provides:
-- FlattenedParallelPettingZooEnv: Flattens Dict observations to a single Box
-  for compatibility with RLlib's default encoders.
-- CentralizedCriticParallelPettingZooEnv: Packages each agent's flattened local
-  observation together with the global environment state (CTDE / MAPPO).
-- create_rllib_env: Factory helper to instantiate and wrap any PettingZoo ParallelEnv.
+Two Ray 2.58 (new RLModule/Catalog API stack) facts shape this module, both
+confirmed empirically rather than assumed from older tutorials:
+
+  1. RLlib's default encoder cannot build for a `Dict` observation space with
+     several `Box` sub-spaces (`ValueError: No default encoder config for obs
+     space=Dict(...)`). Each agent's Dict observation is therefore flattened
+     into one Box via `gymnasium.spaces.utils.flatten`.
+  2. There is no first-class "centralized critic input" channel. The accepted
+     workaround is to carry the global state in the observation vector. Each
+     agent's observation becomes ``[local | global_state]`` and
+     `ctde_module.CentralizedCriticTorchRLModule` makes sure the actor only
+     ever reads the ``local`` slice (PRD §28: no critic-only feature may leak
+     into decentralized execution).
+
+The wrapper accepts ANY PettingZoo `ParallelEnv` exposing `state()` -- the
+stub during development, `OrbitGuardEnv` in production -- via an env factory,
+so nothing here imports the environment itself.
 """
 
 from __future__ import annotations
@@ -17,174 +28,92 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces.utils import flatten, flatten_space
 from pettingzoo import ParallelEnv
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
+from ray.tune.registry import register_env
+
+EnvFactory = Callable[[dict], ParallelEnv]
 
 
-class FlattenedParallelPettingZooEnv(ParallelPettingZooEnv):
-    """ParallelPettingZooEnv with each agent's Dict observation flattened
-    to a single Box, so RLlib's new-API-stack default encoder can build."""
+class CTDEParallelPettingZooEnv(ParallelPettingZooEnv):
+    """`ParallelPettingZooEnv` emitting flat ``[local | global_state]`` observations.
 
-    def __init__(self, env: ParallelEnv) -> None:
-        super().__init__(env)
-        self._inner_observation_spaces = dict(self.observation_space.spaces)
-        self.observation_space = gym.spaces.Dict(
-            {
-                agent_id: flatten_space(space)
-                for agent_id, space in self._inner_observation_spaces.items()
-            }
-        )
-
-    def _flatten_all(self, observations: dict[str, Any]) -> dict[str, np.ndarray]:
-        return {
-            agent_id: flatten(self._inner_observation_spaces[agent_id], obs)
-            for agent_id, obs in observations.items()
-        }
-
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-    ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-        observations, infos = super().reset(seed=seed, options=options)
-        return self._flatten_all(observations), infos
-
-    def step(
-        self,
-        action_dict: dict[str, Any],
-    ) -> tuple[
-        dict[str, np.ndarray],
-        dict[str, float],
-        dict[str, bool],
-        dict[str, bool],
-        dict[str, Any],
-    ]:
-        observations, rewards, terminations, truncations, infos = super().step(action_dict)
-        return self._flatten_all(observations), rewards, terminations, truncations, infos
-
-
-class CentralizedCriticParallelPettingZooEnv(ParallelPettingZooEnv):
-    """ParallelPettingZooEnv packaging each agent's local observation alongside
-    the global constellation state for Centralized Training with Decentralized Execution (CTDE).
-
-    Each agent's observation space is structured as:
-        gym.spaces.Dict({
-            "obs": flatten_space(local_observation_space),  # Local, decentralized
-            "state": global_state_space,                   # Global, centralized critic only
-        })
+    With ``include_global_state=False`` it emits only the flattened local
+    observation (the plain, IPPO-style / execution-time view). `reward_offset`
+    and `reward_scale` reshape rewards for the learner only, as
+    ``(reward + reward_offset) * reward_scale``. Centering (a negative offset
+    cancelling the constant ~+1 a calm step earns) shrinks value magnitudes so
+    the critic's error stays small next to the action-dependent signal; it
+    never changes evaluation rewards.
     """
 
-    def __init__(self, env: ParallelEnv) -> None:
+    def __init__(
+        self,
+        env: ParallelEnv,
+        include_global_state: bool = True,
+        reward_scale: float = 1.0,
+        reward_offset: float = 0.0,
+    ):
         super().__init__(env)
+        if reward_scale <= 0:
+            raise ValueError(f"reward_scale must be > 0, got {reward_scale}")
+        self._reward_scale = reward_scale
+        self._reward_offset = reward_offset
+        if include_global_state and not callable(getattr(env, "state", None)):
+            raise ValueError("include_global_state=True requires the env to expose a state() method")
+
+        self._include_global_state = include_global_state
         self._inner_observation_spaces = dict(self.observation_space.spaces)
+        local_dims = {flatten_space(space).shape[0] for space in self._inner_observation_spaces.values()}
+        if len(local_dims) != 1:
+            raise ValueError(f"all agents must share one local observation size, got {sorted(local_dims)}")
+        self.local_obs_dim = local_dims.pop()
+        self.global_state_dim = int(env.state_space.shape[0]) if include_global_state else 0
 
-        # Retrieve global state space from environment
-        state_space = getattr(self.par_env, "state_space", None)
-        if state_space is None and hasattr(self.par_env, "unwrapped"):
-            state_space = getattr(self.par_env.unwrapped, "state_space", None)
-
-        if state_space is None:
-            raise ValueError(
-                "Underlying environment must expose `state_space` for centralized critic CTDE training."
-            )
-        self._state_space = state_space
-
-        self.observation_space = gym.spaces.Dict(
-            {
-                agent_id: gym.spaces.Dict(
-                    {
-                        "obs": flatten_space(space),
-                        "state": self._state_space,
-                    }
-                )
-                for agent_id, space in self._inner_observation_spaces.items()
-            }
+        flat_observation_space = gym.spaces.Box(
+            low=-np.inf, high=np.inf, shape=(self.local_obs_dim + self.global_state_dim,), dtype=np.float32
         )
+        self.observation_space = gym.spaces.Dict(dict.fromkeys(self._inner_observation_spaces, flat_observation_space))
 
-    def _get_global_state(self) -> np.ndarray:
-        if hasattr(self.par_env, "state"):
-            return self.par_env.state()
-        if hasattr(self.par_env, "unwrapped") and hasattr(self.par_env.unwrapped, "state"):
-            return self.par_env.unwrapped.state()
-        raise ValueError(
-            "Underlying environment must implement `state()` method returning global state."
-        )
+    def _assemble(self, observations: dict[str, Any]) -> dict[str, np.ndarray]:
+        global_state = self.par_env.state() if self._include_global_state else None
+        assembled = {}
+        for agent_id, observation in observations.items():
+            local = flatten(self._inner_observation_spaces[agent_id], observation).astype(np.float32)
+            assembled[agent_id] = local if global_state is None else np.concatenate([local, global_state])
+        return assembled
 
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-    ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, Any]]:
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
         observations, infos = super().reset(seed=seed, options=options)
-        global_state = self._get_global_state()
-        wrapped_obs = {
-            agent_id: {
-                "obs": flatten(self._inner_observation_spaces[agent_id], obs),
-                "state": global_state,
-            }
-            for agent_id, obs in observations.items()
-        }
-        return wrapped_obs, infos
+        return self._assemble(observations), infos
 
-    def step(
-        self,
-        action_dict: dict[str, Any],
-    ) -> tuple[
-        dict[str, dict[str, np.ndarray]],
-        dict[str, float],
-        dict[str, bool],
-        dict[str, bool],
-        dict[str, Any],
-    ]:
+    def step(self, action_dict: dict):
         observations, rewards, terminations, truncations, infos = super().step(action_dict)
-        if observations:
-            global_state = self._get_global_state()
-            wrapped_obs = {
-                agent_id: {
-                    "obs": flatten(self._inner_observation_spaces[agent_id], obs),
-                    "state": global_state,
-                }
-                for agent_id, obs in observations.items()
-            }
-        else:
-            wrapped_obs = {}
-        return wrapped_obs, rewards, terminations, truncations, infos
+        scaled_rewards = {agent: (reward + self._reward_offset) * self._reward_scale for agent, reward in rewards.items()}
+        return self._assemble(observations), scaled_rewards, terminations, truncations, infos
 
 
-def create_rllib_env(config: dict[str, Any] | None = None) -> ParallelPettingZooEnv:
-    """Env-creator factory for RLlib environment registration.
+def make_env_creator(
+    env_factory: EnvFactory,
+    include_global_state: bool = True,
+    reward_scale: float = 1.0,
+    reward_offset: float = 0.0,
+) -> Callable[[dict], MultiAgentEnv]:
+    """Return the `env_creator(config)` RLlib's registry expects."""
 
-    Accepts any PettingZoo ParallelEnv factory, class, or instance, and wraps it
-    into an RLlib-compatible ParallelPettingZooEnv.
+    def env_creator(config: dict) -> MultiAgentEnv:
+        return CTDEParallelPettingZooEnv(env_factory(config), include_global_state, reward_scale, reward_offset)
 
-    Parameters:
-        config: Configuration dictionary. Supported keys:
-            - "env": An existing ParallelEnv instance.
-            - "env_class": A ParallelEnv class to instantiate.
-            - "env_creator": A factory callable returning a ParallelEnv.
-            - "env_kwargs": Optional kwargs dict passed to env_class/env_creator.
-            - "centralized_critic": bool (default: True). If True, wraps with
-              CentralizedCriticParallelPettingZooEnv. If False, wraps with
-              FlattenedParallelPettingZooEnv.
+    return env_creator
 
-    Returns:
-        Wrapped ParallelPettingZooEnv instance.
-    """
-    config = config or {}
-    env_inst = config.get("env")
-    if env_inst is None:
-        factory: Callable[..., ParallelEnv] | type[ParallelEnv] | None = config.get(
-            "env_creator"
-        ) or config.get("env_class")
-        if factory is None:
-            raise ValueError(
-                "create_rllib_env requires 'env', 'env_creator', or 'env_class' in config dictionary."
-            )
-        kwargs = config.get("env_kwargs", {})
-        env_inst = factory(**kwargs)
 
-    centralized = config.get("centralized_critic", True)
-    if centralized:
-        return CentralizedCriticParallelPettingZooEnv(env_inst)
-    return FlattenedParallelPettingZooEnv(env_inst)
+def register_orbit_guard_env(
+    name: str,
+    env_factory: EnvFactory,
+    include_global_state: bool = True,
+    reward_scale: float = 1.0,
+    reward_offset: float = 0.0,
+) -> str:
+    """Register `env_factory` under `name` with RLlib's env registry; returns `name`."""
+    register_env(name, make_env_creator(env_factory, include_global_state, reward_scale, reward_offset))
+    return name

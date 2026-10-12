@@ -1,281 +1,164 @@
-"""Unit and integration contract tests for orbit_guard.rl.rllib_env and orbit_guard.rl.training (PRD §28).
+"""Tests for orbit_guard.rl.training: config-driven MAPPO/CTDE on RLlib 2.58.
 
-Verifies:
-- Flattened and CentralizedCritic environment wrappers conform to PettingZoo/RLlib specs.
-- CentralizedCriticTorchRLModule architectural guarantee: actor ONLY receives local obs,
-  while critic receives global state.
-- Actor gradients never depend on global state inputs (hard CTDE separation).
-- Parameter sharing across all agents under "shared_policy".
-- End-to-end MAPPO training iteration with centralized critic on StubOrbitGuardEnv.
-- Checkpoint save and restore round trip.
+Exercises the mechanical pipeline against the stub env (no learnable signal,
+so no reward/convergence assertions -- see the Acceptance D docstring). What
+IS asserted is the architecture: one shared module, a centralized critic that
+really receives the global state, and an actor that never does.
 """
 
 from __future__ import annotations
 
-import gymnasium as gym
 import numpy as np
 import pytest
 import torch
-from ray.tune.registry import register_env
+from gymnasium.spaces.utils import flatten
+from ray.rllib.core.columns import Columns
 
-from orbit_guard.rl.rllib_env import (
-    CentralizedCriticParallelPettingZooEnv,
-    FlattenedParallelPettingZooEnv,
-    create_rllib_env,
-)
+from orbit_guard.rl.ctde_module import POLICY_ID
+from orbit_guard.rl.evaluation import make_greedy_policy
 from orbit_guard.rl.training import (
-    CentralizedCriticTorchRLModule,
-    build_mappo_config,
-    create_algorithm,
-    restore_checkpoint,
-    save_checkpoint,
-    train_iteration,
+    TrainingSettings,
+    build_algo,
+    load_reward_weights,
+    load_training_settings,
+    restore,
+    train,
 )
-from tests.rl.stub_env import (
-    AGENT_OBS_FLAT_DIM,
-    NUM_ACTIONS,
-    StubOrbitGuardEnv,
-)
+from tests.rl.stub_env import AGENT_OBS_FLAT_DIM, StubOrbitGuardEnv
 
-_ENV_NAME = "test_stub_orbit_guard_ctde"
+_NUM_AGENTS = 2
+_GLOBAL_DIM = _NUM_AGENTS * AGENT_OBS_FLAT_DIM
+_SETTINGS = TrainingSettings(train_batch_size=64, minibatch_size=32, num_epochs=1, seed=0)
 
 
-# --- Environment wrapper tests ------------------------------------------------
+def _env_factory(config: dict) -> StubOrbitGuardEnv:
+    return StubOrbitGuardEnv(num_agents=_NUM_AGENTS)
 
 
-def test_flattened_parallel_pettingzoo_env_flattens_observations():
-    # Arrange
-    raw_env = StubOrbitGuardEnv(num_agents=2)
-    env = FlattenedParallelPettingZooEnv(raw_env)
-
-    # Act
-    observations, infos = env.reset(seed=42)
-
-    # Assert
-    for agent in raw_env.possible_agents:
-        assert isinstance(env.observation_space[agent], gym.spaces.Box)
-        assert env.observation_space[agent].shape == (AGENT_OBS_FLAT_DIM,)
-        assert observations[agent].shape == (AGENT_OBS_FLAT_DIM,)
-        assert isinstance(infos[agent], dict)
-
-    action_dict = {agent: 0 for agent in raw_env.possible_agents}
-    next_obs, rewards, _terminations, _truncations, _infos = env.step(action_dict)
-    for agent in raw_env.possible_agents:
-        assert next_obs[agent].shape == (AGENT_OBS_FLAT_DIM,)
-        assert isinstance(rewards[agent], float)
+@pytest.fixture(scope="module")
+def algo():
+    built = build_algo(_env_factory, _SETTINGS, env_name="test_training_stub")
+    yield built
+    built.stop()
 
 
-def test_centralized_critic_parallel_pettingzoo_env_packages_obs_and_state():
-    # Arrange
-    raw_env = StubOrbitGuardEnv(num_agents=2)
-    expected_state_dim = 2 * AGENT_OBS_FLAT_DIM
-    env = CentralizedCriticParallelPettingZooEnv(raw_env)
+def test_settings_load_the_prd_hyperparameters_from_the_default_config():
+    settings = load_training_settings()
 
-    # Act
-    observations, _infos = env.reset(seed=42)
-
-    # Assert
-    for agent in raw_env.possible_agents:
-        agent_space = env.observation_space[agent]
-        assert isinstance(agent_space, gym.spaces.Dict)
-        assert "obs" in agent_space.spaces
-        assert "state" in agent_space.spaces
-        assert agent_space["obs"].shape == (AGENT_OBS_FLAT_DIM,)
-        assert agent_space["state"].shape == (expected_state_dim,)
-
-        obs_dict = observations[agent]
-        assert obs_dict["obs"].shape == (AGENT_OBS_FLAT_DIM,)
-        assert obs_dict["state"].shape == (expected_state_dim,)
-
-    action_dict = {agent: 1 for agent in raw_env.possible_agents}
-    next_obs, _rewards, _, _, _ = env.step(action_dict)
-    for agent in raw_env.possible_agents:
-        assert next_obs[agent]["obs"].shape == (AGENT_OBS_FLAT_DIM,)
-        assert next_obs[agent]["state"].shape == (expected_state_dim,)
+    assert settings.learning_rate == pytest.approx(5.0e-4)
+    assert settings.train_batch_size == 4000
+    assert settings.minibatch_size == 256
+    assert settings.num_epochs == 10
+    assert settings.actor_hidden_layers == (128, 128)
+    assert settings.critic_hidden_layers == (256, 256)
 
 
-def test_centralized_critic_wrapper_rejects_env_without_state_space():
-    # Arrange: mock env missing state_space
-    class MissingStateEnv(StubOrbitGuardEnv):
-        def __init__(self):
-            super().__init__(num_agents=2)
-            delattr(self, "state_space")
+def test_every_numeric_setting_loads_as_a_number():
+    # PyYAML parses `1.0e6` (no exponent sign) as a STRING; that once reached torch.clamp and crashed a run.
+    settings = load_training_settings()
 
-    # Act & Assert
-    with pytest.raises(ValueError, match="state_space"):
-        CentralizedCriticParallelPettingZooEnv(MissingStateEnv())
+    for name in ("learning_rate", "gamma", "gae_lambda", "clip_param", "entropy_coeff", "vf_clip_param", "reward_scale", "reward_offset"):
+        assert isinstance(getattr(settings, name), (int, float)), name
+    for name in ("train_batch_size", "minibatch_size", "num_epochs", "num_env_runners"):
+        assert isinstance(getattr(settings, name), int), name
 
 
-def test_create_rllib_env_factory_respects_centralized_critic_flag():
-    # Arrange
-    config_centralized = {
-        "env_class": StubOrbitGuardEnv,
-        "env_kwargs": {"num_agents": 2},
-        "centralized_critic": True,
-    }
-    config_flattened = {
-        "env_class": StubOrbitGuardEnv,
-        "env_kwargs": {"num_agents": 2},
-        "centralized_critic": False,
-    }
-
-    # Act
-    env_c = create_rllib_env(config_centralized)
-    env_f = create_rllib_env(config_flattened)
-
-    # Assert
-    assert isinstance(env_c, CentralizedCriticParallelPettingZooEnv)
-    assert isinstance(env_f, FlattenedParallelPettingZooEnv)
+def test_settings_overrides_take_precedence_over_the_config_file():
+    assert load_training_settings(train_batch_size=64, seed=7).train_batch_size == 64
 
 
-def test_create_rllib_env_requires_valid_config():
-    # Act & Assert
-    with pytest.raises(ValueError, match="requires 'env'"):
-        create_rllib_env({})
+def test_one_shared_module_serves_every_agent(algo):
+    assert set(algo.config.policies) == {POLICY_ID}
+    assert algo.config.policy_mapping_fn("sat_0", None) == POLICY_ID
+    assert algo.config.policy_mapping_fn("sat_1", None) == POLICY_ID
 
 
-# --- CentralizedCriticTorchRLModule CTDE guarantee tests ---------------------
+def test_module_has_an_actor_over_local_obs_and_a_critic_over_global_state(algo):
+    module = algo.get_module(POLICY_ID)
+
+    assert module.actor[0].in_features == AGENT_OBS_FLAT_DIM
+    assert module.critic[0].in_features == _GLOBAL_DIM
 
 
-def test_centralized_critic_module_actor_forward_never_uses_global_state():
-    # Arrange: module with Dict observation space
-    obs_space = gym.spaces.Dict(
-        {
-            "obs": gym.spaces.Box(-1.0, 1.0, shape=(AGENT_OBS_FLAT_DIM,), dtype=np.float32),
-            "state": gym.spaces.Box(-1.0, 1.0, shape=(2 * AGENT_OBS_FLAT_DIM,), dtype=np.float32),
-        }
-    )
-    act_space = gym.spaces.Discrete(NUM_ACTIONS)
-    module = CentralizedCriticTorchRLModule(
-        observation_space=obs_space,
-        action_space=act_space,
-        model_config={"actor_hidden_layers": [64], "critic_hidden_layers": [64]},
-    )
+def test_critic_receives_the_global_state_and_actor_does_not(algo):
+    module = algo.get_module(POLICY_ID)
+    local = torch.randn(3, AGENT_OBS_FLAT_DIM)
+    global_a, global_b = torch.randn(3, _GLOBAL_DIM), torch.randn(3, _GLOBAL_DIM)
 
-    local_obs = torch.randn(2, AGENT_OBS_FLAT_DIM, requires_grad=True)
-    global_state = torch.randn(2, 2 * AGENT_OBS_FLAT_DIM, requires_grad=True)
-    batch = {"obs": {"obs": local_obs, "state": global_state}}
+    def batch(global_state):
+        return {Columns.OBS: torch.cat([local, global_state], dim=-1)}
 
-    # Act: forward pass through decentralized actor
-    out = module._forward(batch)
-    action_logits = out["action_dist_inputs"]
-    loss = action_logits.sum()
-    loss.backward()
+    with torch.no_grad():
+        values_differ = not torch.allclose(module.compute_values(batch(global_a)), module.compute_values(batch(global_b)))
+        logits_equal = torch.equal(
+            module.forward_inference(batch(global_a))[Columns.ACTION_DIST_INPUTS],
+            module.forward_inference(batch(global_b))[Columns.ACTION_DIST_INPUTS],
+        )
 
-    # Assert: local_obs has gradients, but global_state has ZERO gradient
-    assert local_obs.grad is not None
-    assert torch.any(local_obs.grad != 0.0)
-    assert global_state.grad is None, (
-        "Architectural violation: global state leaked into actor forward pass!"
-    )
+    assert values_differ
+    assert logits_equal
 
 
-def test_centralized_critic_module_compute_values_receives_and_uses_global_state():
-    # Arrange
-    obs_space = gym.spaces.Dict(
-        {
-            "obs": gym.spaces.Box(-1.0, 1.0, shape=(AGENT_OBS_FLAT_DIM,), dtype=np.float32),
-            "state": gym.spaces.Box(-1.0, 1.0, shape=(2 * AGENT_OBS_FLAT_DIM,), dtype=np.float32),
-        }
-    )
-    act_space = gym.spaces.Discrete(NUM_ACTIONS)
-    module = CentralizedCriticTorchRLModule(
-        observation_space=obs_space,
-        action_space=act_space,
-        model_config={"actor_hidden_layers": [64], "critic_hidden_layers": [64]},
-    )
+def test_training_runs_and_reports_progress(algo):
+    report = train(algo, num_iterations=2)
 
-    local_obs = torch.randn(2, AGENT_OBS_FLAT_DIM, requires_grad=True)
-    global_state = torch.randn(2, 2 * AGENT_OBS_FLAT_DIM, requires_grad=True)
-    batch = {"obs": {"obs": local_obs, "state": global_state}}
-
-    # Act: compute values through centralized critic
-    values = module.compute_values(batch)
-    loss = values.sum()
-    loss.backward()
-
-    # Assert: global_state receives gradients through the critic
-    assert values.shape == (2,)
-    assert global_state.grad is not None
-    assert torch.any(global_state.grad != 0.0)
-    assert local_obs.grad is None, (
-        "Critic should be conditioned on global state, not local observation directly"
-    )
+    assert report.iterations == 2
+    assert len(report.episode_return_means) == 2
+    assert report.env_steps_sampled >= 2 * _SETTINGS.train_batch_size
 
 
-# --- Training configuration and loop integration tests -----------------------
+def test_train_rejects_a_non_positive_iteration_count(algo):
+    with pytest.raises(ValueError):
+        train(algo, num_iterations=0)
 
 
-def test_build_mappo_config_parameter_sharing_across_all_agents():
-    # Arrange & Act
-    config = build_mappo_config(policy_id="shared_policy")
+def test_checkpoint_round_trip_restores_identical_actor_weights(algo, tmp_path):
+    report = train(algo, num_iterations=1, checkpoint_dir=tmp_path / "checkpoint")
 
-    # Assert
-    assert set(config.policies) == {"shared_policy"}
-    assert config.policy_mapping_fn("sat_0", None) == "shared_policy"
-    assert config.policy_mapping_fn("sat_1", None) == "shared_policy"
-    assert config.policy_mapping_fn("sat_14", None) == "shared_policy"
-
-
-def test_one_training_iteration_runs_with_centralized_critic_on_stub_env():
-    # Arrange: register centralized critic env
-    env_name = f"{_ENV_NAME}_train"
-
-    def _make_env(cfg):
-        return CentralizedCriticParallelPettingZooEnv(StubOrbitGuardEnv(num_agents=2))
-
-    register_env(env_name, _make_env)
-    config = build_mappo_config(
-        env_name=env_name,
-        train_batch_size=64,
-        minibatch_size=32,
-        num_epochs=1,
-        actor_hidden_layers=(64, 64),
-        critic_hidden_layers=(64, 64),
-    )
-
-    # Act
-    algo = create_algorithm(config)
+    restored = restore(_env_factory, _SETTINGS, report.checkpoint_path)
     try:
-        result = train_iteration(algo)
-        # Assert: algorithm ran successfully and reported learner metrics
-        assert "env_runners" in result or "num_env_steps_sampled_lifetime" in result
-        assert "learners" in result
-        shared_metrics = result["learners"]["shared_policy"]
-        assert "vf_loss" in shared_metrics
-        assert "policy_loss" in shared_metrics
+        original_weights = algo.get_module(POLICY_ID).actor.state_dict()
+        restored_weights = restored.get_module(POLICY_ID).actor.state_dict()
+        assert all(torch.equal(original_weights[key], restored_weights[key]) for key in original_weights)
     finally:
-        algo.stop()
+        restored.stop()
 
 
-def test_checkpoint_save_and_restore_with_centralized_critic_round_trips(tmp_path):
-    # Arrange
-    env_name = f"{_ENV_NAME}_ckpt"
+def test_greedy_execution_ignores_the_global_state(algo):
+    module = algo.get_module(POLICY_ID)
+    policy = make_greedy_policy(algo, _env_factory)
+    raw_env = _env_factory({})
+    observations, _ = raw_env.reset(seed=0)
+    agent = raw_env.possible_agents[0]
 
-    def _make_env(cfg):
-        return CentralizedCriticParallelPettingZooEnv(StubOrbitGuardEnv(num_agents=2))
+    decentralized_action = policy(agent, observations[agent])
+    local = flatten(raw_env.observation_space(agent), observations[agent]).astype(np.float32)
+    with_noise = torch.as_tensor(np.concatenate([local, np.full(_GLOBAL_DIM, 99.0, np.float32)]))[None]
+    with torch.no_grad():
+        logits = module.forward_inference({Columns.OBS: with_noise})[Columns.ACTION_DIST_INPUTS]
 
-    register_env(env_name, _make_env)
-    config = build_mappo_config(
-        env_name=env_name,
-        train_batch_size=64,
-        minibatch_size=32,
-        num_epochs=1,
-        actor_hidden_layers=(64, 64),
-        critic_hidden_layers=(64, 64),
-    )
+    assert decentralized_action == int(torch.argmax(logits).item())
 
-    algo = create_algorithm(config)
-    try:
-        train_iteration(algo)
-        checkpoint_path = save_checkpoint(algo, tmp_path / "checkpoint")
-        assert checkpoint_path is not None
-    finally:
-        algo.stop()
 
-    # Act: restore into a freshly built algorithm
-    restored_algo = create_algorithm(config)
-    try:
-        restore_checkpoint(restored_algo, checkpoint_path)
-    finally:
-        restored_algo.stop()
+def test_settings_expose_the_critic_fix_and_reward_scale_defaults():
+    settings = TrainingSettings()
+
+    assert settings.vf_clip_param >= 1.0e3
+    assert settings.reward_scale == 1.0
+
+
+def test_the_critic_fix_reaches_the_ppo_config(algo):
+    assert algo.config.vf_clip_param == _SETTINGS.vf_clip_param
+
+
+def test_reward_weights_load_the_tuned_defaults_from_the_config():
+    assert load_reward_weights() == {"w1": 1.0, "w2": 0.3, "w3": 5.0, "w4": 0.5, "collision_penalty": -100}
+
+
+def test_reward_weight_overrides_win_over_the_config_file():
+    assert load_reward_weights(w3=1.0)["w3"] == 1.0
+
+
+def test_unknown_reward_weight_names_are_rejected():
+    with pytest.raises(ValueError):
+        load_reward_weights(w9=1.0)

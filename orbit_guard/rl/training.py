@@ -1,222 +1,276 @@
-"""MAPPO/CTDE training pipeline and RLlib integration (PRD §28).
+"""MAPPO/CTDE training pipeline on RLlib 2.58's new API stack (PRD §28).
 
-Implements Multi-Agent PPO with Centralized Training and Decentralized Execution (CTDE):
-- Parameter sharing across all satellites via a single shared-weights policy.
-- Decentralized actor policy network conditioned strictly on local agent observations.
-- Centralized critic value network conditioned on global constellation state during training.
-- Checkpoint persistence and training cycle helpers.
+Verified API pattern (recorded because PRD §28 says to re-verify, not assume):
+  * `ray.rllib.algorithms.ppo.PPOConfig` on the new RLModule/Learner stack,
+    built with `build_algo()` (not the deprecated `build()`).
+  * ONE shared-weights module id (`shared_policy`) via `.multi_agent(policies=...,
+    policy_mapping_fn=...)` -- parameter sharing across satellites.
+  * A custom `RLModuleSpec` -> `ctde_module.CentralizedCriticTorchRLModule`: a
+    shared actor over each agent's local observation plus a CENTRALIZED critic
+    over the global state, carried as the tail of the flat observation by
+    `rllib_env.CTDEParallelPettingZooEnv`. This is true CTDE, not IPPO.
+  * Dict observations are flattened to a Box first (see `rllib_env`).
+
+Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
+(PRD §28/§39), so every learned baseline trains from a config swap alone.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import gymnasium as gym
-import torch
+import yaml
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.core.columns import Columns
-from ray.rllib.core.rl_module.apis.value_function_api import ValueFunctionAPI
+from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
-from ray.rllib.core.rl_module.torch import TorchRLModule
-from ray.tune.registry import register_env
-from torch import nn
 
-_DEFAULT_LR = 3.0e-4
-_DEFAULT_GAMMA = 0.99
-_DEFAULT_GAE_LAMBDA = 0.95
-_DEFAULT_CLIP_PARAM = 0.2
-_DEFAULT_ENTROPY_COEFF = 0.01
-_DEFAULT_TRAIN_BATCH_SIZE = 4000
-_DEFAULT_MINIBATCH_SIZE = 256
-_DEFAULT_NUM_EPOCHS = 10
-_DEFAULT_ACTOR_HIDDENS = (128, 128)
-_DEFAULT_CRITIC_HIDDENS = (256, 256)
-_DEFAULT_POLICY_ID = "shared_policy"
+from orbit_guard.rl.ctde_module import (
+    DEFAULT_ACTOR_HIDDEN_LAYERS,
+    DEFAULT_CRITIC_HIDDEN_LAYERS,
+    POLICY_ID,
+    CentralizedCriticTorchRLModule,
+)
+from orbit_guard.rl.rllib_env import (
+    CTDEParallelPettingZooEnv,
+    EnvFactory,
+    register_orbit_guard_env,
+)
 
-
-class CentralizedCriticTorchRLModule(TorchRLModule, ValueFunctionAPI):
-    """MAPPO/CTDE PyTorch RLModule with a decentralized actor and a centralized critic.
-
-    CTDE architectural guarantee:
-        - Actor network takes ONLY the local observation (`batch[Columns.OBS]["obs"]`).
-          At NO point does any global-state or opponent-specific feature reach the actor.
-        - Critic network takes the global constellation state (`batch[Columns.OBS]["state"]`)
-          during value prediction in training and GAE calculation.
-    """
-
-    def setup(self) -> None:
-        if isinstance(self.observation_space, gym.spaces.Dict):
-            if "obs" not in self.observation_space.spaces or "state" not in self.observation_space.spaces:
-                raise ValueError(
-                    f"Observation Dict must contain 'obs' and 'state' keys, "
-                    f"got {list(self.observation_space.spaces.keys())}"
-                )
-            obs_dim = int(self.observation_space["obs"].shape[0])
-            state_dim = int(self.observation_space["state"].shape[0])
-        elif isinstance(self.observation_space, gym.spaces.Box):
-            obs_dim = int(self.observation_space.shape[0])
-            state_dim = obs_dim
-        else:
-            raise TypeError(f"Unsupported observation space: {self.observation_space}")
-
-        if isinstance(self.action_space, gym.spaces.Discrete):
-            act_dim = int(self.action_space.n)
-        else:
-            raise TypeError(f"Unsupported action space: {self.action_space}")
-
-        actor_hiddens = self.model_config.get("actor_hidden_layers", list(_DEFAULT_ACTOR_HIDDENS))
-        critic_hiddens = self.model_config.get("critic_hidden_layers", list(_DEFAULT_CRITIC_HIDDENS))
-
-        # Build decentralized actor MLP
-        actor_layers: list[nn.Module] = []
-        in_dim = obs_dim
-        for h in actor_hiddens:
-            actor_layers.append(nn.Linear(in_dim, h))
-            actor_layers.append(nn.Tanh())
-            in_dim = h
-        actor_layers.append(nn.Linear(in_dim, act_dim))
-        self.actor = nn.Sequential(*actor_layers)
-
-        # Build centralized critic MLP
-        critic_layers: list[nn.Module] = []
-        in_dim = state_dim
-        for h in critic_hiddens:
-            critic_layers.append(nn.Linear(in_dim, h))
-            critic_layers.append(nn.Tanh())
-            in_dim = h
-        critic_layers.append(nn.Linear(in_dim, 1))
-        self.critic = nn.Sequential(*critic_layers)
-
-    def _extract_actor_obs(self, batch: dict[str, Any]) -> torch.Tensor:
-        raw_obs = batch[Columns.OBS]
-        if isinstance(raw_obs, dict):
-            return raw_obs["obs"]
-        return raw_obs
-
-    def _forward(self, batch: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        """Forward pass for inference and exploration (decentralized actor only)."""
-        obs = self._extract_actor_obs(batch)
-        logits = self.actor(obs)
-        return {Columns.ACTION_DIST_INPUTS: logits}
-
-    def _forward_train(self, batch: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        """Forward pass during training."""
-        return self._forward(batch, **kwargs)
-
-    def compute_values(
-        self,
-        batch: dict[str, Any],
-        embeddings: Any | None = None,
-    ) -> torch.Tensor:
-        """Centralized value function forward pass (critic receiving global state)."""
-        raw_obs = batch[Columns.OBS]
-        if isinstance(raw_obs, dict) and "state" in raw_obs:
-            state = raw_obs["state"]
-        else:
-            state = raw_obs
-        values = self.critic(state)
-        return values.squeeze(-1)
+DEFAULT_ENV_NAME = "orbit_guard_ctde"
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
 
 
-def build_mappo_config(
-    env_name: str | None = None,
-    env_creator: Callable[[dict[str, Any]], Any] | None = None,
-    *,
-    policy_id: str = _DEFAULT_POLICY_ID,
-    learning_rate: float = _DEFAULT_LR,
-    gamma: float = _DEFAULT_GAMMA,
-    gae_lambda: float = _DEFAULT_GAE_LAMBDA,
-    clip_param: float = _DEFAULT_CLIP_PARAM,
-    entropy_coeff: float = _DEFAULT_ENTROPY_COEFF,
-    train_batch_size: int = _DEFAULT_TRAIN_BATCH_SIZE,
-    minibatch_size: int = _DEFAULT_MINIBATCH_SIZE,
-    num_epochs: int = _DEFAULT_NUM_EPOCHS,
-    actor_hidden_layers: Sequence[int] = _DEFAULT_ACTOR_HIDDENS,
-    critic_hidden_layers: Sequence[int] = _DEFAULT_CRITIC_HIDDENS,
-    num_env_runners: int = 0,
-) -> PPOConfig:
-    """Build a PPOConfig configured for MAPPO/CTDE with parameter sharing.
+@dataclass(frozen=True)
+class TrainingSettings:
+    """PPO/MAPPO hyperparameters (PRD §28 starting point)."""
 
-    Configures:
-    - Shared actor policy mapped across all agents.
-    - CentralizedCriticTorchRLModule integrating decentralized actor and centralized critic.
-    - Exact hyperparameters from default configuration (learning rate, GAE, clipping).
-    - Local synchronous environment runners for CI stability.
+    learning_rate: float = 3.0e-4
+    gamma: float = 0.99
+    gae_lambda: float = 0.95
+    clip_param: float = 0.2
+    entropy_coeff: float = 0.01
+    train_batch_size: int = 4000
+    minibatch_size: int = 256
+    num_epochs: int = 10
+    actor_hidden_layers: tuple[int, ...] = DEFAULT_ACTOR_HIDDEN_LAYERS
+    critic_hidden_layers: tuple[int, ...] = DEFAULT_CRITIC_HIDDEN_LAYERS
+    vf_clip_param: float = 1.0e6
+    reward_scale: float = 1.0
+    reward_offset: float = 0.0
+    num_env_runners: int = 0
+    seed: int | None = None
 
-    Parameters:
-        env_name: Name of registered environment.
-        env_creator: Optional env constructor callable to register under env_name.
-        policy_id: Policy ID string (default: "shared_policy").
-        learning_rate: PPO learning rate.
-        gamma: Discount factor.
-        gae_lambda: GAE lambda parameter.
-        clip_param: PPO surrogate clipping threshold.
-        entropy_coeff: Entropy bonus coefficient.
-        train_batch_size: Total timesteps per training iteration.
-        minibatch_size: SGD minibatch size.
-        num_epochs: Number of SGD passes per training iteration.
-        actor_hidden_layers: Actor MLP hidden layer sizes.
-        critic_hidden_layers: Critic MLP hidden layer sizes.
-        num_env_runners: Number of parallel environment runners (0 for in-driver).
 
-    Returns:
-        Configured PPOConfig ready for .build_algo().
-    """
-    if env_name and env_creator:
-        register_env(env_name, env_creator)
+def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: Any) -> TrainingSettings:
+    """Read the `rl:` block of a config YAML; `overrides` win over the file."""
+    with Path(config_path).open() as handle:
+        rl_block = yaml.safe_load(handle)["rl"]
+    settings = {
+        "learning_rate": rl_block["learning_rate"],
+        "gamma": rl_block["gamma"],
+        "gae_lambda": rl_block["gae_lambda"],
+        "clip_param": rl_block["clip_param"],
+        "entropy_coeff": rl_block["entropy_coeff"],
+        "train_batch_size": rl_block["train_batch_size"],
+        "minibatch_size": rl_block["sgd_minibatch_size"],
+        "num_epochs": rl_block["num_sgd_iter"],
+        "actor_hidden_layers": tuple(rl_block["actor_hidden_layers"]),
+        "critic_hidden_layers": tuple(rl_block["critic_hidden_layers"]),
+        **{key: rl_block[key] for key in ("vf_clip_param", "reward_scale", "reward_offset", "num_env_runners") if key in rl_block},
+    }
+    settings.update(overrides)
+    return TrainingSettings(**settings)
 
+
+def load_reward_weights(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: float) -> dict[str, float]:
+    """Reward weights from the `reward:` block (PRD §25/§39), as `compute_reward` keyword args."""
+    with Path(config_path).open() as handle:
+        reward_block = yaml.safe_load(handle)["reward"]
+    weights = {
+        "w1": reward_block["w1_safety"],
+        "w2": reward_block["w2_mission"],
+        "w3": reward_block["w3_delta_v"],
+        "w4": reward_block["w4_coordination"],
+        "collision_penalty": reward_block["collision_penalty"],
+    }
+    unknown = set(overrides) - set(weights)
+    if unknown:
+        raise ValueError(f"unknown reward weights {sorted(unknown)}; expected {sorted(weights)}")
+    weights.update(overrides)
+    return weights
+
+
+def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSettings) -> PPOConfig:
+    """PPOConfig with one shared actor and a centralized critic (true CTDE)."""
+    module_spec = RLModuleSpec(
+        module_class=CentralizedCriticTorchRLModule,
+        model_config={
+            "local_obs_dim": local_obs_dim,
+            "actor_hidden_layers": settings.actor_hidden_layers,
+            "critic_hidden_layers": settings.critic_hidden_layers,
+        },
+    )
     config = (
         PPOConfig()
+        .environment(env_name)
         .multi_agent(
-            policies={policy_id},
-            policy_mapping_fn=lambda agent_id, episode, **kw: policy_id,
+            policies={POLICY_ID},
+            policy_mapping_fn=lambda agent_id, episode, **kwargs: POLICY_ID,
         )
-        .rl_module(
-            rl_module_spec=RLModuleSpec(
-                module_class=CentralizedCriticTorchRLModule,
-                model_config={
-                    "actor_hidden_layers": list(actor_hidden_layers),
-                    "critic_hidden_layers": list(critic_hidden_layers),
-                },
-            )
-        )
+        .rl_module(rl_module_spec=MultiRLModuleSpec(rl_module_specs={POLICY_ID: module_spec}))
+        .env_runners(num_env_runners=settings.num_env_runners)
         .training(
-            lr=learning_rate,
-            gamma=gamma,
-            lambda_=gae_lambda,
-            clip_param=clip_param,
-            entropy_coeff=entropy_coeff,
-            train_batch_size=train_batch_size,
-            minibatch_size=minibatch_size,
-            num_epochs=num_epochs,
+            lr=settings.learning_rate,
+            gamma=settings.gamma,
+            lambda_=settings.gae_lambda,
+            clip_param=settings.clip_param,
+            entropy_coeff=settings.entropy_coeff,
+            train_batch_size=settings.train_batch_size,
+            minibatch_size=settings.minibatch_size,
+            num_epochs=settings.num_epochs,
+            vf_clip_param=settings.vf_clip_param,
         )
-        .env_runners(num_env_runners=num_env_runners)
     )
-
-    if env_name:
-        config = config.environment(env_name)
-
+    if settings.seed is not None:
+        config = config.debugging(seed=settings.seed)
     return config
 
 
-def create_algorithm(config: PPOConfig) -> Algorithm:
-    """Instantiate an RLlib Algorithm from PPOConfig using modern build_algo()."""
-    return config.build_algo()
+def build_algo(env_factory: EnvFactory, settings: TrainingSettings, env_name: str = DEFAULT_ENV_NAME) -> Algorithm:
+    """Register `env_factory` and build the MAPPO/CTDE algorithm for it."""
+    register_orbit_guard_env(
+        env_name, env_factory, reward_scale=settings.reward_scale, reward_offset=settings.reward_offset
+    )
+    probe_env = CTDEParallelPettingZooEnv(env_factory({}))
+    local_obs_dim = probe_env.local_obs_dim
+    probe_env.close()
+    return build_mappo_config(env_name, local_obs_dim, settings).build_algo()
 
 
-def train_iteration(algo: Algorithm) -> dict[str, Any]:
-    """Step the algorithm through one training iteration and return results dict."""
-    return algo.train()
+@dataclass(frozen=True)
+class TrainingReport:
+    iterations: int
+    episode_return_means: tuple[float, ...]
+    env_steps_sampled: int
+    checkpoint_path: str | None = None
+    entropies: tuple[float, ...] = ()
+    vf_explained_variances: tuple[float, ...] = ()
 
 
-def save_checkpoint(algo: Algorithm, checkpoint_path: str | Path) -> str:
-    """Persist an algorithm checkpoint to an explicit destination path."""
-    return algo.save_to_path(str(checkpoint_path))
+def train(algo: Algorithm, num_iterations: int, checkpoint_dir: str | Path | None = None) -> TrainingReport:
+    """Run `num_iterations` PPO iterations; optionally save a checkpoint to `checkpoint_dir`."""
+    if num_iterations < 1:
+        raise ValueError(f"num_iterations must be >= 1, got {num_iterations}")
+
+    returns: list[float] = []
+    entropies: list[float] = []
+    explained_variances: list[float] = []
+    result: dict[str, Any] = {}
+    for _ in range(num_iterations):
+        result = algo.train()
+        returns.append(float(result.get("env_runners", {}).get("episode_return_mean", float("nan"))))
+        learner_metrics = result.get("learners", {}).get(POLICY_ID, {})
+        entropies.append(float(learner_metrics.get("entropy", float("nan"))))
+        explained_variances.append(float(learner_metrics.get("vf_explained_var", float("nan"))))
+
+    checkpoint_path = algo.save_to_path(str(checkpoint_dir)) if checkpoint_dir is not None else None
+    return TrainingReport(
+        iterations=num_iterations,
+        episode_return_means=tuple(returns),
+        env_steps_sampled=int(result.get("num_env_steps_sampled_lifetime", 0)),
+        checkpoint_path=checkpoint_path,
+        entropies=tuple(entropies),
+        vf_explained_variances=tuple(explained_variances),
+    )
 
 
-def restore_checkpoint(algo: Algorithm, checkpoint_path: str | Path) -> None:
-    """Restore algorithm weights and state from an explicit checkpoint path."""
+def restore(env_factory: EnvFactory, settings: TrainingSettings, checkpoint_path: str | Path) -> Algorithm:
+    """Rebuild the algorithm from the same config and restore weights (no code changes between train/eval)."""
+    algo = build_algo(env_factory, settings)
     algo.restore_from_path(str(checkpoint_path))
+    return algo
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI: train MAPPO/CTDE on `OrbitGuardEnv`, then judge it against the no-maneuver baseline.
+
+    This is the human-read convergence run (PRD §44 P3-M5): read the printed
+    per-iteration returns and the gate verdict yourself; it is not CI-gated.
+    """
+    import argparse
+    import dataclasses
+
+    from orbit_guard.rl.environment import OrbitGuardEnv
+    from orbit_guard.rl.evaluation import (
+        evaluate,
+        evaluate_policy,
+        gate_verdict,
+        no_maneuver_policy,
+    )
+
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--agents", type=int, default=2)
+    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument("--eval-episodes", type=int, default=40)
+    parser.add_argument("--eval-seed", type=int, default=2000)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--config", default=str(_DEFAULT_CONFIG_PATH))
+    parser.add_argument("--checkpoint-dir", default=None)
+    parser.add_argument("--num-env-runners", type=int, default=None)
+    parser.add_argument("--reward-scale", type=float, default=None)
+    parser.add_argument("--reward-offset", type=float, default=None)
+    parser.add_argument("--train-batch-size", type=int, default=None)
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--entropy-coeff", type=float, default=None)
+    parser.add_argument("--gamma", type=float, default=None)
+    for weight in ("w1", "w2", "w3", "w4", "collision-penalty"):
+        parser.add_argument(f"--{weight}", type=float, default=None)
+    args = parser.parse_args(argv)
+
+    overrides = {
+        "seed": args.seed,
+        "num_env_runners": args.num_env_runners,
+        "reward_scale": args.reward_scale,
+        "reward_offset": args.reward_offset,
+        "train_batch_size": args.train_batch_size,
+        "learning_rate": args.learning_rate,
+        "entropy_coeff": args.entropy_coeff,
+        "gamma": args.gamma,
+    }
+    settings = load_training_settings(args.config, **{k: v for k, v in overrides.items() if v is not None})
+    weight_overrides = {
+        key: getattr(args, key)
+        for key in ("w1", "w2", "w3", "w4", "collision_penalty")
+        if getattr(args, key) is not None
+    }
+    reward_weights = load_reward_weights(args.config, **weight_overrides)
+    print(settings, reward_weights, flush=True)
+
+    def env_factory(config: dict) -> OrbitGuardEnv:
+        return OrbitGuardEnv(num_agents=args.agents, reward_weights=reward_weights)
+
+    algo = build_algo(env_factory, settings)
+    try:
+        report = train(algo, args.iterations, args.checkpoint_dir)
+        for iteration, (mean_return, entropy, explained_variance) in enumerate(
+            zip(report.episode_return_means, report.entropies, report.vf_explained_variances, strict=True), start=1
+        ):
+            print(
+                f"iteration {iteration:3d}  return {mean_return:10.3f}  "
+                f"entropy {entropy:6.3f}  vf_explained_var {explained_variance:7.3f}"
+            )
+        baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)
+        trained = evaluate(algo, env_factory, args.eval_episodes, args.eval_seed)
+        budget_mps = env_factory({}).delta_v_budget_mps
+        print("baseline:", dataclasses.asdict(baseline))
+        print("trained: ", dataclasses.asdict(trained))
+        print("verdict: ", gate_verdict(trained, baseline, budget_mps))
+    finally:
+        algo.stop()
+
+
+if __name__ == "__main__":
+    main()
