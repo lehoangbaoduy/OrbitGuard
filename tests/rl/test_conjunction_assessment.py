@@ -16,7 +16,10 @@ import pytest
 
 from orbit_guard.physics.frames import eci_vector_to_rtn
 from orbit_guard.physics.state import SatelliteCapability
-from orbit_guard.rl.conjunction_assessment import assess_all_pairs, build_neighbor_candidates
+from orbit_guard.rl.conjunction_assessment import (
+    assess_all_pairs,
+    build_neighbor_candidates,
+)
 from orbit_guard.scenarios.constellation import ShellDistribution
 from orbit_guard.scenarios.small_n_scenario import generate_small_n_conjunction_scenario
 from orbit_guard.sensing.belief import GroundTruthState, form_belief, observe

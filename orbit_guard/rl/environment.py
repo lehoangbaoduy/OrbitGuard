@@ -40,6 +40,7 @@ TypeError guards.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 from gymnasium import spaces
@@ -50,9 +51,15 @@ from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.physics.dynamics import state_derivative
 from orbit_guard.physics.integrator import propagate
-from orbit_guard.physics.mission_deviation import compute_mission_deviation, compute_weighted_mission_deviation
+from orbit_guard.physics.mission_deviation import (
+    compute_mission_deviation,
+    compute_weighted_mission_deviation,
+)
 from orbit_guard.physics.state import SatelliteCapability
-from orbit_guard.rl.conjunction_assessment import assess_all_pairs, build_neighbor_candidates
+from orbit_guard.rl.conjunction_assessment import (
+    assess_all_pairs,
+    build_neighbor_candidates,
+)
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
     compute_coordination_term,
@@ -63,10 +70,17 @@ from orbit_guard.rl.reward import (
     compute_safety_term,
 )
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
-from orbit_guard.scenarios.conjunction_generator import DEFAULT_DISTRIBUTION_MIX, generate_conjunction_scenario
-from orbit_guard.scenarios.constellation import MIN_SUPPORTED_N, fit_shell_distribution, load_tle_snapshot
+from orbit_guard.scenarios.conjunction_generator import (
+    DEFAULT_DISTRIBUTION_MIX,
+    generate_conjunction_scenario,
+)
+from orbit_guard.scenarios.constellation import (
+    MIN_SUPPORTED_N,
+    fit_shell_distribution,
+    load_tle_snapshot,
+)
 from orbit_guard.scenarios.small_n_scenario import generate_small_n_conjunction_scenario
-from orbit_guard.sensing.belief import GroundTruthState, observe, form_belief
+from orbit_guard.sensing.belief import GroundTruthState, form_belief, observe
 from orbit_guard.sensing.noise import NoiseModel
 
 _DEFAULT_TLE_PATH = Path(__file__).resolve().parents[2] / "data" / "TLE_snapshot_53deg_shell.csv"
@@ -94,7 +108,7 @@ _GLOBAL_SUMMARY_DIM = 4
 class OrbitGuardEnv(ParallelEnv):
     """Multi-agent satellite collision-avoidance environment (PRD §19)."""
 
-    metadata = {"name": "orbit_guard_env_v0", "is_parallelizable": True}
+    metadata: ClassVar[dict] = {"name": "orbit_guard_env_v0", "is_parallelizable": True}
 
     def __init__(
         self,
@@ -206,7 +220,7 @@ class OrbitGuardEnv(ParallelEnv):
 
     def step(self, actions):
         pre_assessments = self._pending_assessments
-        applied_delta_v = self._apply_actions(actions)
+        applied_delta_v, requested_delta_v = self._apply_actions(actions)
         fine_trajectories = self._propagate_ground_truth(applied_delta_v)
         newly_collided = self._check_collisions(fine_trajectories)
         self._collided_agents |= newly_collided
@@ -219,7 +233,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._pending_assessments = post_assessments
 
         rewards = self._compute_rewards(
-            actions, applied_delta_v, pre_assessments, post_assessments, post_beliefs, self._shadow_states, newly_collided
+            actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, self._shadow_states, newly_collided
         )
 
         observations = self._observations_from(post_beliefs, post_assessments, self._shadow_states)
@@ -235,6 +249,17 @@ class OrbitGuardEnv(ParallelEnv):
     def state(self) -> np.ndarray:
         flattened = [flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents]
         return np.concatenate(flattened).astype(np.float32)
+
+    @property
+    def delta_v_budget_mps(self) -> float:
+        return self._capability_template.remaining_delta_v_mps
+
+    def delta_v_used_mps(self) -> dict[str, float]:
+        """Delta-v each satellite has spent so far this episode (budget minus remaining)."""
+        return {
+            agent: self.delta_v_budget_mps - self._capabilities[self._agent_index[agent]].remaining_delta_v_mps
+            for agent in self.possible_agents
+        }
 
     def render(self):
         raise NotImplementedError("OrbitGuardEnv has no rendering.")
@@ -281,8 +306,10 @@ class OrbitGuardEnv(ParallelEnv):
             observations[agent] = {key: np.asarray(value, dtype=np.float32) for key, value in obs.items()}
         return observations
 
-    def _apply_actions(self, actions: dict) -> list[np.ndarray]:
+    def _apply_actions(self, actions: dict) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Apply capability-capped burns; also return what each agent REQUESTED (pre-cap)."""
         applied_delta_v = [np.zeros(3) for _ in range(self._num_agents)]
+        requested_delta_v = [np.zeros(3) for _ in range(self._num_agents)]
         for agent, action in actions.items():
             if action not in range(_NUM_ACTIONS):
                 raise ValueError(f"action {action} out of range for agent {agent}")
@@ -302,8 +329,9 @@ class OrbitGuardEnv(ParallelEnv):
                 applied = proposed * (applied_mag / proposed_mag)
 
             applied_delta_v[idx] = applied
+            requested_delta_v[idx] = proposed
             self._capabilities[idx] = cap.with_remaining_delta_v(cap.remaining_delta_v_mps - applied_mag)
-        return applied_delta_v
+        return applied_delta_v, requested_delta_v
 
     def _propagate_ground_truth(self, applied_delta_v: list[np.ndarray]) -> list[np.ndarray]:
         fine_trajectories = []
@@ -328,7 +356,7 @@ class OrbitGuardEnv(ParallelEnv):
         return newly_collided
 
     def _compute_rewards(
-        self, actions, applied_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided
+        self, actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided
     ) -> dict:
         total_risk_pre = sum(a.risk_proxy for a in pre_assessments)
         total_risk_post = sum(a.risk_proxy for a in post_assessments)
@@ -347,7 +375,10 @@ class OrbitGuardEnv(ParallelEnv):
             components = compute_mission_deviation(post_beliefs[idx].state_vector, shadow_states[idx])
             mission_term = compute_mission_term(components.d_a, components.d_e, components.d_i, components.d_m)
 
-            delta_v_term = compute_delta_v_term(applied_delta_v[idx])
+            # Charged on the REQUEST, not the capped burn: once the budget is spent every
+            # action is a physical no-op, and an applied-only cost would leave the policy
+            # no reason to stop asking (PRD §28: agents are penalized for their proposals).
+            delta_v_term = compute_delta_v_term(requested_delta_v[idx])
             collided = idx in newly_collided
 
             rewards[agent] = compute_reward(

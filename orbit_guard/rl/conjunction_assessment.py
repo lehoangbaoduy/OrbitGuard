@@ -25,14 +25,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+
 from orbit_guard.conjunction.risk import risk_proxy as compute_risk_proxy
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.conjunction.tca import compute_tca
 from orbit_guard.physics.dynamics import state_derivative
 from orbit_guard.physics.frames import eci_vector_to_rtn
 from orbit_guard.rl.observation import NeighborCandidate
-from orbit_guard.safety.adaptive_margin import compute_d_safe, compute_local_density, compute_sigma_norm
-from orbit_guard.sensing.belief import AgentBelief, combined_relative_sigma, predict_belief
+from orbit_guard.safety.adaptive_margin import (
+    compute_d_safe,
+    compute_local_density,
+    compute_sigma_norm,
+)
+from orbit_guard.sensing.belief import (
+    AgentBelief,
+    combined_relative_sigma,
+    predict_belief,
+)
 
 
 @dataclass(frozen=True)
