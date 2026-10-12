@@ -36,12 +36,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
 
 from orbit_guard.physics.constants import MU_EARTH_M3_S2, R_EARTH_EQUATORIAL_M
 from orbit_guard.physics.dynamics import state_derivative
 from orbit_guard.physics.frames import coe_to_cartesian, eci_vector_to_rtn
 from orbit_guard.physics.integrator import propagate
+from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
 
 _BASE_DELTA_V_MPS = 0.1
 _PHASE_FRACTION = 0.5
