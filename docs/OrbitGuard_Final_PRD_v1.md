@@ -886,12 +886,12 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Prove the entire learning loop works end-to-end at the smallest possible scale, before committing the remaining seven weeks to it.
 
-- [ ] `OrbitGuardEnv` implemented as a PettingZoo **`ParallelEnv`** (not AEC), typed with Gymnasium spaces: observation (§24), action mapping (§23), reward (§25) — **RL**
-- [ ] PettingZoo's `parallel_api_test` and seed/reproducibility test pass against `OrbitGuardEnv` (§28) — **RL**
-- [ ] Deterministic maneuver-intent → Δv mapper, unit tested — **Safety** *(owned per §47.3; deliver early in this phase — RL's environment depends on it for the action step)*
-- [ ] MAPPO/CTDE training pipeline wired up in RLlib (§28) — **RL**
-- [ ] 2-satellite training run converges to sensible, inspectable behavior — **RL**
-- [ ] Acceptance Test D (§38) passes — train → evaluate completes with no code changes in between — **RL**
+- [x] `OrbitGuardEnv` implemented as a PettingZoo **`ParallelEnv`** (not AEC), typed with Gymnasium spaces: observation (§24), action mapping (§23), reward (§25) — **RL**
+- [x] PettingZoo's `parallel_api_test` and seed/reproducibility test pass against `OrbitGuardEnv` (§28) — **RL**
+- [x] Deterministic maneuver-intent → Δv mapper, unit tested — **Safety** *(owned per §47.3; deliver early in this phase — RL's environment depends on it for the action step)*
+- [x] MAPPO/CTDE training pipeline wired up in RLlib (§28) — **RL**
+- [x] 2-satellite training run converges to sensible, inspectable behavior — **RL**
+- [x] Acceptance Test D (§38) passes — train → evaluate completes with no code changes in between — **RL**
 
 > **GATE:** This is the highest-risk phase in the project. If the 2-agent case isn't cleanly working by the end of Week 8, invoke §46 immediately — cut every stretch goal and re-plan the remaining weeks around it. Do not proceed to Phase 4 on a shaky 2-agent result; a scaling failure at N=15 is far more expensive to debug than a 2-agent one.
 
