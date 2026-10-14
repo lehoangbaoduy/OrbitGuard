@@ -1,0 +1,186 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{xurl}
+\usepackage{hyperref}
+\urlstyle{same}
+\hypersetup{
+    hidelinks,
+    breaklinks=true
+}
+
+\begin{document}
+
+\title{OrbitGuard: Adaptive Safety Margins for Multi-Agent Satellite Collision Avoidance}
+
+\author{
+\IEEEauthorblockN{
+Hoang Bao Duy Le\IEEEauthorrefmark{1},
+Kenneth Beach\IEEEauthorrefmark{2},
+Alex Munn\IEEEauthorrefmark{3},
+Ashish Kharel\IEEEauthorrefmark{4}
+}
+\IEEEauthorblockA{
+Department of Electrical Engineering and Computer Science\\
+University of Toledo, Ohio, USA\\
+EECS 4720/5720 Group Project, Midterm Report
+}
+\IEEEauthorblockA{
+\textit{Email:}\\
+\IEEEauthorrefmark{1}\url{hoangbaoduy.le@rockets.utoledo.edu},
+\IEEEauthorrefmark{2}\url{Kenneth.Beach@rockets.utoledo.edu},\\
+\IEEEauthorrefmark{3}\url{Alexander.Munn@rockets.utoledo.edu},
+\IEEEauthorrefmark{4}\url{akharel@rockets.utoledo.edu}
+}
+}
+
+\maketitle
+
+\begin{abstract}
+Satellite operators often decide whether to maneuver by comparing an estimated collision risk with a fixed threshold. That approach does not account equally well for every situation: poor tracking data or a crowded local orbit may call for more caution, while a well-understood encounter may not require an expensive maneuver. OrbitGuard is a simulator and multi-agent reinforcement learning (MARL) framework that we are developing to test whether safety margins should adapt to sensing uncertainty, nearby traffic, and estimated encounter risk. The current implementation includes the orbital simulator, conjunction screening, the adaptive-margin calculation, and a MAPPO training pipeline. In an initial two-satellite evaluation, the trained policy had no collision episodes across 40 held-out runs, compared with four for a policy that never maneuvers. It used 0.386 m/s of the available 2.0 m/s fuel budget. These results are an early check of the pipeline, not yet evidence that the method will scale to larger constellations.
+\end{abstract}
+
+\begin{IEEEkeywords}
+satellite collision avoidance, multi-agent reinforcement learning, adaptive safety margin
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Low Earth orbit is becoming increasingly crowded. In 1978, Kessler and Cour-Palais described how collisions between orbiting objects can create debris that leads to further collisions, potentially setting off a self-reinforcing chain of events~\cite{kessler1978}. That concern makes collision avoidance an important problem for large satellite constellations. Each satellite must make decisions from tracking data that are imperfect, and every maneuver uses fuel that may be needed later.
+
+A fixed safety threshold is convenient, but it can be poorly suited to changing conditions. If position estimates are uncertain or several neighbors are nearby, a larger margin may be appropriate. When tracking is reliable and the local region is less crowded, the same margin may lead to unnecessary maneuvers. This project asks whether a safety margin that accounts for uncertainty, local density, and estimated risk can improve the balance between collision avoidance and fuel use. We are also interested in whether a policy trained under one set of orbital conditions continues to work when those conditions change.
+
+OrbitGuard is the simulation environment we are building to investigate these questions. This midterm report describes the components that have been merged into the main branch, from orbital propagation and conjunction screening through the learning pipeline. We also report an initial two-satellite check. The multi-satellite safety shield, experiments with 15 satellites, and tests under distribution shift remain future work; no results for those stages are claimed here.
+
+\section{Motivation and Problem Definition}
+\label{sec:problem}
+
+Choosing a safety margin involves a trade-off. A margin that is too small can allow a dangerous encounter to go unaddressed. A margin that is too large can trigger maneuvers for encounters that would have passed safely, consuming limited $\Delta v$. The appropriate margin may depend on the quality of the position estimates, the number of nearby satellites, and the risk associated with a particular conjunction.
+
+In OrbitGuard, we simulate $N$ satellites using two-body gravity with the $J_2$ term to represent Earth's oblateness. Every 60 s, each satellite selects one of six maneuver intents, including orbit raising and radial adjustment. A fixed mapper converts each intent into a small impulse in the radial--transverse--normal frame. Each satellite begins with a $\Delta v$ budget of 2.0 m/s. Its observations contain noisy estimates of its own state and of its four most threatening neighbors; the assumed measurement uncertainty is 100 m in position and 0.1 m/s in velocity (both at $1\sigma$). As a result, agents do not have access to the full state when choosing actions.
+
+An episode lasts six hours, corresponding to 360 control steps. A collision is recorded when the true separation between two satellites falls below their combined hard-body radius of 10 m. Our goal is to learn a shared policy that each satellite can execute using its local observation. The policy should avoid collisions, limit fuel use, and keep each satellite near its nominal orbit. The main research question is whether replacing a constant safety distance, $d_{\text{safe}}$, with a margin that changes with uncertainty, local density, and estimated risk improves this trade-off, especially when evaluation conditions differ from those used for training.
+
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Conjunction assessment.}
+Operational conjunction assessment commonly estimates collision probability from the predicted miss distance and the objects' covariance information~\cite{alfriend1999}. In this project, we use a simpler bounded risk proxy rather than treating the value as a calibrated collision probability. Machine learning has also been applied to risk forecasting. For example, the ESA Collision Avoidance Challenge brought together 96 teams to predict the final risk of a conjunction two days in advance~\cite{uriot2022}. Predicting risk is related to our problem, but it does not by itself determine whether or how a satellite should maneuver.
+
+\textbf{Reinforcement learning for satellites.}
+Dolan et al. studied multi-agent satellite collision avoidance with limited information sharing~\cite{dolan2023}. OrbitZoo provides a multi-agent orbital environment designed around real orbital-system challenges and validated using Starlink-related data~\cite{oliveira2025}. OrbitGuard focuses on a different part of the decision process: the margin used to define a potentially unsafe encounter changes with uncertainty, local crowding, and estimated risk. We also intend to evaluate how the learned policy behaves when the test conditions are outside its training distribution.
+
+\textbf{Safe RL and multi-agent learning.}
+Shielding methods place a monitor between a learned policy and the environment so that unsafe actions can be intercepted~\cite{alshiekh2018}. We plan to add a shield that evaluates the joint actions of the satellites before they are applied. For training, we use centralized training with decentralized execution, a common setup for multi-agent reinforcement learning~\cite{lowe2017}. Yu et al. found that PPO with a shared policy and centralized critic is an effective cooperative baseline across a range of multi-agent tasks~\cite{yu2022}. This motivates our use of a shared actor and centralized critic in the current implementation.
+
+\section{Approach}
+\label{sec:approach}
+
+\subsection{Simulator and sensing}
+
+We propagate the orbits with fixed-step fourth-order Runge--Kutta (RK4), using a 10 s physics step and a 60 s control step. Initial conditions come from a frozen snapshot of 3,002 satellites in a shell inclined at $53^\circ$ and centered at roughly 460 km altitude. We checked the propagator against the analytic $J_2$ nodal-regression rate, which it reproduces to within 2\% (approximately $-4.7^\circ$/day). On an elliptical-orbit case, its positions also agree with Skyfield~\cite{rhodes2019} to within 10 m.
+
+The implementation keeps ground truth separate from the observation, belief, and prediction paths. In particular, belief functions raise an error if they are passed ground-truth state, helping us catch accidental information leakage during development. To create controlled conjunction scenarios, we first choose the closest-approach time and miss distance, then construct the relative velocity at that point and propagate one satellite backward to the episode start. This works because the acceleration in our model depends on position.
+
+\subsection{Conjunction assessment and the adaptive margin}
+
+At $N=15$, the screening step checks all 105 satellite pairs. For each pair, we estimate closest approach over a 30 min lookahead window. We take the smallest sampled separation and refine it with a local quadratic fit; this gives an improvement of about 2 km over using the 10 s samples alone. Collision checks use ground-truth states at every physics step. This finer interval matters because two satellites can travel roughly 120 km during a single 60 s control step at a relative speed near 2 km/s.
+
+Our risk value is a bounded proxy, not a collision-probability estimate. It applies a logistic curve to the miss distance after normalizing by the combined uncertainty, producing a value $R$ between 0 and 1. We then calculate the safety margin for each pair as
+
+\begin{equation}
+ d_{\text{safe}} = \operatorname{clip}\!\left(
+ d_{\text{base}}(1 + \alpha\Sigma + \beta\rho + \gamma R),
+ d_{\min}, d_{\max}\right),
+ \label{eq:margin}
+\end{equation}
+
+where $\Sigma$ is the combined relative uncertainty scaled by $d_{\text{base}}$. This is a provisional normalization that will need further evaluation. The term $\rho$ represents local crowding: it counts other satellites within 50 km of the pair's midpoint, divides that count by 5, and caps the result at 1. The current starting values are $d_{\text{base}}=1000$ m, $\alpha=\gamma=1$, and $\beta=0.5$. We clip the resulting margin to the range 200--5000 m.
+
+\subsection{Learning problem}
+
+Each satellite receives estimates of its own state, remaining $\Delta v$, deviation from its mission reference, and four neighbor slots. These slots are ordered by predicted threat rather than simply by distance, so a more distant but riskier satellite can be shown before a closer, less threatening one. The reward for agent $i$ is defined as
+
+\begin{equation}
+ R_i = w_1 R_{\text{safety}} + w_2 R_{\text{mission}}
+       - w_3\lVert\Delta v_i\rVert - w_4 C_{\text{coord}},
+ \label{eq:reward}
+\end{equation}
+
+with an additional penalty of $-100$ for a collision. The safety term is based on the clipped minimum pairwise margin, rather than an average, so a single dangerous encounter cannot be hidden by several safe ones. The coordination term, $C_{\text{coord}}$, penalizes increases in total constellation risk.
+
+We measure mission deviation relative to a shadow trajectory in which the satellite does not maneuver. This reference is important because $J_2$ alone changes an unmaneuvered satellite's semi-major axis by about 12.4 km over six hours, exceeding our 2 km tolerance. The actor is a shared $128\times128$ neural network that receives each satellite's local observation. During training, a $256\times256$ critic can access the global state; that information is not available to the actor at execution time. We use RLlib with PettingZoo for the training pipeline.
+
+\subsection{Two-satellite gate and current status}
+
+Before expanding the experiments, we set up a two-satellite sanity check to catch basic problems in the learning pipeline. We specified four criteria in advance and assessed the trained policy on held-out random seeds against a policy that never maneuvers. The learned policy should (1) have no more collision episodes than the baseline, (2) use no more than 25\% of the available $\Delta v$, (3) achieve at least the baseline's mean return, and (4) concentrate maneuvers on threatening steps, defined as steps where neighbor risk exceeds 0.5, rather than on calm steps.
+
+The first training run did not meet these requirements in a useful way. Although it avoided collisions, it maneuvered on 84\% of steps and exhausted its fuel budget. We traced two issues to the training setup. RLlib's default value-function clip of 10 was too small relative to returns near 100, preventing the critic from learning effectively. Also, fuel cost was applied only when a maneuver occurred. Once the budget had been depleted, about 93\% of the remaining steps were no-ops, which gave the policy little useful signal about conserving fuel. We adjusted the value clipping and fuel penalty, set $w_3=5$, and used $\gamma=0.95$. The resulting held-out evaluation is summarized in Table~\ref{tab:gate}.
+
+\begin{table}[t]
+\centering
+\caption{Two-satellite gate on 40 held-out episodes}
+\label{tab:gate}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & No maneuver & Trained \\
+\midrule
+Collision episodes & 4 & 0 \\
+Mean $\Delta v$ used & 0 & 0.386 m/s (19\%) \\
+Mean return & 269.4 & 310.4 \\
+Maneuvers (threat / calm) & 0\% / 0\% & 54\% / 1.2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The aggregate results are encouraging, but they need to be interpreted carefully. On fresh seeds, two of the three training seeds passed all four checks. The remaining seed used 0.537 m/s, slightly above the 0.50 m/s limit, so it did not pass the fuel criterion. We have kept the original criteria rather than changing them after seeing the results. In addition, only about 0.7\% of all steps are classified as threatening, which means the maneuver-concentration result is based on a relatively small number of events. We will next implement the safety shield, train with $N=15$ satellites, and test the policy under distribution shift.
+
+\section{Team Contributions}
+\label{sec:team}
+
+\textbf{Kenneth Beach} focused on the astrophysics aspects of the project, including orbital dynamics, conjunction geometry, and the risk and margin formulas. He will also contribute to the later experimental stages.
+
+\textbf{Hoang Bao Duy Le} implemented the simulator, sensing and belief layers, adaptive margin, conjunction scenario injection, maneuver mapper, observations, and environment. He also reviewed teammates' branches and carried out the training adjustments described in this report.
+
+\textbf{Alex Munn} implemented conjunction screening, closest-approach interpolation, collision detection, and the risk proxy. He then worked on the reward function and the initial MAPPO training pipeline.
+
+\begin{thebibliography}{99}
+
+\bibitem{kessler1978}
+D. J. Kessler and B. G. Cour-Palais, ``Collision frequency of artificial satellites: The creation of a debris belt,'' \textit{J. Geophys. Res.}, vol. 83, no. A6, pp. 2637--2646, 1978.
+
+\bibitem{alfriend1999}
+K. T. Alfriend, M. R. Akella, J. Frisbee, J. L. Foster, D.-J. Lee, and M. Wilkins, ``Probability of collision error analysis,'' \textit{Space Debris}, vol. 1, no. 1, pp. 21--35, 1999.
+
+\bibitem{uriot2022}
+T. Uriot \textit{et al.}, ``Spacecraft collision avoidance challenge: Design and results of a machine learning competition,'' \textit{Astrodynamics}, vol. 6, no. 2, pp. 121--140, 2022.
+
+\bibitem{dolan2023}
+S. Dolan, S. Nayak, and H. Balakrishnan, ``Satellite navigation and coordination with limited information sharing,'' in \textit{Proc. Learning for Dynamics and Control (L4DC)}, PMLR, vol. 211, 2023.
+
+\bibitem{oliveira2025}
+A. Oliveira, K. Dyreby, F. Caldas, and C. Soares, ``OrbitZoo: Real orbital systems challenges for reinforcement learning,'' arXiv:2504.04160, 2025.
+
+\bibitem{alshiekh2018}
+M. Alshiekh, R. Bloem, R. Ehlers, B. K\"onighofer, S. Niekum, and U. Topcu, ``Safe reinforcement learning via shielding,'' in \textit{Proc. AAAI Conf. Artificial Intelligence}, 2018, pp. 2669--2678.
+
+\bibitem{lowe2017}
+R. Lowe, Y. Wu, A. Tamar, J. Harb, P. Abbeel, and I. Mordatch, ``Multi-agent actor-critic for mixed cooperative-competitive environments,'' in \textit{Advances in Neural Information Processing Systems}, vol. 30, 2017.
+
+\bibitem{yu2022}
+C. Yu \textit{et al.}, ``The surprising effectiveness of PPO in cooperative multi-agent games,'' in \textit{Advances in Neural Information Processing Systems}, vol. 35, pp. 24611--24624, 2022.
+
+\bibitem{rhodes2019}
+B. Rhodes, ``Skyfield: High precision research-grade positions for planets and Earth satellites generator,'' Astrophysics Source Code Library, ascl:1907.024, 2019.
+
+\end{thebibliography}
+
+\end{document}

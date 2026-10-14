@@ -12,6 +12,7 @@ htmlcov/
 # Environments
 .venv/
 venv/
+.playwright-mcp/
 
 # uv
 uv.lock.tmp
