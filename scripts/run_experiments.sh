@@ -22,7 +22,9 @@ uv run python -m orbit_guard.evaluation.experiment run --split validation --max-
   --registry "$OUT/registry.json" --out "$OUT/validation_episodes.jsonl" --workers "$WORKERS" --experiment-id validation \
   ${overlay_flags[@]+"${overlay_flags[@]}"}
 
-# 2. FREEZE configs + checkpoints, then (and only then) the final-test pool can be read.
+# 2. FREEZE configs + checkpoints, then (and only then) the final-test pool can be read. The freeze is one-way
+#    (it refuses an existing $OUT/frozen.json) and refuses uncommitted changes under orbit_guard/, configs/ or
+#    scripts/: commit everything there first, including a tuned overlay kept under configs/. docs/ is exempt.
 [ -f configs/test_seeds.json ] || uv run python -c "from orbit_guard.evaluation.test_seed_pool import write_test_pool; write_test_pool('configs/test_seeds.json')"
 uv run python -m orbit_guard.evaluation.experiment freeze --registry "$OUT/registry.json" --out "$OUT/frozen.json" \
   ${overlay_flags[@]+"${overlay_flags[@]}"}

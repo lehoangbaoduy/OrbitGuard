@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from orbit_guard.evaluation import freeze
 from orbit_guard.evaluation.freeze import (
     FrozenConfigError,
     verify_freeze,
@@ -22,6 +23,13 @@ from orbit_guard.evaluation.test_seed_pool import (
     load_test_pool,
     write_test_pool,
 )
+from tests.evaluation.git_repo_fixture import make_repo
+
+
+@pytest.fixture(autouse=True)
+def _clean_git_repo(tmp_path, monkeypatch):
+    """Freeze git checks run against a committed throwaway repo, never the (possibly dirty) real checkout."""
+    monkeypatch.setattr(freeze, "GIT_ROOT", make_repo(tmp_path / "repo"))
 
 
 def test_test_pool_has_ten_unique_seeds_for_each_of_the_five_conditions():
@@ -85,14 +93,14 @@ def test_changing_the_config_after_freezing_blocks_the_test_pool(tmp_path):
         verify_freeze(freeze_file, {}, config_path=config)
 
 
-def test_the_snapshot_records_the_config_hash_and_checkpoint_hashes(tmp_path):
+def test_the_snapshot_records_the_config_digest_and_checkpoint_hashes(tmp_path):
     freeze_file = tmp_path / "frozen.json"
     weights = _weights(tmp_path)
 
     snapshot = write_freeze_snapshot(freeze_file, weights)
 
     on_disk = json.loads(freeze_file.read_text())
-    assert on_disk["config_hash"] == snapshot["config_hash"]
+    assert on_disk["config_digest"] == snapshot["config_digest"]
     assert set(on_disk["checkpoints"]) == {"adaptive_mappo/0"}
     assert "frozen_at" in on_disk
 

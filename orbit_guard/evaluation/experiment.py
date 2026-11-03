@@ -453,8 +453,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="validation split only: shift conditions to run, each on the same seeds (default: normal)",
     )
     run.add_argument("--freeze-snapshot", default=None, help="required for --split test")
-    run.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
-    run.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
     run.add_argument(
         "--retry-failed", action="store_true", help="rerun episodes whose latest logged record has status 'failed'"
     )
@@ -473,6 +471,9 @@ def _build_parser() -> argparse.ArgumentParser:
     for command in (run, registry_cmd, freeze):
         command.add_argument("--config", default=str(_DEFAULT_CONFIG), help="base config (default: configs/default.yaml)")
         command.add_argument("--overlay", default=None, help="tuned overlay the checkpoints were trained with")
+    for command in (run, freeze):
+        command.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
+        command.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
     return parser
 
 
@@ -498,7 +499,26 @@ def _freeze_command(args: argparse.Namespace) -> None:
 
     registry = _read_registry(args.registry)
     check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
-    print(json.dumps(write_freeze_snapshot(args.out, _flat_checkpoints(registry), config_path=args.config), indent=2))
+    snapshot = write_freeze_snapshot(
+        args.out, _flat_checkpoints(registry), config_path=args.config, overlay_path=args.overlay,
+        test_pool_path=args.test_pool, validation_pool_path=args.validation_pool,
+    )
+    print(json.dumps(snapshot, indent=2))
+
+
+def _test_condition_seeds(args: argparse.Namespace, registry: Mapping[str, Mapping[int, str]]) -> dict:
+    """The final-test pool, opened only after the freeze verifies against THIS run's config and overlay."""
+    from orbit_guard.evaluation.freeze import verify_freeze
+    from orbit_guard.evaluation.test_seed_pool import load_test_pool
+
+    checkpoints = _flat_checkpoints(registry)
+    verify_freeze(
+        args.freeze_snapshot, checkpoints, args.config, args.overlay,
+        test_pool_path=args.test_pool, validation_pool_path=args.validation_pool,
+    )
+    condition_seeds = load_test_pool(args.test_pool, args.freeze_snapshot, checkpoints, args.config)
+    require_all_conditions(condition_seeds)
+    return condition_seeds
 
 
 def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -517,10 +537,7 @@ def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
     else:
         if args.freeze_snapshot is None:
             parser.error("--split test requires --freeze-snapshot (freeze configs and checkpoints first)")
-        from orbit_guard.evaluation.test_seed_pool import load_test_pool
-
-        condition_seeds = load_test_pool(args.test_pool, args.freeze_snapshot, _flat_checkpoints(registry), args.config)
-        require_all_conditions(condition_seeds)
+        condition_seeds = _test_condition_seeds(args, registry)
 
     tasks = build_tasks(
         args.models, condition_seeds, registry, n_agents=args.n_agents, experiment_id=args.experiment_id,
