@@ -115,3 +115,39 @@ def test_validation_does_not_mutate_its_input():
     snapshot = dict(meta)
     validate_replay_meta(meta)
     assert meta == snapshot
+
+
+# ------------------------------------------------- configuration provenance and per-satellite budgets (optional)
+def test_meta_records_the_config_digest_and_the_overlay_path():
+    meta = validate_replay_meta(_meta(config_digest="b" * 64, overlay_path="configs/tuned_overlay.yaml"))
+    assert meta.config_digest == "b" * 64 and meta.overlay_path == "configs/tuned_overlay.yaml"
+
+
+def test_an_episode_recorded_without_an_overlay_omits_the_overlay_path_but_keeps_the_digest():
+    raw = _meta(config_digest="b" * 64)
+    assert "overlay_path" not in raw
+    assert validate_replay_meta(raw).overlay_path is None
+
+
+def test_older_meta_without_the_new_fields_still_validates():
+    meta = validate_replay_meta(_meta())
+    assert meta.config_digest is None and meta.overlay_path is None
+    assert meta.drawn_delta_v_budgets_mps is None and meta.degraded is None
+
+
+def test_per_satellite_budget_fields_round_trip_as_tuples():
+    raw = {**_meta(n_agents=3), "drawn_delta_v_budgets_mps": [1.6, 2.4, 2.0], "degraded": [False, True, False]}
+    meta = validate_replay_meta(raw)
+    assert meta.drawn_delta_v_budgets_mps == (1.6, 2.4, 2.0)
+    assert meta.degraded == (False, True, False)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("config_digest", "B" * 64), ("config_digest", "b" * 63), ("config_digest", 7), ("overlay_path", ""),
+    ("overlay_path", 3), ("drawn_delta_v_budgets_mps", [1.6, 2.4]), ("drawn_delta_v_budgets_mps", [1.6, -0.1, 2.0]),
+    ("drawn_delta_v_budgets_mps", [1.6, float("nan"), 2.0]), ("drawn_delta_v_budgets_mps", [1.6, True, 2.0]),
+    ("drawn_delta_v_budgets_mps", "1.6"), ("degraded", [False, True]), ("degraded", [0, 1, 0]), ("degraded", None),
+])
+def test_optional_fields_are_checked_when_present(field, value):
+    with pytest.raises(ReplayMetaError, match=field):
+        validate_replay_meta({**_meta(n_agents=3), field: value})

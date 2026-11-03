@@ -26,7 +26,7 @@ from typing import Any
 
 import numpy as np
 
-from orbit_guard.visualization.replay_meta import ReplayMetaError
+from orbit_guard.visualization.replay_meta import ReplayMetaError, budget_meta
 
 HIGH_RISK_THRESHOLD = 0.5
 BURN_EPSILON_MPS = 1.0e-12  # mirrors rl.episode_metrics._BURN_EPSILON_MPS: an applied delta-v above it is a maneuver
@@ -100,8 +100,14 @@ class Frame:
 
 
 def record_episode(env, policy, seed: int, meta: dict[str, Any] | None = None) -> EpisodeTrace:
-    """Run one episode and capture everything the replay needs."""
+    """Run one episode and capture everything the replay needs.
+
+    An env exposing `budget_provenance()` (OrbitGuardEnv) also gets each satellite's drawn budget and degraded
+    flag written into the meta, so the replay can tell a small draw from a capability-reduction victim.
+    """
     observations, _ = env.reset(seed=seed)
+    provenance = env.budget_provenance() if callable(getattr(env, "budget_provenance", None)) else None
+    budget_fields = {} if provenance is None else budget_meta(provenance.drawn_mps, provenance.degraded)
     snapshots = [env.snapshot()]
     steps = []
     while env.agents:
@@ -136,7 +142,7 @@ def record_episode(env, policy, seed: int, meta: dict[str, Any] | None = None) -
         applied_dv_mps=np.array([s["applied_dv_mps"] for s in steps], dtype=float),
         intervened=np.array([s["intervened"] for s in steps], dtype=bool),
         collided_pair=collided,
-        meta=dict(meta or {}, seed=seed),
+        meta=dict(meta or {}, **budget_fields, seed=seed),
         summary=summary,
     )
 
