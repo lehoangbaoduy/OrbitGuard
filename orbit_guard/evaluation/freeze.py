@@ -9,7 +9,8 @@ enforced, not promised:
     every checkpoint's actor_weights sha256 and its run_config.json sha256, and HEAD. A checkpoint with no
     run_config.json sidecar is refused: its training configuration could not be shown. So is a checkpoint
     whose sidecar does not show a clean training tree (`git_commit` set, `git_dirty` an empty list), a set of
-    checkpoints trained at different commits, and any change under orbit_guard/, configs/ or data/
+    checkpoints trained on different code (their commits may differ only outside orbit_guard/, configs/ and
+    data/, e.g. by a docs commit mid-queue), and any change under orbit_guard/, configs/ or data/
     (`TRAINING_CODE_PATHS`) between that training commit and the freeze; the training commit is recorded.
   * `verify_freeze` re-checks every recorded hash, that the checkpoints passed are exactly the frozen
     (model, training seed) set (adding or dropping a training seed after seeing results fails), that
@@ -95,6 +96,13 @@ class GitTree:
     def has_commit(self, commit: str) -> bool:
         return self._git("cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
 
+    def commits_differ(self, first: str, second: str, paths: Sequence[str]) -> bool:
+        """True if `first` and `second` differ under `paths` (`git diff --quiet first second`)."""
+        completed = self._git("diff", "--quiet", first, second, "--", *paths)
+        if completed.returncode not in (0, 1):
+            raise FrozenConfigError(f"git diff {first} {second} failed: {completed.stderr.strip()}")
+        return completed.returncode == 1
+
     def changed_since(self, commit: str, paths: Sequence[str]) -> bool:
         """True if the working tree under `paths` differs from `commit` (`git diff --quiet`)."""
         if not self.has_commit(commit):
@@ -175,8 +183,12 @@ def _sidecar_git(name: str, weights: Path) -> tuple[str | None, str | None]:
     return commit, None
 
 
-def _common_training_commit(checkpoints: Mapping[str, str | Path]) -> str | None:
-    """The one commit every checkpoint's sidecar records a clean training run at; None for no checkpoints."""
+def _common_training_commit(checkpoints: Mapping[str, str | Path], git: GitTree) -> str | None:
+    """The training commit of the first checkpoint (by name); every other one must hold identical code.
+
+    Commits may differ (a docs-only commit can land between two runs of the queue) as long as nothing under
+    TRAINING_CODE_PATHS differs between them. None for no checkpoints.
+    """
     commits: dict[str, str] = {}
     problems = []
     for name, file in sorted(checkpoints.items()):
@@ -190,18 +202,24 @@ def _common_training_commit(checkpoints: Mapping[str, str | Path]) -> str | None
             "cannot show these checkpoints were trained on committed code (retrain them from a clean tree): "
             + " | ".join(problems)
         )
-    if len(set(commits.values())) > 1:
-        listing = ", ".join(f"{name} at {commit}" for name, commit in commits.items())
-        raise FrozenConfigError(
-            f"the checkpoints were trained at different commits, so the code may differ between them (retrain them "
-            f"all at one commit): {listing}"
-        )
-    return next(iter(commits.values()), None)
+    if not commits:
+        return None
+    reference = next(iter(commits.values()))
+    for commit in set(commits.values()) - {reference}:
+        if not git.has_commit(commit):
+            raise FrozenConfigError(f"the training commit {commit} is unknown to the repository at {git.root}")
+        if git.commits_differ(reference, commit, TRAINING_CODE_PATHS):
+            listing = ", ".join(f"{name} at {trained}" for name, trained in commits.items())
+            raise FrozenConfigError(
+                f"the checkpoints were trained on different code (git diff {reference} {commit} -- "
+                f"{' '.join(TRAINING_CODE_PATHS)} is not empty; retrain them all on one code state): {listing}"
+            )
+    return reference
 
 
 def _training_commit(checkpoints: Mapping[str, str | Path], git: GitTree) -> str | None:
     """`_common_training_commit`, which must also be unchanged under TRAINING_CODE_PATHS in the working tree."""
-    commit = _common_training_commit(checkpoints)
+    commit = _common_training_commit(checkpoints, git)
     if commit is None:
         return None
     if not git.has_commit(commit):

@@ -107,16 +107,28 @@ def test_a_sidecar_that_predates_the_git_record_cannot_be_frozen(world, key):
         _freeze(world)
 
 
-def test_checkpoints_trained_at_different_commits_cannot_be_frozen(world, repo):
-    # Even a docs-only commit between two runs of the queue: the rule is literal (every run at ONE commit).
+def test_checkpoints_trained_on_different_code_cannot_be_frozen(world, repo):
+    (repo / "orbit_guard" / "module.py").write_text("changed between two runs of the queue\n")
+    commit_all(repo, "code fix between two runs")
+    both = _second_seed(world)
+
+    with pytest.raises(FrozenConfigError, match=r"different code.*adaptive_mappo/0.*adaptive_mappo/1"):
+        _freeze(world, both)
+
+    assert not world["snapshot"].exists()
+
+
+def test_a_docs_only_commit_between_two_runs_of_the_queue_does_not_block_the_freeze(world, repo):
+    # Tracker/doc commits land while the nine trainings run; only orbit_guard/, configs/ and data/ reach the weights.
+    first_trained_at = git(repo, "rev-parse", "HEAD")
     (repo / "docs" / "notes.md").write_text("docs commit between two runs\n")
     commit_all(repo, "docs")
     both = _second_seed(world)
 
-    with pytest.raises(FrozenConfigError, match=r"different commits.*adaptive_mappo/0.*adaptive_mappo/1"):
-        _freeze(world, both)
+    snapshot = _freeze(world, both)
 
-    assert not world["snapshot"].exists()
+    assert snapshot["training_commit"] == first_trained_at  # the first checkpoint's (sorted by name) commit
+    _verify(world, both)
 
 
 @pytest.mark.parametrize("relative", ["orbit_guard/module.py", "configs/default.yaml", "data/tle.csv"])
