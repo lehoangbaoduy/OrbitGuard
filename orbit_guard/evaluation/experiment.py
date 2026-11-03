@@ -5,7 +5,10 @@
   * `summarize`         one row per (model, condition): primary endpoint (collision-episode rate) and the
                         secondary endpoints, pooled across training seeds, with degradation vs `normal`.
   * `paired_by_scenario` paired difference between two models on matched scenario seeds.
-  * `format_report`     the markdown table.
+  * `format_report`     the markdown table: every endpoint, the 95% CIs of the primary endpoint
+                        (collision-episode rate) and the unsafe rate, and a failed-episode count per row.
+  * `format_paired_report`      method − baseline per condition and metric: n, mean difference, CI, Wilcoxon p.
+  * `format_degradation_report` per model and metric, (shift − normal) / (|normal| + ε) for each shift.
   * `check_checkpoint_provenance`  a checkpoint trained under one configuration is never evaluated under
                         another: the run_config.json sidecar that rl/training.py writes next to
                         actor_weights.npz records `config.config_digest(config, overlay)`, and a mismatch
@@ -196,41 +199,72 @@ _METRICS = tuple(_derived(
 ))
 
 
+DEGRADATION_METRICS = ("collision_rate", "unsafe_rate", "total_delta_v_mps")
+PAIRED_BASELINES = ("fixed_margin_mappo", "adaptive_mappo_no_shield", "rule_based", "no_maneuver")
+PAIRED_METRICS = ("collision_rate", "unsafe_rate", "total_delta_v_mps", "mean_mission_deviation")
+
+
+def _is_ok(record: Mapping) -> bool:
+    return record.get("status", "ok") == "ok"
+
+
+def _model_order(model: str) -> int:
+    return MODEL_NAMES.index(model) if model in MODEL_NAMES else len(MODEL_NAMES)
+
+
+def _condition_order(condition: str) -> int:
+    return CONDITION_NAMES.index(condition) if condition in CONDITION_NAMES else len(CONDITION_NAMES)
+
+
 def summarize(records: Sequence[Mapping]) -> list[dict]:
-    """One row per (model, condition); metrics are `Summary`s pooled across training seeds."""
+    """One row per (model, condition); metrics are `Summary`s pooled across training seeds.
+
+    Failed episodes are excluded from the metrics but counted in `failed`; a (model, condition) whose every
+    episode failed still gets a row, with `episodes == 0` and every metric None, so it is never silently lost.
+    """
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    failed: dict[tuple[str, str], int] = defaultdict(int)
     for record in records:
-        if record.get("status", "ok") != "ok":
-            continue
-        groups[(record["model_name"], record["shift_type"])].append(
-            {"training_seed": record["training_seed"], **_derived(record)}
-        )
+        key = (record["model_name"], record["shift_type"])
+        if _is_ok(record):
+            groups[key].append({"training_seed": record["training_seed"], **_derived(record)})
+        else:
+            failed[key] += 1
 
     rows = []
-    for (model, condition), episodes in groups.items():
+    for model, condition in set(groups) | set(failed):
+        episodes = groups.get((model, condition), [])
         row: dict = {
             "model": model, "condition": condition, "episodes": len(episodes),
+            "failed": failed.get((model, condition), 0),
             "training_seeds": len({e["training_seed"] for e in episodes}),
         }
         for metric in _METRICS:
-            row[metric] = pooled_by_training_seed(episodes, metric)
+            row[metric] = pooled_by_training_seed(episodes, metric) if episodes else None
         rows.append(row)
 
     normal = {row["model"]: row for row in rows if row["condition"] == "normal"}
     for row in rows:
-        for metric in ("collision_rate", "total_delta_v_mps"):
-            base = normal.get(row["model"])
+        base = normal.get(row["model"])
+        for metric in DEGRADATION_METRICS:
+            usable = base is not None and base[metric] is not None and row[metric] is not None
             row[f"{metric}_degradation"] = (
-                degradation(row[metric].mean, base[metric].mean) if base is not None else float("nan")
+                degradation(row[metric].mean, base[metric].mean) if usable else float("nan")
             )
-    return sorted(rows, key=lambda r: (r["condition"], MODEL_NAMES.index(r["model"])))
+    return sorted(rows, key=lambda r: (_condition_order(r["condition"]), r["condition"], _model_order(r["model"])))
+
+
+def _metric_value(record: Mapping, metric: str) -> float:
+    """A logged field (e.g. `collision_count`) or a derived per-episode value (e.g. `collision_rate`, 0/1)."""
+    derived = _derived(record)
+    return float(derived[metric] if metric in derived else record[metric])
 
 
 def _per_scenario(records: Sequence[Mapping], model: str, condition: str, metric: str) -> dict[int, float]:
     by_seed: dict[int, list[float]] = defaultdict(list)
     for record in records:
-        if record["model_name"] == model and record["shift_type"] == condition and record.get("status", "ok") == "ok":
-            by_seed[record["scenario_seed"]].append(float(record[metric]))
+        if record["model_name"] == model and record["shift_type"] == condition and _is_ok(record):
+            by_seed[record["scenario_seed"]].append(_metric_value(record, metric))
     return {seed: float(np.mean(values)) for seed, values in by_seed.items()}
 
 
@@ -246,29 +280,159 @@ def paired_by_scenario(
     return paired_comparison([method_values[s] for s in shared], [baseline_values[s] for s in shared])
 
 
-def _cell(summary: Summary, digits: int = 3) -> str:
-    return f"{summary.mean:.{digits}f} ± {summary.std:.{digits}f}"
+_MISSING = "—"
+
+
+def _cell(summary: Summary | None, digits: int = 3) -> str:
+    return _MISSING if summary is None else f"{summary.mean:.{digits}f} ± {summary.std:.{digits}f}"
+
+
+def _ci_cell(summary: Summary | None, digits: int = 3) -> str:
+    if summary is None:
+        return _MISSING
+    if summary.n < 2:
+        return f"n/a ({summary.n} seed)"
+    return f"[{summary.ci_low:.{digits}f}, {summary.ci_high:.{digits}f}]"
 
 
 def format_report(records: Sequence[Mapping]) -> str:
+    """Per (model, condition): episodes, failed episodes, every endpoint, and 95% CIs of the primary endpoint."""
     rows = summarize(records)
     lines = [
         (
-            "| model | condition | episodes | training seeds | collision-episode rate | unsafe-conjunction rate "
-            "| Δv (m/s) | maneuvers | mission dev. | shield interv./step | residual risk |"
+            "| model | condition | episodes | failed | training seeds | collision-episode rate | collision 95% CI "
+            "| unsafe-conjunction rate | unsafe 95% CI | Δv (m/s) | maneuvers | mission dev. | shield interv./step "
+            "| residual risk |"
         ),
-        "|---|---|---:|---:|---|---|---|---|---|---|---|",
+        "|---|---|---:|---:|---:|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
-            f"| {row['model']} | {row['condition']} | {row['episodes']} | {row['training_seeds']} "
-            f"| {_cell(row['collision_rate'])} | {_cell(row['unsafe_rate'])} | {_cell(row['total_delta_v_mps'])} "
+            f"| {row['model']} | {row['condition']} | {row['episodes']} | {row['failed']} | {row['training_seeds']} "
+            f"| {_cell(row['collision_rate'])} | {_ci_cell(row['collision_rate'])} "
+            f"| {_cell(row['unsafe_rate'])} | {_ci_cell(row['unsafe_rate'])} | {_cell(row['total_delta_v_mps'])} "
             f"| {_cell(row['maneuver_count'], 1)} | {_cell(row['mean_mission_deviation'])} "
             f"| {_cell(row['shield_intervention_rate'], 4)} | {_cell(row['mean_residual_risk'])} |"
         )
-    lines.append("")
-    lines.append("Values are mean ± std across training seeds (per-seed means first); non-learned models have one 'seed'.")
+    lines += [
+        "",
+        (
+            "Values are mean ± std across training seeds (per-seed means first); non-learned models have one 'seed'. "
+        "95% CIs are t-intervals across training seeds, so a single seed has none (n/a). `episodes` counts ok "
+        "episodes; `failed` episodes (PRD §36 #9) are excluded from every metric but always listed here, and a "
+        f"row whose episodes all failed shows {_MISSING}."
+        ),
+    ]
     return "\n".join(lines)
+
+
+def _paired_row(records: Sequence[Mapping], method: str, baseline: str, condition: str, metric: str) -> str:
+    try:
+        result = paired_by_scenario(records, method, baseline, condition, metric)
+    except ValueError:
+        method_seeds = len(_per_scenario(records, method, condition, metric))
+        baseline_seeds = len(_per_scenario(records, baseline, condition, metric))
+        reason = (
+            f"skipped: no shared scenario seeds ({method} {method_seeds}, {baseline} {baseline_seeds} "
+            "seeds with an ok episode)"
+        )
+        return f"| {condition} | {baseline} | {metric} | 0 | {_MISSING} | {_MISSING} | {reason} |"
+    interval = (
+        f"n/a (n={result.n})" if result.n < 2 else f"[{result.ci_low:.3f}, {result.ci_high:.3f}]"
+    )
+    return (
+        f"| {condition} | {baseline} | {metric} | {result.n} | {result.mean_difference:.3f} | {interval} "
+        f"| {_p_cell(result.p_value)} |"
+    )
+
+
+def _p_cell(p_value: float) -> str:
+    return f"{p_value:.3f}" if p_value >= 0.01 else f"{p_value:.2e}"
+
+
+def format_paired_report(
+    records: Sequence[Mapping],
+    method: str = "adaptive_mappo",
+    baselines: Sequence[str] = PAIRED_BASELINES,
+    metrics: Sequence[str] = PAIRED_METRICS,
+) -> str:
+    """Paired `method − baseline` comparisons on matched scenario seeds, per condition (PRD §34 headline).
+
+    Per-scenario values are means over training seeds (a learned model's collision_rate per scenario is
+    therefore k/3, not 0/1). Pairs that share no scenario seed are listed as skipped, never dropped.
+    """
+    conditions = sorted(
+        {r["shift_type"] for r in records if r["model_name"] == method}, key=lambda c: (_condition_order(c), c)
+    )
+    lines = [
+        f"Paired comparison: {method} − baseline on matched scenario seeds",
+        "",
+        "| condition | baseline | metric | n | mean difference | 95% CI | Wilcoxon p |",
+        "|---|---|---|---:|---:|---|---:|",
+    ]
+    for condition in conditions:
+        for baseline in (b for b in baselines if b != method):
+            lines.extend(_paired_row(records, method, baseline, condition, metric) for metric in metrics)
+    if not conditions:
+        lines.append(f"| {_MISSING} | {_MISSING} | {_MISSING} | 0 | {_MISSING} | {_MISSING} | no {method} episodes |")
+    lines += [
+        "",
+        (
+            f"Sign: {method} − baseline; for every metric here lower is better, so a negative difference favours "
+        f"{method}. n = scenario seeds with an ok episode for both models (failed episodes are excluded); "
+        "per-scenario values of learned models are means over their training seeds. 95% CI: t-interval of the "
+        "paired differences. Wilcoxon signed-rank (two-sided, zero_method='wilcox'): zero differences are "
+        "dropped before ranking and tied |differences| share average ranks; when every difference is zero "
+        "there is no evidence either way and p = 1.000. With few non-zero differences p cannot be small "
+        "(n = 3 non-zero gives p >= 0.25)."
+        ),
+    ]
+    return "\n".join(lines)
+
+
+_DEGRADATION_ZERO = 1.0e-12
+
+
+def _degradation_cell(row: Mapping | None, base: Mapping | None, metric: str) -> str:
+    if row is None or base is None or row[metric] is None or base[metric] is None:
+        return _MISSING
+    normal_mean, shift_mean = base[metric].mean, row[metric].mean
+    if abs(normal_mean) < _DEGRADATION_ZERO:
+        return f"n/a (normal = 0; shift {shift_mean:.3f})"
+    return f"{row[f'{metric}_degradation']:+.3f} ({normal_mean:.3f} → {shift_mean:.3f})"
+
+
+def format_degradation_report(records: Sequence[Mapping], metrics: Sequence[str] = DEGRADATION_METRICS) -> str:
+    """Per model and metric, (shift − normal) / (|normal| + ε) for each shift condition (PRD §34)."""
+    rows = {(row["model"], row["condition"]): row for row in summarize(records)}
+    models = sorted({model for model, _ in rows}, key=lambda m: (_model_order(m), m))
+    shifts = [c for c in CONDITION_NAMES if c != "normal"]
+    lines = [
+        "Degradation vs normal: (shift − normal) / (|normal| + ε), with (normal → shift) means",
+        "",
+        "| model | metric | " + " | ".join(shifts) + " |",
+        "|---|---|" + "---|" * len(shifts),
+    ]
+    for model in models:
+        base = rows.get((model, "normal"))
+        for metric in metrics:
+            cells = [_degradation_cell(rows.get((model, shift)), base, metric) for shift in shifts]
+            lines.append(f"| {model} | {metric} | " + " | ".join(cells) + " |")
+    lines += [
+        "",
+        (
+            "Higher is worse for every metric here, so a positive degradation is a deterioration under the shift. "
+        "Means are pooled across training seeds. When the normal mean is 0 the ratio is undefined (ε = 1e-9 "
+        f"would print ~1e8), so the cell shows n/a with the shift mean; {_MISSING} means a condition was not run "
+        "or all its episodes failed."
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def format_all_reports(records: Sequence[Mapping]) -> str:
+    """The results table, the paired comparisons and the degradation table, in that order."""
+    return "\n\n".join((format_report(records), format_paired_report(records), format_degradation_report(records)))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -292,7 +456,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
     run.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
 
-    report = sub.add_parser("report", help="markdown table from an episode log")
+    report = sub.add_parser("report", help="results, paired-comparison and degradation tables from an episode log")
     report.add_argument("--episodes", required=True)
 
     registry_cmd = sub.add_parser("registry", help="write the model -> checkpoint registry from finished runs")
@@ -369,7 +533,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "report":
-        print(format_report(read_records(args.episodes)))
+        print(format_all_reports(read_records(args.episodes)))
     elif args.command == "registry":
         _registry_command(args)
     elif args.command == "freeze":
