@@ -455,6 +455,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--freeze-snapshot", default=None, help="required for --split test")
     run.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
     run.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
+    run.add_argument(
+        "--retry-failed", action="store_true", help="rerun episodes whose latest logged record has status 'failed'"
+    )
 
     report = sub.add_parser("report", help="results, paired-comparison and degradation tables from an episode log")
     report.add_argument("--episodes", required=True)
@@ -524,7 +527,7 @@ def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         git_commit=_git_commit(), config_path=args.config, overlay_path=args.overlay,
     )
     print(f"{len(tasks)} episodes ({args.workers} workers)", flush=True)
-    run_tasks(tasks, args.out, workers=args.workers)
+    run_tasks(tasks, args.out, workers=args.workers, retry_failed=args.retry_failed)
     print(format_report(read_records(args.out)))
 
 
