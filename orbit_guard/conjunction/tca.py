@@ -15,9 +15,11 @@ def compute_tca(
     """Compute time of closest approach and minimum separation over sampled trajectories.
 
     Locates the discrete minimum across the sampled trajectory window and, when
-    ``refine=True`` (default), performs local quadratic relative-motion interpolation
-    around the discrete minimum sample using the relative state vector
-    ``[Δr, Δv]`` to resolve sub-timestep closest approach within the lookahead window.
+    ``refine=True`` (default), performs a local linear relative-motion refinement
+    around the discrete minimum sample using the relative state vector ``[Δr, Δv]``
+    to resolve sub-timestep closest approach within the lookahead window. The refinement
+    solves the linear closest approach ``tau = -(Δr · Δv) / |Δv|²``, clipped to the
+    adjacent sample interval ``[-dt, dt]``.
 
     Args:
         trajectory_i: State history of satellite i with shape (n_steps + 1, 6),
