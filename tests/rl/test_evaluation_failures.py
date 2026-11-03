@@ -102,3 +102,35 @@ def test_failed_episodes_defaults_to_zero_and_leaves_the_gate_verdict_unchanged(
 
     assert trained.failed_episodes == 0
     assert gate_verdict(trained, baseline).passed
+
+
+def _gate_report(**overrides) -> EvaluationReport:
+    base = {
+        "episodes": 10, "mean_return_per_agent": 110.0, "collision_episodes": 0, "maneuver_rate": 0.1,
+        "threat_maneuver_rate": 0.8, "calm_maneuver_rate": 0.05, "threat_step_fraction": 0.1,
+        "mean_delta_v_used_mps": 0.2, "mean_episode_steps": 3.0, "mean_budget_fraction_used": 0.1, "unsafe_episodes": 0,
+    }
+    return EvaluationReport(**{**base, **overrides})
+
+
+def test_c1_compares_collision_rates_over_finished_episodes_when_episodes_failed():
+    baseline = _gate_report(collision_episodes=2, mean_return_per_agent=100.0)  # 2 of 10
+    crashing = _gate_report(collision_episodes=2, failed_episodes=6)  # 2 of the 4 that finished
+
+    assert not gate_verdict(crashing, baseline).checks["C1_safety"], (
+        "crashing on seeds must not make a policy look at least as safe as the baseline"
+    )
+
+
+def test_c1_fails_when_the_trained_policy_finished_no_episode():
+    baseline = _gate_report(collision_episodes=2, mean_return_per_agent=100.0)
+    crashed = _gate_report(collision_episodes=0, failed_episodes=10)
+
+    assert not gate_verdict(crashed, baseline).checks["C1_safety"]
+
+
+def test_c1_still_compares_counts_when_nothing_failed():
+    baseline = _gate_report(collision_episodes=2, mean_return_per_agent=100.0)
+
+    assert gate_verdict(_gate_report(collision_episodes=2), baseline).checks["C1_safety"]
+    assert not gate_verdict(_gate_report(collision_episodes=3), baseline).checks["C1_safety"]

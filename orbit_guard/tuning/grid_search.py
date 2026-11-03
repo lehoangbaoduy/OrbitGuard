@@ -194,7 +194,7 @@ def run_grid(
     base_config: str | Path = _DEFAULT_CONFIG,
     rank_logged: Sequence[GridPoint] = (),
 ) -> list[GridResult]:
-    """Evaluate every point on the validation pool (or its first `max_seeds`); best score first.
+    """Evaluate every point on the validation pool (or its first `max_seeds`); ranked by `rank_results`, best first.
 
     Each finished point is logged with the run `settings`, to which the `score_rule`, the `config_digest` of
     `base_config` (the config `run_point` trains under; `factory_for_point` defaults to the same file) and the

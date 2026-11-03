@@ -259,6 +259,19 @@ class GateVerdict:
     checks: dict[str, bool]
 
 
+def _no_less_safe(trained: EvaluationReport, baseline: EvaluationReport) -> bool:
+    """C1. Without failed episodes: collision-episode COUNTS (the original, frozen rule, bit-identical).
+
+    With failed episodes on either side: collision-episode RATES over the finished episodes, so crashing on seeds
+    cannot make a policy look safer; a side that finished no episode cannot be judged and fails C1.
+    """
+    if trained.failed_episodes == 0 and baseline.failed_episodes == 0:
+        return trained.collision_episodes <= baseline.collision_episodes
+    if trained.ok_episodes < 1 or baseline.ok_episodes < 1:
+        return False
+    return trained.collision_episodes / trained.ok_episodes <= baseline.collision_episodes / baseline.ok_episodes
+
+
 def gate_verdict(
     trained: EvaluationReport,
     baseline: EvaluationReport,
@@ -269,7 +282,7 @@ def gate_verdict(
     C2 reads the per-satellite budget fraction, so it needs no budget argument (a NaN fraction fails it).
     """
     checks = {
-        "C1_safety": trained.collision_episodes <= baseline.collision_episodes,
+        "C1_safety": _no_less_safe(trained, baseline),
         "C2_efficiency": trained.mean_budget_fraction_used <= criteria.max_delta_v_fraction,
         "C3_return": trained.mean_return_per_agent >= baseline.mean_return_per_agent,
         "C4_conditioning": (
