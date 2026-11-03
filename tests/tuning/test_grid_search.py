@@ -12,7 +12,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from orbit_guard.evaluation.seed_pools import load_seed_pool, write_seed_pool
+from orbit_guard.config import DEFAULT_CONFIG_PATH, config_digest
+from orbit_guard.evaluation.seed_pools import (
+    generate_validation_pool,
+    load_seed_pool,
+    write_seed_pool,
+)
 from orbit_guard.rl.evaluation import EvaluationReport
 from orbit_guard.tuning.grid_search import (
     GridPoint,
@@ -239,7 +244,10 @@ def test_run_grid_records_the_score_rule_in_the_logged_settings(tmp_path):
     results = run_grid([GridPoint("a")], lambda p, s: _report(1, 0.4, unsafe=3), "extended", log_path=log, settings=_SETTINGS, max_seeds=10)
 
     record = json.loads(log.read_text().splitlines()[0])
-    assert record["settings"] == {**_SETTINGS, "score": "extended"}
+    assert record["settings"] == {
+        **_SETTINGS, "score": "extended", "base_config_digest": config_digest(DEFAULT_CONFIG_PATH),
+        "validation_pool_sha256": hashlib.sha256((_REPO / "configs" / "validation_seeds.json").read_bytes()).hexdigest(),
+    }
     assert record["score"] == pytest.approx(results[0].score)
     assert results[0].score_rule == "extended"
 
@@ -320,3 +328,57 @@ def test_grid_cli_passes_the_critic_input_to_training_and_logs_it(argv, expected
 
     assert [settings.critic_input for settings in built] == [expected]
     assert logged["critic_input"] == expected
+
+
+# --- resume never reuses a point scored under another base config or seed pool (HARDEN-2) ---------------------
+
+
+def _validation_config(tmp_path) -> Path:
+    pool = tmp_path / "validation_seeds.json"
+    write_seed_pool(pool, "validation", generate_validation_pool())
+    config = tmp_path / "validation.yaml"
+    config.write_text(yaml.safe_dump({"split": "validation", "seed_pool_file": str(pool)}))
+    return config
+
+
+def test_a_resumed_grid_reruns_points_logged_under_another_base_config(tmp_path):
+    base = tmp_path / "default.yaml"
+    base.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), "q27", log_path=log, settings=_SETTINGS, max_seeds=10,
+             base_config=base)
+    base.write_bytes(base.read_bytes() + b"# edited after the first grid\n")
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1), "q27",
+             log_path=log, settings=_SETTINGS, max_seeds=10, base_config=base, resume=True)
+
+    assert reran == ["a"]
+
+
+def test_a_resumed_grid_reruns_points_logged_under_another_validation_pool_file(tmp_path):
+    validation = _validation_config(tmp_path)
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), "q27", log_path=log, settings=_SETTINGS, max_seeds=10,
+             validation_config=validation)
+    pool = tmp_path / "validation_seeds.json"
+    pool.write_text(pool.read_text() + " ")  # same seeds, different file bytes
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1), "q27",
+             log_path=log, settings=_SETTINGS, max_seeds=10, validation_config=validation, resume=True)
+
+    assert reran == ["a"]
+
+
+def test_a_resumed_grid_still_skips_points_when_base_config_and_pool_are_unchanged(tmp_path):
+    validation = _validation_config(tmp_path)
+    log = tmp_path / "grid_log.jsonl"
+    run_grid([GridPoint("a")], lambda p, s: _report(0, 0.1), "q27", log_path=log, settings=_SETTINGS, max_seeds=10,
+             validation_config=validation)
+    reran = []
+
+    run_grid([GridPoint("a")], lambda p, s: reran.append(p.name) or _report(0, 0.1), "q27",
+             log_path=log, settings=_SETTINGS, max_seeds=10, validation_config=validation, resume=True)
+
+    assert reran == []

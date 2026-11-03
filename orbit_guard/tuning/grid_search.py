@@ -21,7 +21,9 @@ of the pre-registered compute plan, used when the No-Maneuver collision-episode
 rate on validation is too low (< 0.10) for collisions alone to rank grid points;
 an unsafe episode is one with a non-colliding pair inside the common adaptive
 reference margin (PRD §36 #2, Q28). The rule is part of the logged run settings,
-so a resumed grid never mixes rules. The winner is frozen into an overlay file whose hash
+together with the base config's `config_digest` and the validation pool file's
+sha256, so a resumed grid never mixes rules, configurations or seed pools.
+The winner is frozen into an overlay file whose hash
 covers `configs/default.yaml` plus the overrides, snapshotted before any
 final-test evaluation (PRD §33, "freeze tuned params before final test").
 """
@@ -30,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -41,6 +44,7 @@ import yaml
 from orbit_guard.config import (
     DEFAULT_CONFIG_PATH,
     apply_overlay,
+    config_digest,
     load_config,
     margin_from_config,
     overlay_digest,
@@ -153,21 +157,29 @@ def run_grid(
     log_path: str | Path | None = None,
     settings: dict | None = None,
     resume: bool = False,
+    base_config: str | Path = _DEFAULT_CONFIG,
 ) -> list[GridResult]:
     """Evaluate every point on the validation pool (or its first `max_seeds`); best score first.
 
-    Each finished point is logged with the run `settings`, to which the `score_rule` is always added. With
-    `resume`, points already logged under identical settings (rule included) and the same episode count are not
-    run again but still take part in the ranking, so a killed grid continues where it stopped instead of starting
-    over, and never ranks points scored under different rules together.
+    Each finished point is logged with the run `settings`, to which the `score_rule`, the `config_digest` of
+    `base_config` (the config `run_point` trains under; `factory_for_point` defaults to the same file) and the
+    sha256 of the validation seed-pool file are always added. With `resume`, points already logged under
+    identical settings and the same episode count are not run again but still take part in the ranking, so a
+    killed grid continues where it stopped instead of starting over, and never ranks together points scored
+    under different rules, base configurations or seed pools.
     """
     _require_score_rule(score_rule)
-    settings = {**(settings or {}), "score": score_rule}
     config = yaml.safe_load(Path(validation_config).read_text())
     pool_path = Path(config["seed_pool_file"])
     if not pool_path.is_absolute():
         pool_path = _CONFIG_DIR.parent / pool_path
     seeds = load_seed_pool(pool_path, "validation", config.get("seed_pool_sha256"))
+    settings = {
+        **(settings or {}),
+        "score": score_rule,
+        "base_config_digest": config_digest(base_config),
+        "validation_pool_sha256": hashlib.sha256(pool_path.read_bytes()).hexdigest(),
+    }
     if max_seeds is not None:
         seeds = seeds[:max_seeds]
 
