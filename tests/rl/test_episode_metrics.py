@@ -150,3 +150,25 @@ def test_mean_mission_deviation_averages_the_post_step_deviations_the_next_obser
             expected.append(compute_weighted_mission_deviation(components, **env._mission_weights))
 
     assert env.episode_summary().mean_mission_deviation == pytest.approx(sum(expected) / len(expected), rel=1e-12)
+
+
+def test_max_mission_deviation_is_the_largest_post_step_deviation_of_any_active_satellite():
+    from orbit_guard.safety.maneuver_mapper import ManeuverIntent
+
+    env = OrbitGuardEnv(num_agents=2, episode_horizon_s=300.0, control_dt_s=60.0, physics_dt_s=10.0, lookahead_s=600.0)
+    env.reset(seed=11)
+    deviations = []
+    while env.agents:
+        env.step({agent: int(ManeuverIntent.RAISE_ORBIT) for agent in env.agents})
+        deviations.extend(record["mission_deviation"] for record in env.step_records())
+
+    summary = env.episode_summary()
+    assert summary.max_mission_deviation == max(deviations)
+    assert summary.max_mission_deviation > summary.mean_mission_deviation > 0.0
+
+
+def test_max_mission_deviation_is_zero_before_any_step():
+    env = OrbitGuardEnv(num_agents=2, **_KW)
+    env.reset(seed=_NEAR_MISS_SEED)
+
+    assert env.episode_summary().max_mission_deviation == 0.0

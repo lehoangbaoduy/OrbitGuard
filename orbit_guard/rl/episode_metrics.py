@@ -55,6 +55,7 @@ class EpisodeSummary:
     worsened_conjunction_steps: int = 0
     mean_residual_risk: float = 0.0
     failure_labels: tuple[str, ...] = ()
+    max_mission_deviation: float = 0.0  # largest post-step deviation of any active satellite (§40)
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class EpisodeMetricsTracker:
     _maneuvers: int = 0
     _deviation_sum: float = 0.0
     _deviation_samples: int = 0
+    _deviation_max: float = 0.0
     _risk_sum: float = 0.0
     _shield_interventions: int = 0
     _shield_rejected: int = 0
@@ -111,6 +113,7 @@ class EpisodeMetricsTracker:
         self._maneuvers += sum(burned)
         self._deviation_sum += float(sum(mission_deviations))
         self._deviation_samples += len(mission_deviations)
+        self._deviation_max = max(self._deviation_max, *map(float, mission_deviations), 0.0)
         self._risk_sum += max((risk for _, _, risk in post.values()), default=0.0)
 
         new_conjunction = worsened = False
@@ -176,4 +179,5 @@ class EpisodeMetricsTracker:
             worsened_conjunction_steps=self._worsened_steps,
             mean_residual_risk=self._risk_sum / self.steps if self.steps else 0.0,
             failure_labels=tuple(labels),
+            max_mission_deviation=self._deviation_max,
         )

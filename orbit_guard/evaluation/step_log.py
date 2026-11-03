@@ -123,3 +123,14 @@ def read_step_log(path: str | Path, sha256: str) -> list[dict]:
         raise StepLogIntegrityError(f"{path}: sha256 {actual} does not match the recorded {sha256}")
     text = gzip.decompress(data).decode("utf-8")
     return [json.loads(line, parse_constant=_reject_constant) for line in text.splitlines() if line.strip()]
+
+
+def read_episode_step_log(episode_log_dir: str | Path, record: Mapping) -> list[dict]:
+    """The verified step records of an episode record; its `step_log` is relative to the episode log's directory.
+
+    `run_episode_task` stores `step_log` as '<step-log dir name>/<file name>', i.e. relative to the PARENT of
+    the step-log directory; the experiment CLI puts that directory next to the episode log (<out dir>/steps).
+    """
+    if record.get("step_log") is None:
+        raise ValueError("this episode record has no step log (step logging was off for its task)")
+    return read_step_log(Path(episode_log_dir) / record["step_log"], record["step_log_sha256"])
