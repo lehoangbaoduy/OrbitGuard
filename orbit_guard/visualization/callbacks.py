@@ -24,7 +24,7 @@ from orbit_guard.visualization.layout import (
     summary_strip,
 )
 from orbit_guard.visualization.payload import build_payload, build_strip
-from orbit_guard.visualization.reference import reference_note
+from orbit_guard.visualization.reference import ReferenceLogError, reference_note
 from orbit_guard.visualization.replay import load_trace
 from orbit_guard.visualization.replay_meta import ReplayMeta, ReplayMetaError
 from orbit_guard.visualization.selection import (
@@ -127,7 +127,7 @@ def register_callbacks(app: Dash, index: EpisodeIndex, provider: PayloadProvider
             raise PreventUpdate
         try:
             payload = provider(selection)
-        except (ReplayMetaError, FileNotFoundError) as error:  # a trace damaged or removed since the index was built
+        except (ReplayMetaError, FileNotFoundError, ReferenceLogError) as error:  # a trace or reference log damaged or removed since startup
             return _failure(ctx.outputs_list, str(error))
         states = control_states(index, selection)
         control_lists = [[_control_value(states, spec) for spec in group] for group in ctx.outputs_list[_FIXED_OUTPUTS:]]

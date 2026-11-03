@@ -30,6 +30,10 @@ class RemoteHostError(ValueError):
     """A non-loopback bind address was requested without `--allow-remote`."""
 
 
+class CspUnavailableError(RuntimeError):
+    """Dash's index page no longer carries the one inline renderer script the CSP is built from (fail closed)."""
+
+
 def check_host(host: str, *, allow_remote: bool) -> None:
     if host not in LOOPBACK_HOSTS and not allow_remote:
         raise RemoteHostError(
@@ -68,12 +72,17 @@ def install_security(app: Dash, *, allow_remote: bool = False) -> None:
     with server.test_request_context("/"):
         page = app.index()
     match = _RENDERER_SCRIPT.search(page)
-    policy = content_security_policy(match.group(1)) if match else None
+    if match is None:  # fail closed: serving without a CSP would drop the script protection silently
+        raise CspUnavailableError(
+            "cannot build the Content-Security-Policy: the Dash index page has no '<script id=\"_dash-renderer\">' block "
+            "to hash (Dash changed its renderer markup?). Refusing to serve the replay app without it."
+        )
+    policy = content_security_policy(match.group(1))
 
     @server.after_request
     def _headers(response: Response) -> Response:
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
-        if policy and request.path == "/":
+        if request.path == "/":
             response.headers.setdefault("Content-Security-Policy", policy)
         return response

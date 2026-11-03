@@ -67,20 +67,47 @@ def test_js_unit_tests_pass(fixtures_dir):
     assert completed.returncode == 0, completed.stdout[-4000:] + completed.stderr[-2000:]
 
 
-def _constant_pair(source: str, left: str, right: str) -> tuple[int, int]:
-    match = re.search(rf"const {left} = (\d+), {right} = (\d+)", source)
-    assert match, f"{left}/{right} constants not found"
-    return int(match.group(1)), int(match.group(2))
+# Every status and event code the browser hard-codes, by the name the asset uses, with the Python vocabulary's value.
+VOCAB_CODES = {
+    "STATUS_COLLIDED": SAT_STATUS_NAMES.index("collided"),
+    "SAT_INSIDE": SAT_STATUS_NAMES.index("inside_d_safe"),
+    "SAT_HIGH_RISK": SAT_STATUS_NAMES.index("high_risk"),
+    "PAIR_INSIDE": PAIR_STATUS_NAMES.index("inside_d_safe"),
+    "PAIR_HIGH_RISK": PAIR_STATUS_NAMES.index("high_risk"),
+    "PAIR_COLLISION": PAIR_STATUS_NAMES.index("collision"),
+    "EVENT_MANEUVER": EVENT_NAMES.index("maneuver"),
+    "EVENT_SHIELD": EVENT_NAMES.index("shield_intervention"),
+    "EVENT_COLLISION": EVENT_NAMES.index("collision"),
+}
+CODE_ASSETS = ("13_og_scene_dynamic.js", "20_og_panels.js", "21_og_models.js")  # every asset that hard-codes codes; test_every_asset_that_hard_codes_them keeps this complete
+CODE_DEFINITION = re.compile(r"\b(?:STATUS_COLLIDED|(?:PAIR|SAT|EVENT)_[A-Z_]+)\s*=\s*\d|\bEVENT = \{")
 
 
-def test_js_status_and_event_codes_match_the_python_vocabulary():
-    """The scene's literal codes must equal the ones the payload's arrays use (derived/status.py)."""
-    source = (STAGE_JS / "13_og_scene_dynamic.js").read_text()
-    assert re.search(r"const STATUS_COLLIDED = (\d+)", source).group(1) == str(SAT_STATUS_NAMES.index("collided"))
-    maneuver, shield = _constant_pair(source, "EVENT_MANEUVER", "EVENT_SHIELD")
-    assert (maneuver, shield) == (EVENT_NAMES.index("maneuver"), EVENT_NAMES.index("shield_intervention"))
-    assert f"EVENT_COLLISION = {EVENT_NAMES.index('collision')}" in source
-    inside, high = _constant_pair(source, "PAIR_INSIDE", "PAIR_HIGH_RISK")
-    assert (inside, high) == (PAIR_STATUS_NAMES.index("inside_d_safe"), PAIR_STATUS_NAMES.index("high_risk"))
-    sat_inside, sat_high = _constant_pair(source, "SAT_INSIDE", "SAT_HIGH_RISK")
-    assert (sat_inside, sat_high) == (SAT_STATUS_NAMES.index("inside_d_safe"), SAT_STATUS_NAMES.index("high_risk"))
+def _declared_codes(source: str) -> dict[str, int]:
+    """`NAME = 3` declarations, and `EVENT = { maneuver: 1, ... }` object literals as `EVENT_MANEUVER` etc."""
+    codes = {name: int(value) for name, value in re.findall(r"\b([A-Z][A-Z_]*)\s*=\s*(\d+)\b", source)}
+    for body in re.findall(r"\bEVENT = \{([^}]*)\}", source):
+        codes.update({f"EVENT_{name.upper()}": int(value) for name, value in re.findall(r"(\w+):\s*(\d+)", body)})
+    return codes
+
+
+def _assert_codes_match(source: str) -> None:
+    declared = _declared_codes(source)
+    for name, value in declared.items():
+        if name in VOCAB_CODES:
+            assert value == VOCAB_CODES[name], f"{name} = {value} in the asset; the Python vocabulary says {VOCAB_CODES[name]}"
+    for name in VOCAB_CODES:
+        if re.search(rf"\b{name}\b", source):
+            assert name in declared, f"{name} is used by the asset but never declared"
+
+
+@pytest.mark.parametrize("asset", CODE_ASSETS)
+def test_js_status_and_event_codes_match_the_python_vocabulary(asset):
+    """The asset's literal codes must equal the ones the payload's arrays use (derived/status.py)."""
+    _assert_codes_match((STAGE_JS / asset).read_text())
+
+
+def test_every_asset_that_hard_codes_the_codes_is_checked_against_the_vocabulary():
+    hard_coding = {path.name for path in STAGE_JS.glob("*.js") if CODE_DEFINITION.search(path.read_text())}
+
+    assert hard_coding == set(CODE_ASSETS), "an asset hard-codes status/event codes but is not in CODE_ASSETS"
