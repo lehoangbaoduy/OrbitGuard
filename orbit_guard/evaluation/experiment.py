@@ -12,7 +12,9 @@
                         with the digest the experiment is about to use raises `CheckpointProvenanceError`.
                         A model trained with a tuned overlay must therefore be evaluated with that overlay.
 CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
-`--overlay` (default configs/default.yaml, no overlay).
+`--overlay` (default configs/default.yaml, no overlay). `run --split validation --conditions ...` runs the
+validation seeds under any of the five shift conditions (or `all`), reusing the same seeds for each; the test
+split always runs the frozen pool's five conditions and refuses a pool that lacks one.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import numpy as np
 from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
 from orbit_guard.evaluation.baselines import MODEL_NAMES, _model_spec
 from orbit_guard.evaluation.runner import EpisodeTask, read_records, run_tasks
+from orbit_guard.evaluation.shifts import CONDITION_NAMES
 from orbit_guard.evaluation.statistics import (
     PairedComparison,
     Summary,
@@ -121,6 +124,37 @@ def build_tasks(
                     for seed in seeds
                 )
     return tasks
+
+
+ALL_CONDITIONS = "all"
+
+
+def validation_condition_seeds(seeds: Sequence[int], conditions: Sequence[str]) -> dict[str, tuple[int, ...]]:
+    """The SAME validation seeds under each requested condition (`all` = the five), in canonical order.
+
+    Reusing seeds across conditions is fine on the validation split (it is validation, not test); the final
+    test instead draws ten distinct seeds per condition from the frozen pool (PRD §33).
+    """
+    requested = set(conditions)
+    if not requested:
+        raise ValueError("choose at least one condition")
+    unknown = sorted(requested - set(CONDITION_NAMES) - {ALL_CONDITIONS})
+    if unknown:
+        raise ValueError(f"unknown conditions {unknown}; expected names from {CONDITION_NAMES} or {ALL_CONDITIONS!r}")
+    chosen = CONDITION_NAMES if ALL_CONDITIONS in requested else [c for c in CONDITION_NAMES if c in requested]
+    return {condition: tuple(seeds) for condition in chosen}
+
+
+def require_all_conditions(condition_seeds: Mapping[str, Sequence[int]]) -> None:
+    """Raise ValueError unless the final-test pool holds exactly the five conditions, in canonical order."""
+    found = tuple(condition_seeds)
+    if found != CONDITION_NAMES:
+        missing = sorted(set(CONDITION_NAMES) - set(found))
+        extra = sorted(set(found) - set(CONDITION_NAMES))
+        raise ValueError(
+            f"the final-test pool must hold the conditions {CONDITION_NAMES} in that order; got {found} "
+            f"(missing {missing}, unexpected {extra})"
+        )
 
 
 _RUN_VARIANT_TO_MODEL = {
@@ -250,6 +284,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--n-agents", type=int, default=15)
     run.add_argument("--experiment-id", default="exp")
     run.add_argument("--max-seeds", type=int, default=None, help="validation split: use only this many seeds")
+    run.add_argument(
+        "--conditions", nargs="+", default=None, choices=(*CONDITION_NAMES, ALL_CONDITIONS),
+        help="validation split only: shift conditions to run, each on the same seeds (default: normal)",
+    )
     run.add_argument("--freeze-snapshot", default=None, help="required for --split test")
     run.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
     run.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
@@ -298,8 +336,9 @@ def _freeze_command(args: argparse.Namespace) -> None:
 
 def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     from orbit_guard.evaluation.freeze import _git_commit
-    from orbit_guard.evaluation.shifts import CONDITION_NAMES
 
+    if args.split == "test" and args.conditions is not None:
+        parser.error("--conditions applies to --split validation only; the final test runs the frozen pool's five")
     registry = _read_registry(args.registry)
     # Before any seed pool is read: a mismatched checkpoint must not even open the final-test pool.
     check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
@@ -307,14 +346,14 @@ def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         from orbit_guard.evaluation.seed_pools import load_seed_pool
 
         seeds = load_seed_pool(args.validation_pool, "validation")[: args.max_seeds]
-        condition_seeds = {"normal": seeds}
+        condition_seeds = validation_condition_seeds(seeds, args.conditions or ("normal",))
     else:
         if args.freeze_snapshot is None:
             parser.error("--split test requires --freeze-snapshot (freeze configs and checkpoints first)")
         from orbit_guard.evaluation.test_seed_pool import load_test_pool
 
         condition_seeds = load_test_pool(args.test_pool, args.freeze_snapshot, _flat_checkpoints(registry), args.config)
-        assert tuple(condition_seeds) == CONDITION_NAMES
+        require_all_conditions(condition_seeds)
 
     tasks = build_tasks(
         args.models, condition_seeds, registry, n_agents=args.n_agents, experiment_id=args.experiment_id,
