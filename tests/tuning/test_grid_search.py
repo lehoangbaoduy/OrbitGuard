@@ -298,7 +298,7 @@ def test_grid_cli_critic_input_defaults_to_the_config_and_accepts_both_variants(
         parser.parse_args(["--critic-input", "local"])
 
 
-@pytest.mark.parametrize(("argv", "expected"), [([], "global"), (["--critic-input", "agent_global"], "agent_global")])
+@pytest.mark.parametrize(("argv", "expected"), [([], "agent_global"), (["--critic-input", "global"], "global")])
 def test_grid_cli_passes_the_critic_input_to_training_and_logs_it(argv, expected, tmp_path, monkeypatch):
     from orbit_guard.rl import evaluation, training
     from orbit_guard.tuning import grid_search

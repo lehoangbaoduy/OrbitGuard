@@ -210,9 +210,9 @@ def test_saved_checkpoint_carries_a_ray_free_actor_that_agrees_with_the_rllib_gr
         observations, _, _, _, _ = raw_env.step(actions)
 
 
-def test_the_critic_input_defaults_to_the_global_state_from_the_config():
-    assert load_training_settings().critic_input == "global"
-    assert TrainingSettings().critic_input == "global"
+def test_the_critic_input_defaults_to_the_agent_specific_global_state_adopted_by_r4():
+    assert load_training_settings().critic_input == "agent_global"  # configs/default.yaml, prereg R4 outcome
+    assert TrainingSettings().critic_input == "global"  # code fallback when no config is read
 
 
 def test_the_critic_input_override_takes_precedence_over_the_config():
