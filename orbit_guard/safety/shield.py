@@ -17,7 +17,10 @@ JOINT set before anything is applied:
      (CORE-2), so `proposal_evaluation.pairs` is that estimator's output;
   4. safety checks per pair (collision, new conjunction, risk worsened,
      `d_safe` violated) and per agent (mission-deviation limit);
-  5. accept the joint proposal if nothing is violated;
+  5. accept the joint proposal if no violation involves an ACTIVE (controllable)
+     agent -- a violation between two non-controllable debris satellites after a
+     collision is still recorded in the evaluation, but no proposal caused it, so it
+     never counts as a rejection or as infeasibility (CORE-4a);
   6. otherwise repair with the bounded search of `repair_search` over only the
      agents involved in a violation (exact <= 4, beam width 50 above);
   7. return the approved joint action.
@@ -120,8 +123,8 @@ class ShieldResult:
     proposed: tuple[int, ...]
     approved: tuple[int, ...]
     intervened: tuple[bool, ...]
-    accepted: bool  # the joint proposal had no violation
-    feasible: bool  # the approved joint action has no violation
+    accepted: bool  # the joint proposal had no violation involving an active agent
+    feasible: bool  # the approved joint action has no violation involving an active agent
     proposal_evaluation: JointEvaluation  # the RAW proposal's predicted outcome (feeds training rewards)
     approved_evaluation: JointEvaluation
     repair: RepairOutcome | None
@@ -377,9 +380,14 @@ class JointActionShield:
             proposed=proposed,
             approved=tuple(approved),
             intervened=tuple(is_active and a != p for is_active, a, p in zip(active, approved, proposed, strict=True)),
-            accepted=not proposal_evaluation.violations,
-            feasible=not approved_evaluation.violations,
+            accepted=not _involving_active(proposal_evaluation.violations, active),
+            feasible=not _involving_active(approved_evaluation.violations, active),
             proposal_evaluation=proposal_evaluation,
             approved_evaluation=approved_evaluation,
             repair=repair,
         )
+
+
+def _involving_active(violations: Sequence[Violation], active: Sequence[bool]) -> tuple[Violation, ...]:
+    """The violations with at least one active (controllable) agent: the only ones a proposal can be blamed for."""
+    return tuple(v for v in violations if any(active[agent] for agent in v.agents))

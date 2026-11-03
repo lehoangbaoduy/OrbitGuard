@@ -364,3 +364,43 @@ def test_with_saturated_risk_and_no_feasible_option_the_shield_still_adds_separa
     assert not result.feasible
     assert result.approved != (0, 0)
     assert result.approved_evaluation.shortfall_m < result.proposal_evaluation.shortfall_m
+
+
+def _with_far_satellite(conjunction_beliefs) -> list[AgentBelief]:
+    """The conjunction pair plus a third satellite on the same orbit rotated 90 degrees about z (far from both)."""
+    rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    template = conjunction_beliefs[0]
+    far = AgentBelief(
+        np.concatenate([rotation @ template.state_vector[:3], rotation @ template.state_vector[3:6]]),
+        template.covariance,
+    )
+    return [*conjunction_beliefs, far]
+
+
+def test_a_violation_between_two_debris_satellites_does_not_count_as_a_rejected_proposal(conjunction_beliefs):
+    # After a collision at N>2 the pair is non-controllable debris: its predicted state can still violate the
+    # margin, but no active agent proposed anything that caused it, so the proposal is not "rejected".
+    beliefs = _with_far_satellite(conjunction_beliefs)
+    shield = _shield(margin_fn=_fixed_margin(_SMALL_MARGIN_M))
+
+    result = shield.filter(
+        beliefs, (0, 0, int(ManeuverIntent.PHASE_FORWARD)), _capabilities(3), controllable=(False, False, True)
+    )
+
+    violations = result.proposal_evaluation.violations
+    assert violations, "precondition: the debris pair must still violate the margin"
+    assert all(set(v.agents) <= {0, 1} for v in violations), "precondition: only the debris pair is involved"
+    assert result.accepted
+    assert result.feasible
+    assert result.repair is None
+    assert result.intervened == (False, False, False)
+    assert result.approved == (0, 0, int(ManeuverIntent.PHASE_FORWARD))
+
+
+def test_a_violation_with_one_active_member_still_rejects_the_proposal(conjunction_beliefs):
+    shield = _shield(margin_fn=_fixed_margin(_SMALL_MARGIN_M))
+
+    result = shield.filter(conjunction_beliefs, (0, 0), _capabilities(2), controllable=(True, False))
+
+    assert not result.accepted
+    assert any(v.agents == (0, 1) for v in result.proposal_evaluation.violations)
