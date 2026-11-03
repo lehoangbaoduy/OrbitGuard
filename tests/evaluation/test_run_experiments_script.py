@@ -20,7 +20,8 @@ pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash
 
 
 def _run_script(
-    tmp_path: Path, extra_env: dict[str, str], args: list[str] | None = None
+    tmp_path: Path, extra_env: dict[str, str], args: list[str] | None = None, *, cwd: Path | None = None,
+    check: bool = True,
 ) -> list[list[str]]:
     """Run the script with a logging fake uv; `args` defaults to the positional RUNS and OUT dirs under tmp_path."""
     bin_dir = tmp_path / "bin"
@@ -36,8 +37,8 @@ def _run_script(
     runs, out = tmp_path / "runs", tmp_path / "out"
     runs.mkdir(exist_ok=True)
     positional = [str(runs), str(out)] if args is None else args
-    subprocess.run(["bash", str(_SCRIPT), *positional], env=env, check=True, capture_output=True, text=True)
-    return [line.rstrip(_SEPARATOR).split(_SEPARATOR) for line in log.read_text().splitlines()]
+    subprocess.run(["bash", str(_SCRIPT), *positional], env=env, check=check, capture_output=True, text=True, cwd=cwd)
+    return [line.rstrip(_SEPARATOR).split(_SEPARATOR) for line in log.read_text().splitlines()] if log.exists() else []
 
 
 def _step(call: list[str]) -> str:
@@ -103,3 +104,39 @@ def test_an_existing_freeze_is_verified_by_the_test_run_instead_of_rewritten(tmp
     assert [_step(call) for call in calls] == ["registry", "run", "run"]
     test_run = calls[-1]
     assert _flag(test_run, "--split") == "test" and _flag(test_run, "--freeze-snapshot") == str(out / "frozen.json")
+
+
+def test_relative_paths_resolve_against_the_callers_directory_not_the_repo(tmp_path):
+    # The script cd's to the repo root before the python steps; relative inputs must not follow it there.
+    caller = tmp_path / "caller"
+    (caller / "runs").mkdir(parents=True)
+
+    calls = _experiment_calls(_run_script(
+        tmp_path, {"OVERLAY": "tuned.yaml"}, args=["runs", "out"], cwd=caller,
+    ))
+
+    registry = next(call for call in calls if _step(call) == "registry")
+    assert _flag(registry, "--runs-dir") == str(caller / "runs")
+    assert _flag(registry, "--out") == str(caller / "out" / "registry.json")
+    assert {_flag(call, "--overlay") for call in calls} == {str(caller / "tuned.yaml")}
+
+
+def test_out_comes_from_the_environment_when_no_argument_is_given(tmp_path):
+    out = tmp_path / "final_out"
+
+    calls = _experiment_calls(_run_script(tmp_path, {"RUNS": str(tmp_path / "runs"), "OUT": str(out), "OVERLAY": ""}, args=[]))
+
+    registry = next(call for call in calls if _step(call) == "registry")
+    assert _flag(registry, "--out") == str(out / "registry.json")
+
+
+def test_a_torn_frozen_snapshot_stops_the_pipeline_before_the_test_run(tmp_path):
+    # A freeze killed mid-write leaves frozen.json unparseable; skipping the freeze then must not pass silently.
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "frozen.json").write_text('{"format": 3, "checkpo')
+
+    calls = _experiment_calls(_run_script(tmp_path, {"OVERLAY": ""}, check=False))
+
+    assert [_step(call) for call in calls] == ["registry", "run"]
+    assert all(_flag(call, "--split") != "test" for call in calls if _step(call) == "run")

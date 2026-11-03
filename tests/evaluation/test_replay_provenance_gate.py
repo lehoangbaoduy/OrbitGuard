@@ -134,7 +134,7 @@ def test_the_script_refuses_sidecar_less_checkpoints_before_recording(tmp_path, 
     monkeypatch.setattr(script, "record_all", lambda *a, **k: pytest.fail("must not record"))
 
     with pytest.raises(SystemExit):
-        script.main(["--runs-dir", str(_runs(tmp_path, sidecars=False)), "--out", str(tmp_path / "out")])
+        script.main(["--runs-dir", str(_runs(tmp_path, sidecars=False)), "--out", str(tmp_path / "out"), "--unfrozen"])
 
     assert "run_config.json" in capsys.readouterr().err
 
@@ -143,6 +143,7 @@ def test_the_script_checks_and_forwards_the_freeze_snapshot(tmp_path, monkeypatc
     script, calls = _script(), []
     runs = _runs(tmp_path)
     monkeypatch.setattr(script, "record_all", lambda plan, out, **kwargs: calls.append(kwargs) or [])
+    monkeypatch.setattr(script, "verify_freeze", lambda *a, **k: {})  # the full freeze check has its own test below
     stale = _snapshot(tmp_path, {
         "adaptive_mappo/0": _weights(tmp_path / "other" / "actor_weights.npz", seed=9),
         "adaptive_mappo_no_shield/0": runs / "n15_noshield_s0" / "actor_weights.npz",
@@ -159,3 +160,62 @@ def test_the_script_checks_and_forwards_the_freeze_snapshot(tmp_path, monkeypatc
     })
     script.main(["--runs-dir", str(runs), "--out", str(tmp_path / "out"), "--freeze-snapshot", str(good)])
     assert calls and calls[0]["freeze_snapshot"] == good
+
+
+def test_the_script_refuses_to_record_final_traces_without_the_freeze(tmp_path, monkeypatch, capsys):
+    # Final traces must come from the frozen actors; an unfrozen preview has to be asked for explicitly.
+    script = _script()
+    monkeypatch.setattr(script, "record_all", lambda *a, **k: pytest.fail("must not record"))
+
+    with pytest.raises(SystemExit):
+        script.main(["--runs-dir", str(_runs(tmp_path)), "--out", str(tmp_path / "out")])
+
+    assert "--freeze-snapshot" in capsys.readouterr().err
+
+
+def test_the_script_reverifies_the_whole_freeze_before_recording(tmp_path, monkeypatch, capsys):
+    # sha256 of the two replayed actors is not enough: code, config or overlay may have changed since the freeze.
+    from orbit_guard.config import DEFAULT_CONFIG_PATH
+    from orbit_guard.evaluation.freeze import FrozenConfigError
+
+    script, verified = _script(), []
+    runs = _runs(tmp_path)
+    overlay = tmp_path / "tuned.yaml"
+    snapshot = _snapshot(tmp_path, {
+        "adaptive_mappo/0": runs / "n15_adaptive_s0" / "actor_weights.npz",
+        "adaptive_mappo_no_shield/0": runs / "n15_noshield_s0" / "actor_weights.npz",
+    })
+    monkeypatch.setattr(script, "check_plan_provenance", lambda *a, **k: None)
+    monkeypatch.setattr(script, "record_all", lambda *a, **k: pytest.fail("must not record"))
+
+    def refuse(path, checkpoints, config_path, overlay_path):
+        verified.append((path, checkpoints, config_path, overlay_path))
+        raise FrozenConfigError("orbit_guard/ changed since the freeze")
+
+    monkeypatch.setattr(script, "verify_freeze", refuse)
+
+    with pytest.raises(SystemExit):
+        script.main([
+            "--runs-dir", str(runs), "--out", str(tmp_path / "out"), "--freeze-snapshot", str(snapshot),
+            "--overlay", str(overlay),
+        ])
+
+    assert "changed since the freeze" in capsys.readouterr().err
+    assert verified == [(snapshot, {
+        "adaptive_mappo/0": str(runs / "n15_adaptive_s0" / "actor_weights.npz"),
+        "adaptive_mappo_no_shield/0": str(runs / "n15_noshield_s0" / "actor_weights.npz"),
+    }, DEFAULT_CONFIG_PATH, overlay)]
+
+
+def test_the_script_refuses_an_out_dir_that_already_holds_traces(tmp_path, monkeypatch, capsys):
+    # A partial re-recording into the old traces dir would silently mix retired and final traces.
+    script = _script()
+    monkeypatch.setattr(script, "record_all", lambda *a, **k: pytest.fail("must not record"))
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "normal_111080__trained__shield-on.npz").write_bytes(b"retired")
+
+    with pytest.raises(SystemExit):
+        script.main(["--runs-dir", str(_runs(tmp_path)), "--out", str(out), "--unfrozen"])
+
+    assert "not empty" in capsys.readouterr().err

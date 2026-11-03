@@ -169,7 +169,7 @@ def test_the_script_passes_overlay_to_the_recorder(tmp_path, monkeypatch):
     script, overlay, calls = _script(), _overlay(tmp_path), []
     _all_weights(tmp_path / "runs", trained_with=overlay)
     monkeypatch.setattr(script, "record_all", lambda plan, out, **kwargs: calls.append(kwargs) or [])
-    script.main(["--runs-dir", str(tmp_path / "runs"), "--out", str(tmp_path / "out"), "--overlay", str(overlay)])
+    script.main(["--runs-dir", str(tmp_path / "runs"), "--out", str(tmp_path / "out"), "--overlay", str(overlay), "--unfrozen"])
     assert calls and calls[0]["overlay_path"] == overlay
 
 
@@ -178,5 +178,5 @@ def test_the_script_refuses_a_mismatched_checkpoint_before_recording(tmp_path, m
     _all_weights(tmp_path / "runs", trained_with=_overlay(tmp_path))
     monkeypatch.setattr(script, "record_all", lambda plan, out, **kwargs: calls.append(kwargs) or [])
     with pytest.raises(SystemExit):
-        script.main(["--runs-dir", str(tmp_path / "runs"), "--out", str(tmp_path / "out")])
+        script.main(["--runs-dir", str(tmp_path / "runs"), "--out", str(tmp_path / "out"), "--unfrozen"])
     assert not calls and "config_digest" in capsys.readouterr().err
