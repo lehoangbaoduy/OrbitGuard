@@ -23,13 +23,16 @@ from orbit_guard.evaluation.test_seed_pool import (
     load_test_pool,
     write_test_pool,
 )
+from tests.evaluation.freeze_world import training_sidecar
 from tests.evaluation.git_repo_fixture import make_repo
 
 
 @pytest.fixture(autouse=True)
 def _clean_git_repo(tmp_path, monkeypatch):
     """Freeze git checks run against a committed throwaway repo, never the (possibly dirty) real checkout."""
-    monkeypatch.setattr(freeze, "GIT_ROOT", make_repo(tmp_path / "repo"))
+    repo = make_repo(tmp_path / "repo")
+    monkeypatch.setattr(freeze, "GIT_ROOT", repo)
+    return repo
 
 
 def test_test_pool_has_ten_unique_seeds_for_each_of_the_five_conditions():
@@ -52,7 +55,8 @@ def test_test_pool_is_disjoint_from_the_validation_pool_and_its_range():
 def _weights(tmp_path, content=b"weights-v1"):
     path = tmp_path / "actor_weights.npz"
     path.write_bytes(content)
-    (tmp_path / "run_config.json").write_text("{}")  # the freeze refuses a checkpoint without its sidecar
+    # The freeze refuses a checkpoint without its sidecar, or whose sidecar shows no clean training commit.
+    (tmp_path / "run_config.json").write_text(json.dumps(training_sidecar(tmp_path / "repo")))
     return {"adaptive_mappo/0": path}
 
 

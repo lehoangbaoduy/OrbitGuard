@@ -44,7 +44,7 @@ def _checkpoint(tmp_path: Path, *, trained_with: Path | None, sidecar: bool = Tr
     weights = run / "actor_weights.npz"
     save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), weights)  # stands in for a trained actor
     if sidecar:
-        record = {**sidecar_record(trained_with), "overlay_path": str(trained_with)}
+        record = {**sidecar_record(trained_with, num_agents=2), "overlay_path": str(trained_with)}
         (run / "run_config.json").write_text(json.dumps(record))
     return weights
 
@@ -117,9 +117,12 @@ def test_a_checkpoint_trained_without_an_overlay_is_refused_with_one(tmp_path):
         _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path))
 
 
-def test_a_checkpoint_without_a_sidecar_is_accepted(tmp_path):
+def test_a_checkpoint_without_a_sidecar_is_refused(tmp_path):
+    # review2: the stale ~/orbitguard_runs checkpoints have no sidecar and were silently replayed as final models.
     weights = _checkpoint(tmp_path, trained_with=None, sidecar=False)
-    assert _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path)).is_file()
+    with pytest.raises(CheckpointProvenanceError, match=r"run_config\.json"):
+        _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path))
+    assert not list(tmp_path.glob("out/*.npz"))
 
 
 def test_record_all_refuses_before_recording_any_episode(tmp_path):
@@ -158,7 +161,8 @@ def _all_weights(runs: Path, *, trained_with: Path | None) -> None:
         run = runs / f"n15_{variant}_s0"
         run.mkdir(parents=True)
         save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), run / "actor_weights.npz")
-        (run / "run_config.json").write_text(json.dumps(sidecar_record(trained_with)))
+        record = sidecar_record(trained_with, shield=variant == "adaptive")
+        (run / "run_config.json").write_text(json.dumps(record))
 
 
 def test_the_script_passes_overlay_to_the_recorder(tmp_path, monkeypatch):

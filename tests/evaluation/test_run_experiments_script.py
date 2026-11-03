@@ -19,7 +19,10 @@ _SEPARATOR = "\x1f"
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
 
-def _run_script(tmp_path: Path, extra_env: dict[str, str]) -> list[list[str]]:
+def _run_script(
+    tmp_path: Path, extra_env: dict[str, str], args: list[str] | None = None
+) -> list[list[str]]:
+    """Run the script with a logging fake uv; `args` defaults to the positional RUNS and OUT dirs under tmp_path."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "uv_calls.log"
@@ -31,9 +34,18 @@ def _run_script(tmp_path: Path, extra_env: dict[str, str]) -> list[list[str]]:
         **extra_env,
     }
     runs, out = tmp_path / "runs", tmp_path / "out"
-    runs.mkdir()
-    subprocess.run(["bash", str(_SCRIPT), str(runs), str(out)], env=env, check=True, capture_output=True, text=True)
+    runs.mkdir(exist_ok=True)
+    positional = [str(runs), str(out)] if args is None else args
+    subprocess.run(["bash", str(_SCRIPT), *positional], env=env, check=True, capture_output=True, text=True)
     return [line.rstrip(_SEPARATOR).split(_SEPARATOR) for line in log.read_text().splitlines()]
+
+
+def _step(call: list[str]) -> str:
+    return call[call.index("orbit_guard.evaluation.experiment") + 1]
+
+
+def _flag(call: list[str], flag: str) -> str:
+    return call[call.index(flag) + 1]
 
 
 def _experiment_calls(calls: list[list[str]]) -> list[list[str]]:
@@ -59,3 +71,35 @@ def test_without_an_overlay_no_step_passes_one(tmp_path):
 
     assert len(calls) == 4
     assert all("--overlay" not in call for call in calls)
+
+
+def test_runs_comes_from_the_environment_when_no_argument_is_given(tmp_path):
+    # queue_n15.sh documents RUNS=... as an env var; the experiments must read the same runs dir from it.
+    tuned = tmp_path / "runs_tuned"
+
+    calls = _experiment_calls(_run_script(tmp_path, {"RUNS": str(tuned), "OVERLAY": ""}, args=[]))
+
+    registry = next(call for call in calls if _step(call) == "registry")
+    assert _flag(registry, "--runs-dir") == str(tuned)
+    assert _flag(registry, "--out") == str(tuned / "experiments" / "registry.json")
+
+
+def test_a_positional_runs_dir_overrides_the_environment(tmp_path):
+    calls = _experiment_calls(_run_script(tmp_path, {"RUNS": str(tmp_path / "ignored"), "OVERLAY": ""}))
+
+    registry = next(call for call in calls if _step(call) == "registry")
+    assert _flag(registry, "--runs-dir") == str(tmp_path / "runs")
+
+
+def test_an_existing_freeze_is_verified_by_the_test_run_instead_of_rewritten(tmp_path):
+    # An interrupted final-test sweep resumes: the one-way freeze is not attempted again (it would refuse), and
+    # `run --split test` re-verifies the existing snapshot before reading the test pool.
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "frozen.json").write_text("{}")
+
+    calls = _experiment_calls(_run_script(tmp_path, {"OVERLAY": ""}))
+
+    assert [_step(call) for call in calls] == ["registry", "run", "run"]
+    test_run = calls[-1]
+    assert _flag(test_run, "--split") == "test" and _flag(test_run, "--freeze-snapshot") == str(out / "frozen.json")

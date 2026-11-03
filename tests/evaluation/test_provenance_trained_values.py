@@ -32,18 +32,22 @@ _DEFAULT_WEIGHTS = {"w1": 1.0, "w2": 0.3, "w3": 5.0, "w4": 0.5, "collision_penal
 
 
 def _checkpoint(tmp_path: Path, *, margin: dict | None, weights: dict | None, overlay: Path | None = None,
-                name: str = "run") -> Path:
+                name: str = "run", shield: bool = True) -> Path:
     run = tmp_path / name
     run.mkdir()
     (run / "actor_weights.npz").write_bytes(b"weights")
     record: dict = {"config_digest": config_digest(DEFAULT_CONFIG_PATH, overlay),
-                    "overlay_path": None if overlay is None else str(overlay)}
+                    "overlay_path": None if overlay is None else str(overlay), "shield": shield, "num_agents": 15}
     if margin is not None:
         record["margin"] = margin
     if weights is not None:
         record["reward_weights"] = weights
     (run / "run_config.json").write_text(json.dumps(record))
     return run / "actor_weights.npz"
+
+
+def _shielded(model: str) -> bool:
+    return model != "adaptive_mappo_no_shield"
 
 
 def _check(weights: Path, model: str | None, overlay: Path | None = None) -> None:
@@ -56,7 +60,7 @@ def _check(weights: Path, model: str | None, overlay: Path | None = None) -> Non
     ("fixed_margin_mappo", _DEFAULT_FIXED),
 ])
 def test_a_sidecar_matching_the_evaluation_environment_is_accepted(tmp_path, model, margin):
-    _check(_checkpoint(tmp_path, margin=margin, weights=_DEFAULT_WEIGHTS), model)
+    _check(_checkpoint(tmp_path, margin=margin, weights=_DEFAULT_WEIGHTS, shield=_shielded(model)), model)
 
 
 @pytest.mark.parametrize(("model", "margin"), [
@@ -68,7 +72,7 @@ def test_a_sidecar_matching_the_evaluation_environment_is_accepted(tmp_path, mod
     ("adaptive_mappo", _DEFAULT_FIXED),  # and the other way round
 ])
 def test_a_sidecar_whose_margin_differs_is_refused_with_overlay_advice(tmp_path, model, margin):
-    weights = _checkpoint(tmp_path, margin=margin, weights=_DEFAULT_WEIGHTS)
+    weights = _checkpoint(tmp_path, margin=margin, weights=_DEFAULT_WEIGHTS, shield=_shielded(model))
 
     with pytest.raises(CheckpointProvenanceError, match="margin") as raised:
         _check(weights, model)
@@ -133,7 +137,8 @@ def test_the_registry_check_compares_each_checkpoint_with_its_own_model(tmp_path
 
 def test_the_replay_recorder_refuses_a_checkpoint_trained_with_another_margin(tmp_path):
     good = _checkpoint(tmp_path, margin=_DEFAULT_ADAPTIVE, weights=_DEFAULT_WEIGHTS, name="good")
-    bad = _checkpoint(tmp_path, margin={**_DEFAULT_ADAPTIVE, "alpha": 0.5}, weights=_DEFAULT_WEIGHTS, name="bad")
+    bad = _checkpoint(tmp_path, margin={**_DEFAULT_ADAPTIVE, "alpha": 0.5}, weights=_DEFAULT_WEIGHTS, name="bad",
+                      shield=False)
 
     check_plan_provenance([EpisodePlan("normal", 0, "trained", True, "adaptive_mappo", good)])
     with pytest.raises(CheckpointProvenanceError, match="margin"):
@@ -198,3 +203,13 @@ def test_a_checkpoint_trained_with_cli_overrides_is_refused(tmp_path, model, fla
 
     with pytest.raises(CheckpointProvenanceError, match=match):
         _check(weights, model)
+
+
+def test_the_shield_and_n_the_training_cli_records_are_compared(tmp_path):
+    no_shield = _train(tmp_path, "run", "--no-shield", "--margin", "adaptive")  # --agents 3
+
+    check_checkpoint_provenance(no_shield, model="adaptive_mappo_no_shield", n_agents=3)
+    with pytest.raises(CheckpointProvenanceError, match="shield"):
+        check_checkpoint_provenance(no_shield, model="adaptive_mappo", n_agents=3)
+    with pytest.raises(CheckpointProvenanceError, match="3 agents"):
+        check_checkpoint_provenance(no_shield, model="adaptive_mappo_no_shield", n_agents=15)

@@ -18,9 +18,13 @@ def sidecar_record(
     *,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     margin_kind: str = "adaptive",
+    shield: bool = True,
+    num_agents: int = 15,
 ) -> dict:
     """The provenance fields of a run trained from `config_path` + `overlay_path` with no CLI overrides."""
     return {
         "config_digest": config_digest(config_path, overlay_path),
         **evaluation_values(load_config(config_path, overlay_path), margin_kind),
+        "shield": shield,
+        "num_agents": num_agents,
     }
