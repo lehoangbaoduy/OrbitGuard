@@ -127,3 +127,32 @@ def test_two_body_state_derivative_raises_loudly_on_non_finite_state():
     bad_state = np.array([np.nan, 0.0, 0.0, 0.0, 7600.0, 0.0])
     with pytest.raises((ValueError, FloatingPointError)):
         two_body_state_derivative(bad_state)
+
+
+@pytest.mark.parametrize("radius_m", [6_300_000.0, 6_000_000.0])
+def test_state_derivative_raises_loudly_on_state_below_earth_equatorial_radius(radius_m):
+    # Physically invalid (PRD §12): position radius is inside Earth's equatorial radius.
+    state_vector = np.concatenate([[radius_m, 0.0, 0.0], [0.0, 7600.0, 0.0]])
+    with pytest.raises(ValueError):
+        state_derivative(state_vector)
+
+
+def test_two_body_state_derivative_raises_loudly_on_state_below_earth_equatorial_radius():
+    state_vector = np.concatenate([[0.0, 6_300_000.0, 0.0], [7600.0, 0.0, 0.0]])
+    with pytest.raises(ValueError):
+        two_body_state_derivative(state_vector)
+
+
+def test_state_derivative_accepts_position_exactly_at_equatorial_radius():
+    # Boundary: r == R_eq is on the surface, not inside it, so it is not rejected.
+    state_vector = np.concatenate([[R_EARTH_EQUATORIAL_M, 0.0, 0.0], [0.0, 7000.0, 0.0]])
+    derivative = state_derivative(state_vector)
+    assert np.all(np.isfinite(derivative))
+
+
+def test_raw_acceleration_helpers_remain_unchecked_below_surface():
+    # The surface check lives on the derivative wrappers only; the closed-form acceleration
+    # helpers still evaluate at arbitrary points (e.g. for analytic formula checks).
+    position = np.array([6_000_000.0, 0.0, 0.0])
+    assert np.all(np.isfinite(two_body_acceleration(position)))
+    assert np.all(np.isfinite(j2_acceleration(position)))

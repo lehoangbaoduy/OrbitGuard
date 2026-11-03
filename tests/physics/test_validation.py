@@ -132,11 +132,35 @@ def test_j2_nodal_regression_matches_analytic_secular_rate_and_direction():
 # --- 4. Comparison against a trusted reference implementation --------------
 
 
-def test_two_body_propagation_matches_skyfield_reference_for_elliptical_orbit():
+# Two-body element sets (a_m, e, i_deg, raan_deg, argp_deg, M_deg) compared against Skyfield.
+# Covers the N=15 shell (463 km altitude, 53 deg), a moderately eccentric orbit, sun-synchronous-like
+# 97 deg, near-equatorial (0.5 deg, not singular), retrograde with high RAAN, and a different anomaly.
+_SKYFIELD_CASES = [
+    pytest.param((6_841_137.0, 0.0005, 53.0, 0.0, 0.0, 0.0), id="shell-463km-53deg-near-circular"),
+    # Perigee 6750 km stays above the surface; an e=0.2 variant at a=7000 km would dip inside Earth.
+    pytest.param((7_500_000.0, 0.1, 45.0, 30.0, 60.0, 120.0), id="elliptical-e0.1-45deg"),
+    pytest.param((7_078_000.0, 0.001, 97.0, 200.0, 0.0, 90.0), id="high-inclination-97deg"),
+    pytest.param((7_000_000.0, 0.01, 0.5, 0.0, 45.0, 10.0), id="near-equatorial-0.5deg"),
+    pytest.param((7_200_000.0, 0.1, 120.0, 300.0, 270.0, 250.0), id="retrograde-high-raan"),
+    pytest.param((6_900_000.0, 0.05, 53.0, 10.0, 20.0, 250.0), id="late-mean-anomaly-e0.05"),
+    pytest.param((6_838_588.0, 0.0005, 53.06, 10.0, 20.0, 5.0), id="original-elliptical-shell-case"),
+]
+
+
+@pytest.mark.parametrize("elements", _SKYFIELD_CASES)
+def test_two_body_propagation_matches_skyfield_reference_over_several_thousand_seconds(elements):
     # Skyfield's keplerlib.propagate is a SPICE-toolkit-based (prop2b.f) universal-
     # variable two-body propagator -- an independent, trusted implementation.
-    state0 = _shell_state(raan_rad=np.radians(10), arg_periapsis_rad=np.radians(20), mean_anomaly_rad=np.radians(5))
-    r0, v0 = state0[0:3], state0[3:6]
+    a_m, eccentricity, inc_deg, raan_deg, argp_deg, mean_anomaly_deg = elements
+    r0, v0 = coe_to_cartesian(
+        a_m,
+        eccentricity,
+        np.radians(inc_deg),
+        np.radians(raan_deg),
+        np.radians(argp_deg),
+        np.radians(mean_anomaly_deg),
+    )
+    state0 = np.concatenate([r0, v0])
 
     dt = 10.0
     total_time_s = 6000.0
@@ -144,9 +168,7 @@ def test_two_body_propagation_matches_skyfield_reference_for_elliptical_orbit():
 
     ours = propagate(state0, dt, n_steps, two_body_state_derivative)[-1]
 
-    reference_r, reference_v = skyfield_two_body_propagate(
-        r0, v0, 0.0, np.array(total_time_s), MU_EARTH_M3_S2
-    )
+    reference_r, reference_v = skyfield_two_body_propagate(r0, v0, 0.0, np.array(total_time_s), MU_EARTH_M3_S2)
 
     assert ours[0:3] == pytest.approx(reference_r, abs=10.0)  # within 10 m
     assert ours[3:6] == pytest.approx(reference_v, abs=0.01)  # within 1 cm/s
@@ -173,6 +195,26 @@ def test_full_dynamics_convergence_error_shrinks_as_timestep_shrinks():
     assert errors[2] < errors[0] / 10.0
 
 
+def test_full_dynamics_rk4_observed_order_of_accuracy_is_near_four():
+    # Classical RK4 is 4th-order globally: halving dt should cut the error ~16x. Estimate
+    # the observed order log2(e(dt)/e(dt/2)) against a fine reference and require it to
+    # be at least 3.5 at every halving in the asymptotic range (dt <= 40 s here).
+    state0 = _shell_state(raan_rad=np.radians(10), arg_periapsis_rad=np.radians(20), mean_anomaly_rad=np.radians(5))
+    total_time_s = 6000.0
+
+    fine_dt = 1.0
+    reference_final = propagate(state0, fine_dt, int(total_time_s / fine_dt), state_derivative)[-1]
+
+    timesteps_s = (40.0, 20.0, 10.0)
+    errors = []
+    for dt in timesteps_s:
+        final = propagate(state0, dt, int(total_time_s / dt), state_derivative)[-1]
+        errors.append(np.linalg.norm(final[0:3] - reference_final[0:3]))
+
+    observed_orders = [np.log2(errors[k] / errors[k + 1]) for k in range(len(errors) - 1)]
+    assert all(order >= 3.5 for order in observed_orders), observed_orders
+
+
 # --- Fail loudly on non-finite/physically-invalid state ---------------------
 
 
@@ -180,3 +222,10 @@ def test_propagator_fails_loudly_rather_than_silently_propagating_invalid_state(
     degenerate_state = np.zeros(6)  # zero position: undefined acceleration
     with pytest.raises(ValueError):
         propagate(degenerate_state, dt=10.0, n_steps=5, derivative_fn=state_derivative)
+
+
+def test_propagator_fails_loudly_on_state_below_earth_equatorial_radius():
+    # Physically invalid: the spacecraft is inside the Earth (r = 6.3e6 m < R_eq = 6.378e6 m).
+    below_surface_state = np.concatenate([[6_300_000.0, 0.0, 0.0], [0.0, 7_600.0, 0.0]])
+    with pytest.raises(ValueError):
+        propagate(below_surface_state, dt=10.0, n_steps=5, derivative_fn=state_derivative)

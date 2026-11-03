@@ -16,6 +16,18 @@ def _require_finite_nonzero_position(position_m: np.ndarray) -> float:
     return r
 
 
+def _require_physically_valid_state(state_vector: np.ndarray) -> None:
+    """Fail loudly on a non-finite state or a position inside Earth's equatorial radius (PRD §12)."""
+    if not np.all(np.isfinite(state_vector)):
+        raise ValueError(f"Non-finite state encountered: {state_vector}")
+    radius_m = float(np.linalg.norm(state_vector[0:3]))
+    if radius_m < R_EARTH_EQUATORIAL_M:
+        raise ValueError(
+            f"Physically invalid state: position radius {radius_m:.1f} m is below Earth's "
+            f"equatorial radius {R_EARTH_EQUATORIAL_M:.1f} m"
+        )
+
+
 def two_body_acceleration(
     position_m: np.ndarray, mu: float = MU_EARTH_M3_S2
 ) -> np.ndarray:
@@ -50,9 +62,8 @@ def total_acceleration(position_m: np.ndarray) -> np.ndarray:
 
 
 def state_derivative(state_vector: np.ndarray) -> np.ndarray:
-    """d/dt [r, v] = [v, a(r)]. Fails loudly on a non-finite state (PRD §12)."""
-    if not np.all(np.isfinite(state_vector)):
-        raise ValueError(f"Non-finite state encountered: {state_vector}")
+    """d/dt [r, v] = [v, a(r)]. Fails loudly on a non-finite or below-surface state (PRD §12)."""
+    _require_physically_valid_state(state_vector)
     position = state_vector[0:3]
     velocity = state_vector[3:6]
     acceleration = total_acceleration(position)
@@ -62,8 +73,7 @@ def state_derivative(state_vector: np.ndarray) -> np.ndarray:
 def two_body_state_derivative(state_vector: np.ndarray) -> np.ndarray:
     """Two-body-only d/dt [r, v] = [v, a_2body(r)] -- for the §12 conservation/sanity checks
     that must isolate two-body behavior from the J2 perturbation."""
-    if not np.all(np.isfinite(state_vector)):
-        raise ValueError(f"Non-finite state encountered: {state_vector}")
+    _require_physically_valid_state(state_vector)
     position = state_vector[0:3]
     velocity = state_vector[3:6]
     return np.concatenate([velocity, two_body_acceleration(position)])
