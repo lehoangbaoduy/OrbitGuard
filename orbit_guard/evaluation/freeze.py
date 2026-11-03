@@ -281,6 +281,11 @@ def _load_snapshot(path: Path) -> dict:
     return snapshot
 
 
+def read_snapshot(path: str | Path) -> dict:
+    """The snapshot at `path`, refused (`FrozenConfigError`) when missing, unreadable or of an old format."""
+    return _load_snapshot(Path(path))
+
+
 def _verify_config(snapshot: dict, config_path: str | Path | None, overlay_path) -> None:
     config = snapshot["config_path"] if config_path is None else config_path
     overlay = snapshot["overlay_path"] if overlay_path is RECORDED_OVERLAY else overlay_path

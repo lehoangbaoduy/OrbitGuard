@@ -4,6 +4,7 @@ weights hashes, and a deterministic untrained policy built the same way the trai
 from __future__ import annotations
 
 import hashlib
+import json
 
 import numpy as np
 import pytest
@@ -18,6 +19,7 @@ from orbit_guard.evaluation.replay_recording import (
 from orbit_guard.rl.actor_policy import save_actor_weights
 from orbit_guard.visualization.episodes import discover_episodes
 from tests.evaluation.replay_fixtures import ENV_KWARGS
+from tests.evaluation.sidecar_fixtures import sidecar_record
 
 _DIMS = {"obs_dim": 54, "num_actions": 6}
 
@@ -61,11 +63,24 @@ def test_untrained_episodes_need_no_weights_file(tmp_path):
     assert all(p.weights_path is None for p in build_plan(tmp_path) if p.policy == "untrained")
 
 
+def _trained_checkpoint(run, *, shield: bool):
+    """A stand-in trained actor with the sidecar a 2-agent default-config run would write (the recorder refuses
+    a trained checkpoint without one)."""
+    run.mkdir()
+    path = run / "actor_weights.npz"
+    save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), path)
+    (run / "run_config.json").write_text(json.dumps(sidecar_record(None, shield=shield, num_agents=2)))
+    return path
+
+
 @pytest.fixture
 def weights_file(tmp_path):
-    path = tmp_path / "actor_weights.npz"
-    save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), path)  # stands in for a trained actor
-    return path
+    return _trained_checkpoint(tmp_path / "shielded_run", shield=True)
+
+
+@pytest.fixture
+def unshielded_weights_file(tmp_path):
+    return _trained_checkpoint(tmp_path / "unshielded_run", shield=False)
 
 
 def _record(tmp_path, item, **overrides):
@@ -90,8 +105,9 @@ def test_recorded_untrained_episode_records_its_init_seed_and_persists_the_weigh
     assert (path.parent / "weights" / "untrained_actor_init0.npz").is_file()  # beside the traces, not among them
 
 
-def test_shield_off_episode_has_no_shield_interventions(tmp_path, weights_file):
-    path = _record(tmp_path, EpisodePlan("normal", 0, "trained", False, "adaptive_mappo_no_shield", weights_file))
+def test_shield_off_episode_has_no_shield_interventions(tmp_path, unshielded_weights_file):
+    item = EpisodePlan("normal", 0, "trained", False, "adaptive_mappo_no_shield", unshielded_weights_file)
+    path = _record(tmp_path, item)
     from orbit_guard.visualization.replay import load_trace
 
     assert not load_trace(path).intervened.any()

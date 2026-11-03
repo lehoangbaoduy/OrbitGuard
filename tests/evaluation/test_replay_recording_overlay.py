@@ -117,9 +117,12 @@ def test_a_checkpoint_trained_without_an_overlay_is_refused_with_one(tmp_path):
         _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path))
 
 
-def test_a_checkpoint_without_a_sidecar_is_accepted(tmp_path):
+def test_a_checkpoint_without_a_sidecar_is_refused(tmp_path):
+    # review2: the stale ~/orbitguard_runs checkpoints have no sidecar and were silently replayed as final models.
     weights = _checkpoint(tmp_path, trained_with=None, sidecar=False)
-    assert _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path)).is_file()
+    with pytest.raises(CheckpointProvenanceError, match=r"run_config\.json"):
+        _record(tmp_path, _trained(weights), overlay_path=_overlay(tmp_path))
+    assert not list(tmp_path.glob("out/*.npz"))
 
 
 def test_record_all_refuses_before_recording_any_episode(tmp_path):

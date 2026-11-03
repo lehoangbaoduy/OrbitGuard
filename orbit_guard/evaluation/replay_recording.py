@@ -10,7 +10,9 @@ A tuned overlay (`overlay_path`) applies to every episode of a recording: it rea
 untrained actor's architecture, and the meta records it with `config_digest(config, overlay)`. A trained checkpoint
 whose run_config.json sidecar records a different digest is refused (`CheckpointProvenanceError`) before anything
 is recorded, exactly as the experiment refuses it; so is one whose sidecar records a margin or reward weights
-other than the ones the item's model gets from config + overlay (training CLI overrides).
+other than the ones the item's model gets from config + overlay (training CLI overrides). A trained checkpoint
+with no run_config.json sidecar is refused too (unlike a validation run, a replay is shown as a final model), and
+with a freeze snapshot every replayed actor's sha256 must equal the frozen checkpoint of its model/training seed.
 """
 
 from __future__ import annotations
@@ -25,7 +27,12 @@ from gymnasium.spaces.utils import flatdim
 
 from orbit_guard.config import config_digest, load_config
 from orbit_guard.evaluation.baselines import build_env_factory
-from orbit_guard.evaluation.experiment import check_checkpoint_provenance
+from orbit_guard.evaluation.experiment import (
+    RUN_CONFIG_FILENAME,
+    CheckpointProvenanceError,
+    check_checkpoint_provenance,
+)
+from orbit_guard.evaluation.freeze import FrozenConfigError, read_snapshot
 from orbit_guard.evaluation.shifts import condition_env_kwargs
 from orbit_guard.rl.actor_policy import (
     ActorWeights,
@@ -56,6 +63,7 @@ class EpisodePlan:
     shield: bool
     model: str
     weights_path: Path | None
+    training_seed: int | None = None  # which training run supplies a trained actor (None: untrained)
 
 
 def build_plan(
@@ -73,7 +81,8 @@ def build_plan(
                     variant = "adaptive" if shield else "noshield"
                     model = "adaptive_mappo" if shield else "adaptive_mappo_no_shield"
                     weights = runs / f"n15_{variant}_s{trained_seed}" / "actor_weights.npz"
-                plan.append(EpisodePlan(condition, seed, policy, shield, model, weights))
+                training_seed = None if policy == "untrained" else trained_seed
+                plan.append(EpisodePlan(condition, seed, policy, shield, model, weights, training_seed))
     return plan
 
 
@@ -105,16 +114,54 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _frozen_hashes(freeze_snapshot: str | Path | None) -> dict[str, str] | None:
+    if freeze_snapshot is None:
+        return None
+    try:
+        snapshot = read_snapshot(freeze_snapshot)
+    except FrozenConfigError as error:
+        raise CheckpointProvenanceError(str(error)) from error
+    return {name: entry["actor_weights_sha256"] for name, entry in snapshot["checkpoints"].items()}
+
+
+def _check_frozen(item: EpisodePlan, frozen: Mapping[str, str]) -> None:
+    """The replayed actor must be byte-identical to the frozen checkpoint of the same model and training seed."""
+    name = f"{item.model}/{item.training_seed}"
+    if name not in frozen:
+        raise CheckpointProvenanceError(
+            f"{item.weights_path} would be replayed as {name}, which is not in the freeze snapshot "
+            f"(frozen: {sorted(frozen)})"
+        )
+    if _file_sha256(Path(item.weights_path)) != frozen[name]:
+        raise CheckpointProvenanceError(
+            f"{item.weights_path} is not the frozen {name} checkpoint (its sha256 differs from the one the freeze "
+            "recorded): record replays from the frozen runs dir"
+        )
+
+
 def check_plan_provenance(
-    plan: Sequence[EpisodePlan], *, config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None
+    plan: Sequence[EpisodePlan],
+    *,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
+    freeze_snapshot: str | Path | None = None,
 ) -> None:
-    """Refuse the plan if any trained checkpoint's run_config.json records another config_digest, or a margin or
-    reward weights other than the ones the item's model gets from config + overlay."""
+    """Refuse the plan if any trained checkpoint has no run_config.json sidecar, or its sidecar records another
+    config_digest, or a margin or reward weights other than the ones the item's model gets from config + overlay;
+    with `freeze_snapshot`, also unless its weights are the frozen checkpoint of that model and training seed."""
+    frozen = _frozen_hashes(freeze_snapshot)
     for item in plan:
-        if item.policy == "trained" and item.weights_path is not None:
-            check_checkpoint_provenance(
-                item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model
+        if item.policy != "trained" or item.weights_path is None:
+            continue
+        if not (Path(item.weights_path).parent / RUN_CONFIG_FILENAME).exists():
+            raise CheckpointProvenanceError(
+                f"{item.weights_path} has no {RUN_CONFIG_FILENAME} sidecar, so the configuration it was trained "
+                "under cannot be shown (checkpoints trained before sidecars existed are retired): replay checkpoints "
+                "from a runs dir written by rl/training.py"
             )
+        check_checkpoint_provenance(item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model)
+        if frozen is not None:
+            _check_frozen(item, frozen)
 
 
 def record_plan_item(
@@ -126,9 +173,10 @@ def record_plan_item(
     env_kwargs: Mapping[str, Any] | None = None,
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
+    freeze_snapshot: str | Path | None = None,
 ) -> Path:
     """Run one episode and write its trace; returns the path (the file name is informational only)."""
-    check_plan_provenance([item], config_path=config_path, overlay_path=overlay_path)
+    check_plan_provenance([item], config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     env_model = "adaptive_mappo" if item.shield else "adaptive_mappo_no_shield"
@@ -177,14 +225,15 @@ def record_all(
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
     progress: Callable[[str], None] = print,
+    freeze_snapshot: str | Path | None = None,
 ) -> list[Path]:
     """Record every plan item under one configuration; every checkpoint is checked before the first episode runs."""
-    check_plan_provenance(plan, config_path=config_path, overlay_path=overlay_path)
+    check_plan_provenance(plan, config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot)
     paths = []
     for number, item in enumerate(plan, start=1):
         progress(f"[{number}/{len(plan)}] {item.condition}:{item.seed} {item.policy} shield={'on' if item.shield else 'off'}")
         paths.append(record_plan_item(
             item, num_agents=num_agents, out_dir=out_dir, init_seed=init_seed, env_kwargs=env_kwargs,
-            config_path=config_path, overlay_path=overlay_path,
+            config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot,
         ))
     return paths
