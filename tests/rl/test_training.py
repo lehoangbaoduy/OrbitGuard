@@ -19,6 +19,7 @@ from orbit_guard.rl.evaluation import make_greedy_policy
 from orbit_guard.rl.training import (
     TrainingSettings,
     build_algo,
+    build_mappo_config,
     load_reward_weights,
     load_training_settings,
     restore,
@@ -207,3 +208,26 @@ def test_saved_checkpoint_carries_a_ray_free_actor_that_agrees_with_the_rllib_gr
         for agent in raw_env.agents:
             assert exported(agent, observations[agent]) == actions[agent]
         observations, _, _, _, _ = raw_env.step(actions)
+
+
+def test_the_critic_input_defaults_to_the_global_state_from_the_config():
+    assert load_training_settings().critic_input == "global"
+    assert TrainingSettings().critic_input == "global"
+
+
+def test_the_critic_input_override_takes_precedence_over_the_config():
+    assert load_training_settings(critic_input="agent_global").critic_input == "agent_global"
+
+
+def test_training_settings_reject_an_unknown_critic_input():
+    with pytest.raises(ValueError, match="critic_input"):
+        TrainingSettings(critic_input="local")
+
+
+@pytest.mark.parametrize("critic_input", ["global", "agent_global"])
+def test_the_critic_input_reaches_the_rl_module_model_config(critic_input):
+    settings = TrainingSettings(critic_input=critic_input)
+
+    config = build_mappo_config("unused_env_name", AGENT_OBS_FLAT_DIM, settings)
+
+    assert config.rl_module_spec.rl_module_specs[POLICY_ID].model_config["critic_input"] == critic_input

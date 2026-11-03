@@ -9,6 +9,9 @@ Verified API pattern (recorded because PRD §28 says to re-verify, not assume):
     shared actor over each agent's local observation plus a CENTRALIZED critic
     over the global state, carried as the tail of the flat observation by
     `rllib_env.CTDEParallelPettingZooEnv`. This is true CTDE, not IPPO.
+    `rl.critic_input` (or `--critic-input`) selects the critic's input: the
+    global state alone (`global`, default) or `[own local | global]`
+    (`agent_global`), the two arms of the pre-registered critic A/B (R4).
   * Dict observations are flattened to a Box first (see `rllib_env`).
 
 Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
@@ -39,10 +42,13 @@ from orbit_guard.config import (
 )
 from orbit_guard.rl.actor_policy import export_from_algo
 from orbit_guard.rl.ctde_module import (
+    CRITIC_INPUTS,
     DEFAULT_ACTOR_HIDDEN_LAYERS,
     DEFAULT_CRITIC_HIDDEN_LAYERS,
+    DEFAULT_CRITIC_INPUT,
     POLICY_ID,
     CentralizedCriticTorchRLModule,
+    validate_critic_input,
 )
 from orbit_guard.rl.env_factory import (
     load_margin_fn,
@@ -82,6 +88,10 @@ class TrainingSettings:
     reward_offset: float = 0.0
     num_env_runners: int = 0
     seed: int | None = None
+    critic_input: str = DEFAULT_CRITIC_INPUT
+
+    def __post_init__(self) -> None:
+        validate_critic_input(self.critic_input)
 
 
 def load_training_settings(
@@ -100,6 +110,7 @@ def load_training_settings(
         "num_epochs": rl_block["num_sgd_iter"],
         "actor_hidden_layers": tuple(rl_block["actor_hidden_layers"]),
         "critic_hidden_layers": tuple(rl_block["critic_hidden_layers"]),
+        "critic_input": rl_block["critic_input"],
         **{key: rl_block[key] for key in ("vf_clip_param", "reward_scale", "reward_offset", "num_env_runners") if key in rl_block},
     }
     settings.update(overrides)
@@ -114,6 +125,7 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
             "local_obs_dim": local_obs_dim,
             "actor_hidden_layers": settings.actor_hidden_layers,
             "critic_hidden_layers": settings.critic_hidden_layers,
+            "critic_input": settings.critic_input,
         },
     )
     config = (
@@ -306,6 +318,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--entropy-coeff", type=float, default=None)
     parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument(
+        "--critic-input", choices=CRITIC_INPUTS, default=None,
+        help="critic input: global state only, or [own local | global] (prereg R4); default: rl.critic_input",
+    )
     for weight in ("w1", "w2", "w3", "w4", "collision-penalty"):
         parser.add_argument(f"--{weight}", type=float, default=None)
     for coefficient in ("alpha", "beta", "gamma-margin"):
@@ -321,6 +337,7 @@ def main(argv: list[str] | None = None) -> None:
         "learning_rate": args.learning_rate,
         "entropy_coeff": args.entropy_coeff,
         "gamma": args.gamma,
+        "critic_input": args.critic_input,
     }
     settings = load_training_settings(
         args.config, args.overlay, **{k: v for k, v in overrides.items() if v is not None}

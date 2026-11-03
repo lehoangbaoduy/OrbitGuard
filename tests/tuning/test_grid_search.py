@@ -276,3 +276,47 @@ def test_grid_cli_score_rule_defaults_to_q27_and_accepts_extended():
     assert parser.parse_args(["--score", "extended"]).score == "extended"
     with pytest.raises(SystemExit):
         parser.parse_args(["--score", "weighted"])
+
+
+def test_grid_cli_critic_input_defaults_to_the_config_and_accepts_both_variants():
+    from orbit_guard.tuning.grid_search import build_parser
+
+    parser = build_parser()
+
+    assert parser.parse_args([]).critic_input is None
+    assert parser.parse_args(["--critic-input", "agent_global"]).critic_input == "agent_global"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--critic-input", "local"])
+
+
+@pytest.mark.parametrize(("argv", "expected"), [([], "global"), (["--critic-input", "agent_global"], "agent_global")])
+def test_grid_cli_passes_the_critic_input_to_training_and_logs_it(argv, expected, tmp_path, monkeypatch):
+    from orbit_guard.rl import evaluation, training
+    from orbit_guard.tuning import grid_search
+
+    built, logged = [], {}
+
+    class FakeAlgo:
+        def stop(self) -> None:
+            return None
+
+    def fake_build_algo(factory, settings):
+        built.append(settings)
+        return FakeAlgo()
+
+    def fake_run_grid(points, run_point, score_rule, **kwargs):
+        logged.update(kwargs["settings"])
+        run_point(points[0], [1, 2])
+        return []
+
+    monkeypatch.setattr(training, "build_algo", fake_build_algo)
+    monkeypatch.setattr(training, "train", lambda algo, iterations: None)
+    monkeypatch.setattr(evaluation, "evaluate", lambda *a, **k: _report(0, 0.0))
+    monkeypatch.setattr(grid_search, "factory_for_point", lambda *a, **k: None)
+    monkeypatch.setattr(grid_search, "run_grid", fake_run_grid)
+    monkeypatch.setattr(grid_search, "freeze_best", lambda results, path: "digest")
+
+    grid_search.main(["--out-dir", str(tmp_path), "--only", "default", *argv])
+
+    assert [settings.critic_input for settings in built] == [expected]
+    assert logged["critic_input"] == expected

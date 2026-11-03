@@ -22,15 +22,18 @@ _GLOBAL_DIM = 12
 _NUM_ACTIONS = 4
 
 
-def _build_module(inference_only: bool = False) -> CentralizedCriticTorchRLModule:
+def _build_module(inference_only: bool = False, critic_input: str | None = None) -> CentralizedCriticTorchRLModule:
+    model_config = {
+        "local_obs_dim": _LOCAL_DIM,
+        "actor_hidden_layers": (16,),
+        "critic_hidden_layers": (16,),
+    }
+    if critic_input is not None:
+        model_config["critic_input"] = critic_input
     return CentralizedCriticTorchRLModule(
         observation_space=gym.spaces.Box(-np.inf, np.inf, (_LOCAL_DIM + _GLOBAL_DIM,), np.float32),
         action_space=gym.spaces.Discrete(_NUM_ACTIONS),
-        model_config={
-            "local_obs_dim": _LOCAL_DIM,
-            "actor_hidden_layers": (16,),
-            "critic_hidden_layers": (16,),
-        },
+        model_config=model_config,
         inference_only=inference_only,
     )
 
@@ -103,3 +106,46 @@ def test_module_rejects_an_observation_without_a_global_state_slice():
             action_space=gym.spaces.Discrete(_NUM_ACTIONS),
             model_config={"local_obs_dim": _LOCAL_DIM},
         )
+
+
+def test_the_default_critic_reads_only_the_global_state_slice():
+    assert _build_module().critic[0].in_features == _GLOBAL_DIM
+    assert _build_module(critic_input="global").critic[0].in_features == _GLOBAL_DIM
+
+
+def test_the_agent_global_critic_reads_the_local_observation_and_the_global_state(observations):
+    module = _build_module(critic_input="agent_global")
+    local, global_state = observations
+
+    assert module.critic[0].in_features == _LOCAL_DIM + _GLOBAL_DIM
+    # Agent-specific global state (MAPPO): the same global state seen from two agents gives two values.
+    assert not torch.allclose(
+        module.compute_values(_batch(local, global_state)), module.compute_values(_batch(local + 5.0, global_state))
+    )
+    assert not torch.allclose(
+        module.compute_values(_batch(local, global_state)), module.compute_values(_batch(local, global_state + 1.0))
+    )
+
+
+@pytest.mark.parametrize("forward_mode", ["forward_inference", "forward_exploration", "forward_train"])
+def test_the_agent_global_actor_still_ignores_the_global_state_slice(forward_mode, observations):
+    module = _build_module(critic_input="agent_global")
+    local, global_state = observations
+    forward = getattr(module, forward_mode)
+
+    logits_a = forward(_batch(local, global_state))[Columns.ACTION_DIST_INPUTS]
+    logits_b = forward(_batch(local, global_state * -7.0 + 3.0))[Columns.ACTION_DIST_INPUTS]
+    obs = torch.cat([local, global_state], dim=-1).requires_grad_(True)
+    module.forward_train({Columns.OBS: obs})[Columns.ACTION_DIST_INPUTS].sum().backward()
+
+    assert torch.equal(logits_a, logits_b)
+    assert torch.all(obs.grad[..., _LOCAL_DIM:] == 0)
+
+
+def test_the_agent_global_inference_only_module_does_not_build_the_critic():
+    assert not hasattr(_build_module(inference_only=True, critic_input="agent_global"), "critic")
+
+
+def test_module_rejects_an_unknown_critic_input():
+    with pytest.raises(ValueError, match="critic_input"):
+        _build_module(critic_input="everything")

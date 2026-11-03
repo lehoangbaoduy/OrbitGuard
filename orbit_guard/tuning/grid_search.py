@@ -46,6 +46,7 @@ from orbit_guard.config import (
     overlay_digest,
 )
 from orbit_guard.evaluation.seed_pools import load_seed_pool
+from orbit_guard.rl.ctde_module import CRITIC_INPUTS
 from orbit_guard.rl.env_factory import EnvFactory, make_env_factory_from_config
 from orbit_guard.rl.evaluation import EvaluationReport
 
@@ -225,6 +226,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--score", choices=SCORE_RULES, default=DEFAULT_SCORE_RULE,
         help="pre-registered ranking rule: q27 (collisions + fuel) or extended (adds unsafe episodes; prereg R3)",
     )
+    parser.add_argument(
+        "--critic-input", choices=CRITIC_INPUTS, default=None,
+        help="critic input passed to training (prereg R4); default: rl.critic_input of the config",
+    )
     return parser
 
 
@@ -239,9 +244,15 @@ def main(argv: list[str] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     points = [p for p in default_grid() if args.only is None or p.name in args.only]
 
+    overrides = {"num_env_runners": args.num_env_runners, "seed": args.seed}
+    if args.critic_input is not None:
+        overrides["critic_input"] = args.critic_input
+    # Resolved once, so the logged settings name the critic actually trained and --resume never mixes variants.
+    critic_input = load_training_settings(**overrides).critic_input
+
     def run_point(point: GridPoint, seeds: Sequence[int]) -> EvaluationReport:
         factory = factory_for_point(point, args.agents, shielded=args.shield)
-        settings = load_training_settings(num_env_runners=args.num_env_runners, seed=args.seed)
+        settings = load_training_settings(**overrides)
         print(f"[grid] {point.name}: training {args.iterations} iterations", flush=True)
         algo = build_algo(factory, settings)
         try:
@@ -255,7 +266,8 @@ def main(argv: list[str] | None = None) -> None:
     results = run_grid(
         points, run_point, args.score,
         max_seeds=args.validation_episodes, log_path=out_dir / "grid_log.jsonl", resume=args.resume,
-        settings={"agents": args.agents, "iterations": args.iterations, "validation_episodes": args.validation_episodes, "seed": args.seed, "shield": args.shield},
+        settings={"agents": args.agents, "iterations": args.iterations, "validation_episodes": args.validation_episodes, "seed": args.seed, "shield": args.shield,
+                  "critic_input": critic_input},
     )
     for result in results:
         print(f"{result.score:8.4f}  {result.point.name}")

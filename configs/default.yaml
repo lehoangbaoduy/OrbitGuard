@@ -50,6 +50,8 @@ rl:
   num_sgd_iter: 10
   actor_hidden_layers: [128, 128]
   critic_hidden_layers: [256, 256]
+  # Critic input (prereg R4 A/B): global = global state only; agent_global = [own local obs | global state] (MAPPO).
+  critic_input: global
   vf_clip_param: 1000000.0
   reward_scale: 1.0
   reward_offset: -1.0  # training-only centering of the +1/step baseline; evaluation uses raw rewards

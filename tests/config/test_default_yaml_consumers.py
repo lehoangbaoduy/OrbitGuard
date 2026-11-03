@@ -48,6 +48,7 @@ CONSUMED = {
     "rl.num_sgd_iter": "rl.training.load_training_settings",
     "rl.actor_hidden_layers": "rl.training.load_training_settings",
     "rl.critic_hidden_layers": "rl.training.load_training_settings",
+    "rl.critic_input": "rl.training.load_training_settings",
     "rl.vf_clip_param": "rl.training.load_training_settings",
     "rl.reward_scale": "rl.training.load_training_settings",
     "rl.reward_offset": "rl.training.load_training_settings",

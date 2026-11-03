@@ -10,7 +10,11 @@ Each agent's observation vector arrives as ``[local | global_state]``, where
 agent's local observation, built by `rl.rllib_env`). The module splits it:
 
   * ACTOR  -- an MLP over ``obs[..., :local_dim]`` ONLY.
-  * CRITIC -- an MLP over ``obs[..., local_dim:]`` (the global state).
+  * CRITIC -- an MLP over ``obs[..., local_dim:]`` (the global state) with
+    ``critic_input="global"`` (the default), or over the whole
+    ``[local | global_state]`` vector with ``critic_input="agent_global"`` --
+    MAPPO's "agent-specific global state", the B arm of the pre-registered
+    critic A/B (prereg R4, CORE-4b). Either way only the critic changes.
 
 The hard architectural rule of PRD §28 -- no critic-only feature may reach
 decentralized execution -- is enforced structurally: the actor never reads the
@@ -36,6 +40,17 @@ torch, nn = try_import_torch()
 POLICY_ID = "shared_policy"
 DEFAULT_ACTOR_HIDDEN_LAYERS = (128, 128)
 DEFAULT_CRITIC_HIDDEN_LAYERS = (256, 256)
+CRITIC_INPUT_GLOBAL = "global"
+CRITIC_INPUT_AGENT_GLOBAL = "agent_global"
+CRITIC_INPUTS = (CRITIC_INPUT_GLOBAL, CRITIC_INPUT_AGENT_GLOBAL)
+DEFAULT_CRITIC_INPUT = CRITIC_INPUT_GLOBAL
+
+
+def validate_critic_input(critic_input: str) -> str:
+    """`critic_input` itself, or ValueError when it is not one of CRITIC_INPUTS."""
+    if critic_input not in CRITIC_INPUTS:
+        raise ValueError(f"critic_input must be one of {list(CRITIC_INPUTS)}, got {critic_input!r}")
+    return critic_input
 
 
 def _mlp(input_dim: int, hidden_layers: tuple[int, ...], output_dim: int) -> nn.Sequential:
@@ -52,7 +67,7 @@ class CentralizedCriticTorchRLModule(TorchRLModule, ValueFunctionAPI):
     """Parameter-shared actor over local obs + centralized critic over global state.
 
     `model_config` keys: ``local_obs_dim`` (required), ``actor_hidden_layers``,
-    ``critic_hidden_layers``.
+    ``critic_hidden_layers``, ``critic_input`` (``"global"`` or ``"agent_global"``).
     """
 
     @override(TorchRLModule)
@@ -68,10 +83,13 @@ class CentralizedCriticTorchRLModule(TorchRLModule, ValueFunctionAPI):
 
         actor_layers = tuple(self.model_config.get("actor_hidden_layers", DEFAULT_ACTOR_HIDDEN_LAYERS))
         critic_layers = tuple(self.model_config.get("critic_hidden_layers", DEFAULT_CRITIC_HIDDEN_LAYERS))
+        self.critic_input = validate_critic_input(self.model_config.get("critic_input", DEFAULT_CRITIC_INPUT))
+        # The slice of the observation the critic reads: the global state, or [own local | global state].
+        self._critic_start = self.local_obs_dim if self.critic_input == CRITIC_INPUT_GLOBAL else 0
 
         self.actor = _mlp(self.local_obs_dim, actor_layers, int(self.action_space.n))
         if not self.inference_only:
-            self.critic = _mlp(global_dim, critic_layers, 1)
+            self.critic = _mlp(total_obs_dim - self._critic_start, critic_layers, 1)
 
     def _actor_logits(self, batch: dict[str, Any]) -> TensorType:
         local_obs = batch[Columns.OBS][..., : self.local_obs_dim]
@@ -87,5 +105,5 @@ class CentralizedCriticTorchRLModule(TorchRLModule, ValueFunctionAPI):
 
     @override(ValueFunctionAPI)
     def compute_values(self, batch: dict[str, Any], embeddings: Any = None) -> TensorType:
-        global_state = batch[Columns.OBS][..., self.local_obs_dim :]
-        return self.critic(global_state).squeeze(-1)
+        critic_obs = batch[Columns.OBS][..., self._critic_start :]
+        return self.critic(critic_obs).squeeze(-1)
