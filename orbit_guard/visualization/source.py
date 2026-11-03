@@ -134,7 +134,7 @@ class ReplaySource:
 
     @_frozen_cached
     def capability(self) -> Capability:
-        return capability_flags(self.trace, self.meta.delta_v_budget_mps)
+        return capability_flags(self.trace, self.meta.delta_v_budget_mps, self.meta.degraded)
 
     @_frozen_cached
     def start_step(self) -> int:
