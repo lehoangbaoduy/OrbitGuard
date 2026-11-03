@@ -9,7 +9,8 @@ the trainer's (`ctde_module._mlp`, PyTorch default init) under a fixed seed.
 A tuned overlay (`overlay_path`) applies to every episode of a recording: it reaches the environment and the
 untrained actor's architecture, and the meta records it with `config_digest(config, overlay)`. A trained checkpoint
 whose run_config.json sidecar records a different digest is refused (`CheckpointProvenanceError`) before anything
-is recorded, exactly as the experiment refuses it.
+is recorded, exactly as the experiment refuses it; so is one whose sidecar records a margin or reward weights
+other than the ones the item's model gets from config + overlay (training CLI overrides).
 """
 
 from __future__ import annotations
@@ -107,10 +108,13 @@ def _file_sha256(path: Path) -> str:
 def check_plan_provenance(
     plan: Sequence[EpisodePlan], *, config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None
 ) -> None:
-    """Refuse the plan if any trained checkpoint's run_config.json records another config_digest."""
+    """Refuse the plan if any trained checkpoint's run_config.json records another config_digest, or a margin or
+    reward weights other than the ones the item's model gets from config + overlay."""
     for item in plan:
         if item.policy == "trained" and item.weights_path is not None:
-            check_checkpoint_provenance(item.weights_path, config_path=config_path, overlay_path=overlay_path)
+            check_checkpoint_provenance(
+                item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model
+            )
 
 
 def record_plan_item(

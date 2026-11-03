@@ -12,13 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from orbit_guard.config import DEFAULT_CONFIG_PATH, config_digest
+from orbit_guard.config import DEFAULT_CONFIG_PATH
 from orbit_guard.evaluation import experiment
 from orbit_guard.evaluation.experiment import (
     CheckpointProvenanceError,
     build_tasks,
     check_checkpoint_provenance,
 )
+from tests.evaluation.sidecar_fixtures import sidecar_record
 
 
 def _overlay(tmp_path: Path, w3: float = 1.5) -> Path:
@@ -35,7 +36,7 @@ def _run_dir(tmp_path: Path, name: str, overlay: Path | None, *, sidecar: bool =
         record = {
             "config_path": str(DEFAULT_CONFIG_PATH),
             "overlay_path": None if overlay is None else str(overlay),
-            "config_digest": config_digest(DEFAULT_CONFIG_PATH, overlay),
+            **sidecar_record(overlay),
         }
         (run / "run_config.json").write_text(json.dumps(record))
     return run

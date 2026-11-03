@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from orbit_guard.config import config_digest
+from orbit_guard.config import DEFAULT_CONFIG_PATH, config_digest
 from orbit_guard.evaluation import experiment, freeze
 from orbit_guard.evaluation.freeze import (
     FrozenConfigError,
@@ -24,6 +24,7 @@ from orbit_guard.evaluation.freeze import (
 from orbit_guard.evaluation.seed_pools import generate_validation_pool, write_seed_pool
 from orbit_guard.evaluation.test_seed_pool import load_test_pool, write_test_pool
 from tests.evaluation.git_repo_fixture import commit_all, git, make_repo
+from tests.evaluation.sidecar_fixtures import sidecar_record
 
 
 @pytest.fixture
@@ -389,6 +390,12 @@ def _registry(world: dict) -> Path:
 
 
 def test_the_freeze_command_records_the_overlay(world):
+    # The command's provenance check rebuilds the evaluation margin and reward weights, so it needs a real config
+    # and the sidecar a training run under it would write (tests/evaluation/sidecar_fixtures.py).
+    world["config"].write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+    (world["run"] / "run_config.json").write_text(
+        json.dumps(sidecar_record(world["overlay"], config_path=world["config"]))
+    )
     experiment.main(
         [
             "freeze", "--registry", str(_registry(world)), "--out", str(world["snapshot"]),

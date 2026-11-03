@@ -61,7 +61,7 @@ from orbit_guard.rl.rllib_env import (
     EnvFactory,
     register_orbit_guard_env,
 )
-from orbit_guard.safety.adaptive_margin import AdaptiveMargin, FixedMargin
+from orbit_guard.safety.adaptive_margin import margin_record
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
@@ -171,21 +171,13 @@ def build_run_config(
         "overlay_path": None if overlay_path is None else str(overlay_path),
         "config_digest": config_digest(config_path, overlay_path),
         "reward_weights": dict(reward_weights),
-        "margin": _margin_record(margin_fn),
+        "margin": margin_record(margin_fn),
         "shield": bool(shield),
         "training": dataclasses.asdict(settings),
         "seed": settings.seed,
         "num_agents": num_agents,
         "git_commit": git_commit,
     }
-
-
-def _margin_record(margin_fn: Any) -> dict:
-    if isinstance(margin_fn, FixedMargin):
-        return {"kind": "fixed", "d_safe_m": margin_fn.d_safe_m}
-    if isinstance(margin_fn, AdaptiveMargin):
-        return {"kind": "adaptive", **dataclasses.asdict(margin_fn)}
-    raise ValueError(f"cannot record margin of type {type(margin_fn).__name__}")
 
 
 def write_run_config(checkpoint_dir: str | Path, run_config: dict) -> Path:

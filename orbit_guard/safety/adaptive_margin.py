@@ -16,7 +16,7 @@ by the PRD beyond the symbol. This module uses the provisional choice
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
@@ -135,3 +135,12 @@ def make_adaptive_margin(
 
 def make_fixed_margin(d_safe_m: float) -> MarginFn:
     return FixedMargin(d_safe_m)
+
+
+def margin_record(margin_fn: MarginFn) -> dict:
+    """JSON-ready description of a margin: the training sidecar's `margin` field, compared by checkpoint provenance."""
+    if isinstance(margin_fn, FixedMargin):
+        return {"kind": "fixed", "d_safe_m": margin_fn.d_safe_m}
+    if isinstance(margin_fn, AdaptiveMargin):
+        return {"kind": "adaptive", **asdict(margin_fn)}
+    raise ValueError(f"cannot record margin of type {type(margin_fn).__name__}")
