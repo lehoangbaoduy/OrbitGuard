@@ -102,6 +102,9 @@ def test_over_fifty_validation_seeds_no_injected_pair_is_fully_disabled(validati
         env.reset(seed=seed)
         disabled, degraded = _victims(env)
         _assert_no_pair_fully_disabled(_pairs(env), disabled)
+        expected_disabled, expected_reduced = select_victims(_N, _pairs(env), 2, 2)
+        assert set(disabled) == set(expected_disabled), seed
+        assert {i for i, flag in enumerate(degraded) if flag} == set(expected_reduced), seed
         assert len(disabled) == 2, seed
         assert sum(degraded) == 2, seed
         assert not any(degraded[i] for i in disabled), seed
