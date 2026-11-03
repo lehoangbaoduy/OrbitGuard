@@ -99,12 +99,26 @@ def test_the_snapshot_records_digest_pools_checkpoints_and_commit(world, repo):
     assert snapshot["git_commit"] == git(repo, "rev-parse", "HEAD")
 
 
-def test_a_checkpoint_without_a_sidecar_records_none(world):
+def test_a_checkpoint_without_a_sidecar_cannot_be_frozen(world):
     (world["run"] / "run_config.json").unlink()
 
-    snapshot = _freeze(world)
+    with pytest.raises(FrozenConfigError, match=r"run_config\.json.*adaptive_mappo/0"):
+        _freeze(world)
 
-    assert snapshot["checkpoints"]["adaptive_mappo/0"]["run_config_sha256"] is None
+    assert not world["snapshot"].exists()
+
+
+def test_one_sidecar_less_checkpoint_among_several_blocks_the_whole_freeze(world):
+    both = _second_seed(world)
+    (both["adaptive_mappo/1"].parent / "run_config.json").unlink()
+
+    with pytest.raises(FrozenConfigError, match="adaptive_mappo/1"):
+        write_freeze_snapshot(
+            world["snapshot"], both, world["config"], world["overlay"],
+            test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+        )
+
+    assert not world["snapshot"].exists()
 
 
 def test_an_existing_snapshot_is_never_overwritten(world):
@@ -223,12 +237,9 @@ def test_a_changed_run_config_fails_verification(world):
         _verify(world)
 
 
-def test_a_run_config_that_appears_after_the_freeze_fails_verification(world):
-    sidecar = world["run"] / "run_config.json"
-    content = sidecar.read_text()
-    sidecar.unlink()
+def test_a_run_config_that_disappears_after_the_freeze_fails_verification(world):
     _freeze(world)
-    sidecar.write_text(content)
+    (world["run"] / "run_config.json").unlink()
 
     with pytest.raises(FrozenConfigError, match="run_config.json"):
         _verify(world)
@@ -379,8 +390,9 @@ def test_the_freeze_command_records_the_overlay(world):
 
 
 def test_the_test_split_refuses_an_overlay_other_than_the_frozen_one(world, monkeypatch):
-    (world["run"] / "run_config.json").unlink()  # isolate the freeze check from the provenance check
     _freeze(world)
+    # After the freeze (which requires the sidecar): isolates the freeze check from the provenance check.
+    (world["run"] / "run_config.json").unlink()
     monkeypatch.setattr(experiment, "run_tasks", lambda *a, **k: pytest.fail("must refuse before running"))
 
     with pytest.raises(FrozenConfigError, match="config"):

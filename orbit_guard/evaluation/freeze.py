@@ -6,7 +6,8 @@ enforced, not promised:
   * `write_freeze_snapshot` writes ONCE: it refuses if the snapshot file exists, and refuses unless
     `git status --porcelain -- orbit_guard configs scripts` is empty (edits under docs/ do not block).
     It records config_digest(config, overlay) (CORE-1), the sha256 of the test and validation pool files,
-    every checkpoint's actor_weights sha256 and its run_config.json sha256 (None when absent), and HEAD.
+    every checkpoint's actor_weights sha256 and its run_config.json sha256, and HEAD. A checkpoint with no
+    run_config.json sidecar is refused: its training configuration could not be shown.
   * `verify_freeze` re-checks every recorded hash, that the checkpoints passed are exactly the frozen
     (model, training seed) set (adding or dropping a training seed after seeing results fails), that
     those paths are still clean, and that
@@ -128,6 +129,23 @@ def _checkpoint_record(weights: Path) -> dict:
     }
 
 
+def _require_sidecars(checkpoints: Mapping[str, str | Path]) -> None:
+    """Every frozen checkpoint must carry the run_config.json that records the config it was trained under.
+
+    The provenance check in experiment.py still accepts a sidecar-less checkpoint for validation runs, but the
+    freeze is the gate to the final-test pool: a checkpoint whose training configuration cannot be shown never
+    passes it. (Every checkpoint passed here is a learned model's; scripted models have none.)
+    """
+    missing = sorted(
+        name for name, file in checkpoints.items() if not (Path(file).parent / RUN_CONFIG_FILENAME).exists()
+    )
+    if missing:
+        raise FrozenConfigError(
+            f"cannot freeze checkpoints without a {RUN_CONFIG_FILENAME} sidecar (their training config is "
+            f"unrecorded; rl/training.py writes it next to actor_weights.npz): {missing}"
+        )
+
+
 def _pool_record(path: str | Path, split: str) -> dict:
     pool = Path(path)
     if not pool.exists():
@@ -149,6 +167,7 @@ def write_freeze_snapshot(
     snapshot_path = Path(path)
     if snapshot_path.exists():
         raise FrozenConfigError(f"freeze snapshot {snapshot_path} already exists: the freeze is one-way")
+    _require_sidecars(checkpoints)
     git = git or _default_git()
     _require_clean(git, "freeze")
     snapshot = {

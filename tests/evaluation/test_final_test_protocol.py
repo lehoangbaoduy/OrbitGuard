@@ -52,6 +52,7 @@ def test_test_pool_is_disjoint_from_the_validation_pool_and_its_range():
 def _weights(tmp_path, content=b"weights-v1"):
     path = tmp_path / "actor_weights.npz"
     path.write_bytes(content)
+    (tmp_path / "run_config.json").write_text("{}")  # the freeze refuses a checkpoint without its sidecar
     return {"adaptive_mappo/0": path}
 
 
