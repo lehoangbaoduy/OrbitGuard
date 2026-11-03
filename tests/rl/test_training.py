@@ -231,3 +231,23 @@ def test_the_critic_input_reaches_the_rl_module_model_config(critic_input):
     config = build_mappo_config("unused_env_name", AGENT_OBS_FLAT_DIM, settings)
 
     assert config.rl_module_spec.rl_module_specs[POLICY_ID].model_config["critic_input"] == critic_input
+
+
+def test_env_runners_wait_long_enough_for_a_slow_shielded_n15_rollout_fragment():
+    # A shielded N=15 step takes ~0.07 s, so a 1000-step fragment (4000 batch / 4 runners) needs ~70 s. RLlib's
+    # default 60 s sample timeout returned no samples and every iteration trained on nothing (R4, 2026-11-03).
+    config = build_mappo_config("test_training_stub", AGENT_OBS_FLAT_DIM, _SETTINGS)
+
+    assert config.sample_timeout_s >= 600
+
+
+class _NoSampleAlgo:
+    """An algorithm whose iteration produced no samples, so no learner update (what a sample timeout looks like)."""
+
+    def train(self) -> dict:
+        return {"env_runners": {}, "learners": {}}
+
+
+def test_an_iteration_without_a_learner_update_fails_loudly_instead_of_training_on_nothing():
+    with pytest.raises(RuntimeError, match="no learner update"):
+        train(_NoSampleAlgo(), 1)

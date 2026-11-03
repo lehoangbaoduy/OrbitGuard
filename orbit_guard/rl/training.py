@@ -67,6 +67,9 @@ DEFAULT_ENV_NAME = "orbit_guard_ctde"
 ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
 RUN_CONFIG_FILENAME = "run_config.json"
 _DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_PATH
+# A shielded N=15 step takes ~0.07 s, so one runner's ~1000-step fragment needs over RLlib's 60 s default;
+# timing out returns no samples and the iteration silently trains on nothing. Wall-clock only, not a result setting.
+SAMPLE_TIMEOUT_S = 900.0
 
 
 @dataclass(frozen=True)
@@ -136,7 +139,7 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
             policy_mapping_fn=lambda agent_id, episode, **kwargs: POLICY_ID,
         )
         .rl_module(rl_module_spec=MultiRLModuleSpec(rl_module_specs={POLICY_ID: module_spec}))
-        .env_runners(num_env_runners=settings.num_env_runners)
+        .env_runners(num_env_runners=settings.num_env_runners, sample_timeout_s=SAMPLE_TIMEOUT_S)
         .training(
             lr=settings.learning_rate,
             gamma=settings.gamma,
@@ -241,6 +244,11 @@ def train(
         result = algo.train()
         returns.append(float(result.get("env_runners", {}).get("episode_return_mean", float("nan"))))
         learner_metrics = result.get("learners", {}).get(POLICY_ID, {})
+        if not learner_metrics:
+            raise RuntimeError(
+                f"iteration {len(returns)} made no learner update (no samples returned, e.g. an env-runner sample "
+                "timeout); refusing to continue a run that silently trains on nothing"
+            )
         entropies.append(float(learner_metrics.get("entropy", float("nan"))))
         explained_variances.append(float(learner_metrics.get("vf_explained_var", float("nan"))))
         if on_iteration is not None:
