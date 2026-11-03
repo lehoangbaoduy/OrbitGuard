@@ -80,3 +80,26 @@ def test_write_results_generates_files_from_the_log_alone(tmp_path):
     assert {"results_table.md", "failure_taxonomy.md", "collision_rate.html"} <= names
     assert all(path.stat().st_size > 0 for path in written)
     assert "no_maneuver" in (tmp_path / "results_table.md").read_text()
+
+
+def test_write_results_also_writes_the_paired_and_degradation_tables(tmp_path):
+    records = [_record("no_maneuver", c, s, collisions=s % 2) for c in ("normal", "noise_increase") for s in range(3)]
+    records += [_record("adaptive_mappo", c, s, training_seed=0) for c in ("normal", "noise_increase") for s in range(3)]
+
+    written = write_results(records, tmp_path)
+
+    names = {path.name for path in written}
+    assert {"paired_comparisons.md", "degradation.md"} <= names
+    assert "no_maneuver" in (tmp_path / "paired_comparisons.md").read_text()
+    assert "noise_increase" in (tmp_path / "degradation.md").read_text()
+
+
+def test_the_figure_tolerates_a_condition_where_every_episode_failed():
+    records = [_record("no_maneuver", "normal", s) for s in range(3)]
+    records += [{**_record("no_maneuver", "noise_increase", s), "status": "failed"} for s in range(3)]
+
+    figure = collision_rate_figure(records)
+
+    (trace,) = figure.data
+    assert list(trace.x) == ["normal", "noise_increase"]
+    assert trace.y[1] is None

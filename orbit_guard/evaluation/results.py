@@ -1,9 +1,12 @@
 """Result tables and figures, generated from the episode log alone (PRD §36, §49; P6-M3/M4).
 
 Nothing here is hand-typed: `write_results(records, out_dir)` reads logged
-episode records and writes the markdown results table, the failure-taxonomy
-table, and the primary-endpoint figure. Every episode can carry several of the
-nine §36 labels; they are counted separately, never collapsed into one flag.
+episode records and writes the markdown results table, the paired-comparison
+and degradation tables (PRD §34), the failure-taxonomy table, and the
+primary-endpoint figure. Every episode can carry several of the nine §36
+labels; they are counted separately, never collapsed into one flag. Failed
+episodes are counted in the results table and a condition whose episodes all
+failed keeps its place on the figure's x axis with an empty bar.
 """
 
 from __future__ import annotations
@@ -15,7 +18,12 @@ from pathlib import Path
 import plotly.graph_objects as go
 
 from orbit_guard.evaluation.baselines import MODEL_NAMES
-from orbit_guard.evaluation.experiment import format_report, summarize
+from orbit_guard.evaluation.experiment import (
+    format_degradation_report,
+    format_paired_report,
+    format_report,
+    summarize,
+)
 from orbit_guard.evaluation.shifts import CONDITION_NAMES
 from orbit_guard.rl import episode_metrics as em
 
@@ -56,7 +64,12 @@ def collision_rate_figure(records: Sequence[Mapping]) -> go.Figure:
     figure = go.Figure()
     conditions = [c for c in CONDITION_NAMES if any(row["condition"] == c for row in rows)]
     for index, model in enumerate(m for m in MODEL_NAMES if any(row["model"] == m for row in rows)):
-        by_condition = {row["condition"]: row["collision_rate"] for row in rows if row["model"] == model}
+        # A condition whose episodes all failed has a None summary: an empty bar, never a dropped condition.
+        by_condition = {
+            row["condition"]: row["collision_rate"]
+            for row in rows
+            if row["model"] == model and row["collision_rate"] is not None
+        }
         figure.add_trace(
             go.Bar(
                 name=model, x=conditions,
@@ -74,16 +87,20 @@ def collision_rate_figure(records: Sequence[Mapping]) -> go.Figure:
 
 
 def write_results(records: Sequence[Mapping], out_dir: str | Path) -> list[Path]:
-    """Write the results table, failure taxonomy and primary-endpoint figure; return the paths."""
+    """Write the results, paired-comparison, degradation and taxonomy tables and the figure; return the paths."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     table = out / "results_table.md"
+    paired = out / "paired_comparisons.md"
+    degradation_table = out / "degradation.md"
     taxonomy = out / "failure_taxonomy.md"
     figure = out / "collision_rate.html"
     table.write_text(format_report(records) + "\n")
+    paired.write_text(format_paired_report(records) + "\n")
+    degradation_table.write_text(format_degradation_report(records) + "\n")
     taxonomy.write_text(taxonomy_markdown(failure_taxonomy(records)) + "\n")
     collision_rate_figure(records).write_html(figure, include_plotlyjs="cdn")
-    return [table, taxonomy, figure]
+    return [table, paired, degradation_table, taxonomy, figure]
 
 
 def main(argv: list[str] | None = None) -> None:

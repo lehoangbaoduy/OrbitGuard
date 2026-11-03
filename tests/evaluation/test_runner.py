@@ -124,3 +124,48 @@ def test_run_tasks_resumes_by_skipping_completed_episodes(tmp_path):
     lines = out.read_text().splitlines()
     assert len(lines) == 2
     assert [record["scenario_seed"] for record in records] == [2]  # only the new one ran
+
+
+def _overlay(tmp_path) -> str:
+    path = tmp_path / "tuned.yaml"
+    path.write_text("reward:\n  w3: 1.5\n")
+    return str(path)
+
+
+def test_the_overlay_reaches_both_the_environment_and_the_policy_builders(tmp_path, monkeypatch):
+    from orbit_guard.evaluation import runner
+
+    seen: dict[str, object] = {}
+    real_env, real_policy = runner.build_env_factory, runner.build_policy
+
+    def spy_env(*args, **kwargs):
+        seen["env"] = kwargs.get("overlay_path")
+        return real_env(*args, **kwargs)
+
+    def spy_policy(*args, **kwargs):
+        seen["policy"] = kwargs.get("overlay_path")
+        return real_policy(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "build_env_factory", spy_env)
+    monkeypatch.setattr(runner, "build_policy", spy_policy)
+    overlay = _overlay(tmp_path)
+
+    record = run_episode_task(_task(overlay_path=overlay))
+
+    assert record["status"] == "ok"
+    assert seen == {"env": overlay, "policy": overlay}
+
+
+def test_the_record_hashes_the_config_together_with_its_overlay(tmp_path):
+    from orbit_guard.config import DEFAULT_CONFIG_PATH, config_digest
+
+    overlay = _overlay(tmp_path)
+
+    plain = run_episode_task(_task())
+    tuned = run_episode_task(_task(overlay_path=overlay))
+
+    assert plain["config_hash"] == config_digest(DEFAULT_CONFIG_PATH)
+    assert plain["overlay_path"] is None
+    assert tuned["config_hash"] == config_digest(DEFAULT_CONFIG_PATH, overlay)
+    assert tuned["overlay_path"] == overlay
+    assert tuned["config_hash"] != plain["config_hash"]
