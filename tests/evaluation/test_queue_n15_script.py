@@ -26,6 +26,7 @@ _FAKE_UV = """#!/bin/sh
 case " $* " in
   *" orbit_guard.rl.training "*)
     printf '%s\\037' "$@" >> "$UV_LOG"; printf '\\n' >> "$UV_LOG"
+    printf '%s\\n' "$RAY_TMPDIR" >> "$UV_LOG.ray_tmpdir"
     for name in $FAIL_RUNS; do
       case " $* " in *"/$name "*) exit 1 ;; esac
     done
@@ -66,6 +67,28 @@ def test_a_clean_queue_trains_all_nine_runs_and_exits_zero(tmp_path):
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert len(trained_runs(calls)) == 9
+
+
+def ray_tmpdirs(tmp_path: Path) -> set[str]:
+    return set((tmp_path / "uv_calls.log.ray_tmpdir").read_text().splitlines())
+
+
+def test_without_a_ray_tmpdir_the_queue_puts_ray_on_disk_under_runs(tmp_path, monkeypatch):
+    monkeypatch.delenv("RAY_TMPDIR", raising=False)
+    runs = tmp_path / "runs"
+
+    completed, _ = run_queue(tmp_path, runs)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert ray_tmpdirs(tmp_path) == {f"{runs}/ray_tmp"}
+
+
+def test_an_inherited_ray_tmpdir_is_kept(tmp_path):
+    # Ray's socket paths under a deep RUNS dir exceed AF_UNIX's 107 bytes; a short RAY_TMPDIR must win.
+    completed, _ = run_queue(tmp_path, tmp_path / "runs", RAY_TMPDIR="/short/ray_tmp")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert ray_tmpdirs(tmp_path) == {"/short/ray_tmp"}
 
 
 def test_a_failed_run_does_not_stop_the_queue_but_fails_it_with_a_summary(tmp_path):

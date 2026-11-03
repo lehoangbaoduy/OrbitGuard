@@ -28,7 +28,9 @@ overlay_flags=()
 if [ -n "$OVERLAY" ]; then overlay_flags=(--overlay "$OVERLAY"); fi
 mkdir -p "$RUNS/logs"
 echo $$ > "$RUNS/logs/queue_n15.pid"
-export RAY_TMPDIR="$RUNS/ray_tmp"
+# Ray puts AF_UNIX sockets (max 107 bytes) under RAY_TMPDIR: under a deep RUNS dir pass a short one, e.g.
+# RAY_TMPDIR=~/orbitguard_runs/ray_tmp.
+export RAY_TMPDIR="${RAY_TMPDIR:-$RUNS/ray_tmp}"
 cd "$(dirname "$0")/.."
 
 all_runs=()
