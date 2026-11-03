@@ -313,12 +313,14 @@ def test_an_overlay_written_by_freeze_best_loads_with_its_hash_verified(tmp_path
         mean_delta_v_used_mps=0.1, mean_budget_fraction_used=0.05, unsafe_episodes=0, mean_episode_steps=360.0,
     )
     target = tmp_path / "tuned.yaml"
-    freeze_best([GridResult(GridPoint("wide", reward_weights={"w4": 1.5}, margin={"alpha": 2.0}), report, 0.01, "q27")], target)
+    point = GridPoint("wide", reward_weights={"w4": 1.5}, margin={"alpha": 2.0})
+    freeze_best([GridResult(point, report, 0.01, "q27")], target, measure=lambda config: 1234.4)  # stub: the real Q30 measurement is pinned in tests/tuning/test_fixed_margin.py
 
     config = load_config(overlay_path=target)
 
     assert config["reward"]["w4_coordination"] == 1.5
     assert config["adaptive_margin"]["alpha"] == 2.0
+    assert config["fixed_margin"]["d_safe_m"] == 1234.0
     assert "selected" not in config
 
 
@@ -327,3 +329,20 @@ def test_a_null_delta_v_budget_range_means_the_fixed_template_budget():
     config["capability"]["remaining_delta_v_range_mps"] = None
 
     assert env_kwargs_from_config(config, shielded=False)["remaining_delta_v_range_mps"] is None
+
+
+def test_overlay_may_set_the_fixed_margin_constant(tmp_path):
+    overlay = _write_overlay(tmp_path, {"fixed_margin": {"d_safe_m": 1284.0}})
+
+    config = load_config(overlay_path=overlay)
+
+    assert config["fixed_margin"] == {"d_safe_m": 1284.0}
+    assert margin_from_config(config, "fixed") == FixedMargin(1284.0)
+    assert config_digest(DEFAULT_CONFIG_PATH, overlay) != config_digest(DEFAULT_CONFIG_PATH)
+
+
+def test_overlay_rejects_an_unknown_key_in_the_fixed_margin_block(tmp_path):
+    overlay = _write_overlay(tmp_path, {"fixed_margin": {"d_safe": 1284.0}})
+
+    with pytest.raises(ValueError, match="unknown"):
+        load_config(overlay_path=overlay)

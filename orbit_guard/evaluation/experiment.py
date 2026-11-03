@@ -14,6 +14,9 @@
                         actor_weights.npz records `config.config_digest(config, overlay)`, and a mismatch
                         with the digest the experiment is about to use raises `CheckpointProvenanceError`.
                         A model trained with a tuned overlay must therefore be evaluated with that overlay.
+                        The sidecar's recorded margin and reward weights must also equal the ones the
+                        evaluation environment for that model builds from config + overlay
+                        (`trained_values`), so training CLI overrides that bypass the digest are refused.
 CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
 `--overlay` (default configs/default.yaml, no overlay). `run --split validation --conditions ...` runs the
 validation seeds under any of the five shift conditions (or `all`), reusing the same seeds for each; the test
@@ -33,8 +36,13 @@ from pathlib import Path
 
 import numpy as np
 
-from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
-from orbit_guard.evaluation.baselines import MODEL_NAMES, _model_spec
+from orbit_guard.config import (
+    DEFAULT_CONFIG_PATH,
+    REPO_ROOT,
+    config_digest,
+    load_config,
+)
+from orbit_guard.evaluation.baselines import MODEL_NAMES, _model_spec, _spec_from_config
 from orbit_guard.evaluation.runner import EpisodeTask, read_records, run_tasks
 from orbit_guard.evaluation.shifts import CONDITION_NAMES
 from orbit_guard.evaluation.statistics import (
@@ -43,6 +51,12 @@ from orbit_guard.evaluation.statistics import (
     degradation,
     paired_comparison,
     pooled_by_training_seed,
+)
+from orbit_guard.evaluation.trained_values import (
+    OVERLAY_ADVICE,
+    evaluation_values,
+    recorded_margin_kind,
+    trained_value_mismatches,
 )
 
 _DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
@@ -58,12 +72,19 @@ class CheckpointProvenanceError(ValueError):
 
 
 def check_checkpoint_provenance(
-    weights_path: str | Path, *, config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None
+    weights_path: str | Path,
+    *,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
+    model: str | None = None,
 ) -> None:
-    """Refuse `weights_path` if its run_config.json sidecar records a different config_digest.
+    """Refuse `weights_path` if its run_config.json sidecar records another config_digest, margin or reward weights.
 
     Digests, not paths, are compared: an overlay copied elsewhere with identical bytes is the same
-    configuration. A checkpoint with no sidecar (exported before sidecars existed) is accepted.
+    configuration. The recorded `margin` and `reward_weights` must equal what the evaluation environment for
+    `model` builds from config + overlay (its `models:` margin kind; without a model, the kind the sidecar
+    records); a sidecar missing either is refused. A checkpoint with no sidecar (exported before sidecars
+    existed) is accepted.
     """
     sidecar = Path(weights_path).parent / RUN_CONFIG_FILENAME
     if not sidecar.exists():
@@ -81,6 +102,19 @@ def check_checkpoint_provenance(
             f"evaluated under {expected} (config {str(config_path)!r}, overlay "
             f"{None if overlay_path is None else str(overlay_path)!r}); pass the overlay it was trained with"
         )
+    _check_trained_values(weights_path, recorded, load_config(config_path, overlay_path), model)
+
+
+def _check_trained_values(weights_path: str | Path, recorded: Mapping, config: Mapping, model: str | None) -> None:
+    """Refuse a checkpoint trained with a margin or reward weights its evaluation environment would not use."""
+    kind = recorded_margin_kind(recorded) if model is None else _spec_from_config(model, config)["margin"]
+    problems = trained_value_mismatches(recorded, evaluation_values(config, kind))
+    if problems:
+        target = f"model {model!r}" if model is not None else f"its recorded {kind} margin"
+        raise CheckpointProvenanceError(
+            f"checkpoint {weights_path} was not trained with the margin and reward weights the evaluation "
+            f"environment for {target} builds from config + overlay: {'; '.join(problems)}. {OVERLAY_ADVICE}"
+        )
 
 
 def check_registry_provenance(
@@ -89,10 +123,10 @@ def check_registry_provenance(
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
 ) -> None:
-    """`check_checkpoint_provenance` for every registered checkpoint."""
-    for seeds in registry.values():
+    """`check_checkpoint_provenance` for every registered checkpoint, against the model it is registered as."""
+    for model, seeds in registry.items():
         for weights in seeds.values():
-            check_checkpoint_provenance(weights, config_path=config_path, overlay_path=overlay_path)
+            check_checkpoint_provenance(weights, config_path=config_path, overlay_path=overlay_path, model=model)
 
 
 def build_tasks(

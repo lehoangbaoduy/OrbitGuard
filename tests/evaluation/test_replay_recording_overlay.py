@@ -25,6 +25,7 @@ from orbit_guard.evaluation.replay_recording import (
 from orbit_guard.rl.actor_policy import save_actor_weights
 from orbit_guard.visualization.episodes import discover_episodes
 from tests.evaluation.replay_fixtures import ENV_KWARGS
+from tests.evaluation.sidecar_fixtures import sidecar_record
 
 _DIMS = {"obs_dim": 54, "num_actions": 6}
 _W3 = 7.25  # distinctive: neither the default (5.0) nor any grid value
@@ -43,8 +44,8 @@ def _checkpoint(tmp_path: Path, *, trained_with: Path | None, sidecar: bool = Tr
     weights = run / "actor_weights.npz"
     save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), weights)  # stands in for a trained actor
     if sidecar:
-        digest = config_digest(DEFAULT_CONFIG_PATH, trained_with)
-        (run / "run_config.json").write_text(json.dumps({"config_digest": digest, "overlay_path": str(trained_with)}))
+        record = {**sidecar_record(trained_with), "overlay_path": str(trained_with)}
+        (run / "run_config.json").write_text(json.dumps(record))
     return weights
 
 
@@ -157,8 +158,7 @@ def _all_weights(runs: Path, *, trained_with: Path | None) -> None:
         run = runs / f"n15_{variant}_s0"
         run.mkdir(parents=True)
         save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), run / "actor_weights.npz")
-        digest = config_digest(DEFAULT_CONFIG_PATH, trained_with)
-        (run / "run_config.json").write_text(json.dumps({"config_digest": digest}))
+        (run / "run_config.json").write_text(json.dumps(sidecar_record(trained_with)))
 
 
 def test_the_script_passes_overlay_to_the_recorder(tmp_path, monkeypatch):

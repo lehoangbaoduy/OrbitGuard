@@ -26,6 +26,10 @@ sha256, so a resumed grid never mixes rules, configurations or seed pools.
 The winner is frozen into an overlay file whose hash
 covers `configs/default.yaml` plus the overrides, snapshotted before any
 final-test evaluation (PRD §33, "freeze tuned params before final test").
+When the winner changes the adaptive-margin coefficients, the overlay also
+carries the Fixed-Margin constant re-measured under them by the Q30 protocol
+(`tuning.fixed_margin`), so the Fixed-Margin arm keeps the adaptive arm's mean
+margin size. The grid itself trains only the adaptive arm.
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ from orbit_guard.evaluation.seed_pools import load_seed_pool
 from orbit_guard.rl.ctde_module import CRITIC_INPUTS
 from orbit_guard.rl.env_factory import EnvFactory, make_env_factory_from_config
 from orbit_guard.rl.evaluation import EvaluationReport
+from orbit_guard.tuning.fixed_margin import measure_fixed_margin, round_fixed_margin
 
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 _DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
@@ -199,8 +204,19 @@ def run_grid(
     return sorted(results, key=lambda result: (result.score, result.point.name))
 
 
-def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
-    """Write the winner as a hashed config overlay; return the hash."""
+def freeze_best(
+    results: Sequence[GridResult],
+    path: str | Path,
+    *,
+    measure: Callable[[Mapping], float] = measure_fixed_margin,
+) -> str:
+    """Write the winner as a hashed config overlay; return the hash.
+
+    If the winner's adaptive coefficients differ from the default config's, `fixed_margin.d_safe_m` is set to
+    `measure(merged config)` (the Q30 mean adaptive d_safe, `tuning.fixed_margin`) rounded to the nearest whole
+    metre like the default constant, before hashing. With the default coefficients the block is left out: the
+    default constant stands (and equals what the protocol measures, tested).
+    """
     best = results[0]
     body = {
         "selected": best.point.name,
@@ -217,9 +233,21 @@ def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
             "score": best.score,
         },
     }
+    fixed = _rematched_fixed_margin(best.point, measure)
+    if fixed is not None:
+        body["fixed_margin"] = {"d_safe_m": fixed}
     digest = overlay_digest(_DEFAULT_CONFIG.read_bytes(), body)
     Path(path).write_text(yaml.safe_dump({**body, "config_hash": digest}, sort_keys=True))
     return digest
+
+
+def _rematched_fixed_margin(point: GridPoint, measure: Callable[[Mapping], float]) -> float | None:
+    """The Fixed-Margin constant matched to `point`'s adaptive coefficients; None when they are the defaults."""
+    base = load_config(_DEFAULT_CONFIG)
+    merged = config_for_point(point, base)
+    if margin_from_config(merged, "adaptive") == margin_from_config(base, "adaptive"):
+        return None
+    return round_fixed_margin(measure(merged))
 
 
 def build_parser() -> argparse.ArgumentParser:

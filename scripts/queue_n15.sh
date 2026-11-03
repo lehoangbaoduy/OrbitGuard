@@ -5,14 +5,19 @@
 #   monitor:  tail -f ~/orbitguard_runs/logs/queue_n15.log
 #   stop:     kill $(cat ~/orbitguard_runs/logs/queue_n15.pid)   # then stop the python training child
 #   then:     scripts/run_experiments.sh
-# Retraining with a tuned grid point (a non-default winner must be retrained before the freeze), into a fresh runs dir:
-#   RUNS=~/orbitguard_runs_tuned TUNED_FLAGS="--w4 1.5 --margin-alpha 0.5" scripts/queue_n15.sh
-# Or from a frozen tuned overlay (tuning.grid_search writes tuned.yaml; every run gets --overlay "$OVERLAY"):
+# Retraining with a tuned grid point goes ONLY through the frozen, hashed overlay (tuning.grid_search writes
+# tuned.yaml, with the Fixed-Margin constant re-measured for tuned margin coefficients; every run gets
+# --overlay "$OVERLAY", so the fixed arm trains with it too), into a fresh runs dir:
 #   RUNS=~/orbitguard_runs_tuned OVERLAY=~/orbitguard_runs/grid/tuned.yaml scripts/queue_n15.sh
+# Never pass reward weights (--w1..--w4, --collision-penalty) or margin coefficients (--margin-alpha/-beta/
+# -gamma-margin) through TUNED_FLAGS: evaluation rebuilds the env from config + overlay only, and the experiment
+# and replay recorder refuse a checkpoint whose run_config.json records other values. TUNED_FLAGS is deprecated
+# for tuning; it remains only for training-only settings that never reach the evaluation env, e.g.
+#   TUNED_FLAGS="--entropy-coeff 0.01"   (prefer the overlay's rl: block, which config_digest records)
 set -uo pipefail
 RUNS="${RUNS:-$HOME/orbitguard_runs}"
 ITERATIONS="${ITERATIONS:-50}"
-TUNED_FLAGS="${TUNED_FLAGS:-}"  # extra `orbit_guard.rl.training` flags applied to every run (word-split on purpose)
+TUNED_FLAGS="${TUNED_FLAGS:-}"  # deprecated: extra training-only flags for every run (word-split on purpose); see above
 OVERLAY="${OVERLAY:-}"          # optional tuned overlay yaml, merged over configs/default.yaml for every run
 overlay_flags=()
 if [ -n "$OVERLAY" ]; then overlay_flags=(--overlay "$OVERLAY"); fi
