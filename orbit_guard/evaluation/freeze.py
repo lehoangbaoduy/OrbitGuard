@@ -4,14 +4,14 @@ PRD §33 holds the final test "strictly held out until every model/config choice
 enforced, not promised:
 
   * `write_freeze_snapshot` writes ONCE: it refuses if the snapshot file exists, and refuses unless
-    `git status --porcelain -- orbit_guard configs scripts` is empty (edits under docs/ do not block).
+    `git status --porcelain -- orbit_guard configs scripts data` is empty (edits under docs/ do not block).
     It records config_digest(config, overlay) (CORE-1), the sha256 of the test and validation pool files,
     every checkpoint's actor_weights sha256 and its run_config.json sha256, and HEAD. A checkpoint with no
     run_config.json sidecar is refused: its training configuration could not be shown.
   * `verify_freeze` re-checks every recorded hash, that the checkpoints passed are exactly the frozen
     (model, training seed) set (adding or dropping a training seed after seeing results fails), that
     those paths are still clean, and that
-    `git diff --quiet <frozen commit> -- orbit_guard configs scripts` holds: no code, config or script
+    `git diff --quiet <frozen commit> -- orbit_guard configs scripts data` holds: no code, config, data or script
     change since the freeze, committed or not. Any failure raises `FrozenConfigError` naming what moved.
   * the final-test loader (`test_seed_pool.load_test_pool`) calls `verify_freeze`, so retraining,
     retuning or editing the code after the freeze closes the gate.
@@ -34,7 +34,7 @@ from pathlib import Path
 from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
 
 GIT_ROOT = REPO_ROOT
-FROZEN_PATHS = ("orbit_guard", "configs", "scripts")
+FROZEN_PATHS = ("orbit_guard", "configs", "scripts", "data")  # data/: the TLE file config_digest covers
 SNAPSHOT_FORMAT = 2
 DEFAULT_TEST_POOL = REPO_ROOT / "configs" / "test_seeds.json"
 DEFAULT_VALIDATION_POOL = REPO_ROOT / "configs" / "validation_seeds.json"

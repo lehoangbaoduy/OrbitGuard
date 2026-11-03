@@ -133,8 +133,62 @@ def test_overlay_without_a_config_hash_is_accepted(tmp_path):
     assert load_config(overlay_path=overlay)["adaptive_margin"]["alpha"] == 2.0
 
 
-def test_config_digest_is_the_base_bytes_without_overlay():
-    assert config_digest(DEFAULT_CONFIG_PATH) == hashlib.sha256(DEFAULT_CONFIG_PATH.read_bytes()).hexdigest()
+def _tle_file() -> Path:
+    return _REPO / yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())["data"]["tle_file"]
+
+
+def test_config_digest_is_the_base_bytes_then_the_tle_file_bytes_without_overlay():
+    expected = hashlib.sha256(DEFAULT_CONFIG_PATH.read_bytes() + _tle_file().read_bytes()).hexdigest()
+
+    assert config_digest(DEFAULT_CONFIG_PATH) == expected
+
+
+def test_config_digest_with_an_overlay_is_base_then_tle_then_overlay_bytes(tmp_path):
+    overlay = _write_overlay(tmp_path, {"adaptive_margin": {"alpha": 2.0}})
+    expected = hashlib.sha256(
+        DEFAULT_CONFIG_PATH.read_bytes() + _tle_file().read_bytes() + overlay.read_bytes()
+    ).hexdigest()
+
+    assert config_digest(DEFAULT_CONFIG_PATH, overlay) == expected
+
+
+def _config_with_tle(tmp_path: Path, tle: Path) -> Path:
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump({"data": {"tle_file": str(tle)}}))
+    return config
+
+
+def test_config_digest_changes_when_the_tle_data_changes(tmp_path):
+    tle = tmp_path / "tle.csv"
+    tle.write_text("norad,a,e\n1,6900,0.001\n")
+    config = _config_with_tle(tmp_path, tle)
+    before = config_digest(config)
+
+    tle.write_text("norad,a,e\n1,6900,0.002\n")
+
+    assert config_digest(config) != before
+
+
+def test_a_relative_tle_path_resolves_against_the_repository_like_the_environment(tmp_path):
+    copy = tmp_path / "default.yaml"
+    copy.write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
+
+    assert env_kwargs_from_config(load_config(copy), shielded=False)["tle_path"] == _tle_file()
+    assert config_digest(copy) == config_digest(DEFAULT_CONFIG_PATH)
+
+
+def test_a_missing_tle_file_is_a_clear_error(tmp_path):
+    config = _config_with_tle(tmp_path, tmp_path / "missing.csv")
+
+    with pytest.raises(FileNotFoundError, match=r"data\.tle_file.*missing\.csv"):
+        config_digest(config)
+
+
+def test_a_config_without_a_tle_file_key_digests_its_own_bytes_only(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("a: 1\n")
+
+    assert config_digest(config) == hashlib.sha256(b"a: 1\n").hexdigest()
 
 
 def test_config_digest_changes_when_an_overlay_is_applied(tmp_path):

@@ -131,8 +131,10 @@ def test_an_existing_snapshot_is_never_overwritten(world):
     assert world["snapshot"].read_text() == before
 
 
-@pytest.mark.parametrize("relative", ["orbit_guard/module.py", "configs/default.yaml", "scripts/run.sh"])
-def test_an_uncommitted_change_to_code_configs_or_scripts_blocks_the_freeze(world, repo, relative):
+@pytest.mark.parametrize(
+    "relative", ["orbit_guard/module.py", "configs/default.yaml", "scripts/run.sh", "data/tle.csv"]
+)
+def test_an_uncommitted_change_to_code_configs_scripts_or_data_blocks_the_freeze(world, repo, relative):
     (repo / relative).write_text("changed\n")
 
     with pytest.raises(FrozenConfigError, match=relative):
@@ -332,6 +334,15 @@ def test_an_uncommitted_change_after_the_freeze_fails_verification(world, repo):
     (repo / "scripts" / "run.sh").write_text("echo changed\n")
 
     with pytest.raises(FrozenConfigError, match="scripts/run.sh"):
+        _verify(world)
+
+
+def test_tle_data_committed_after_the_freeze_fails_verification(world, repo):
+    _freeze(world)
+    (repo / "data" / "tle.csv").write_text("norad,a,e\n1,6900,0.001\n")
+    commit_all(repo, "new TLE snapshot after peeking")
+
+    with pytest.raises(FrozenConfigError, match="since the freeze"):
         _verify(world)
 
 

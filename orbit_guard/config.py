@@ -47,11 +47,37 @@ def overlay_digest(base_bytes: bytes, body: Mapping[str, Any]) -> str:
 
 
 def config_digest(config_path: str | Path = DEFAULT_CONFIG_PATH, overlay_path: str | Path | None = None) -> str:
-    """Provenance hash of the configuration a run used: base bytes, then overlay bytes when an overlay is applied."""
-    digest = hashlib.sha256(Path(config_path).read_bytes())
+    """Provenance hash of the configuration a run used: base bytes, then the TLE data, then the overlay.
+
+    The TLE file named by `data.tle_file` defines the scenario distribution, so its bytes are part of the
+    configuration: it is resolved exactly as `env_kwargs_from_config` resolves it (relative to the repository
+    root), and a missing file raises FileNotFoundError. An overlay cannot change `data`, so only the base
+    config is read for it. A config with no `data.tle_file` key (not runnable by the environment) digests
+    its own bytes and the overlay only.
+    """
+    base_bytes = Path(config_path).read_bytes()
+    digest = hashlib.sha256(base_bytes)
+    tle_path = _tle_path(base_bytes, Path(config_path))
+    if tle_path is not None:
+        digest.update(tle_path.read_bytes())
     if overlay_path is not None:
         digest.update(Path(overlay_path).read_bytes())
     return digest.hexdigest()
+
+
+def _tle_path(base_bytes: bytes, source: Path) -> Path | None:
+    """The TLE file `data.tle_file` names (resolved like the environment's tle_path), or None if unset."""
+    data = _parse_mapping(base_bytes, source).get("data")
+    tle_file = data.get("tle_file") if isinstance(data, Mapping) else None
+    if tle_file is None:
+        return None
+    path = _repo_path(str(tle_file))
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"config {source}: data.tle_file {tle_file!r} resolves to {path}, which does not exist; "
+            "the TLE data is part of the configuration digest"
+        )
+    return path
 
 
 def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH, overlay_path: str | Path | None = None) -> dict:

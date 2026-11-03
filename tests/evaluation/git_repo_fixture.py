@@ -30,13 +30,14 @@ def commit_all(root: Path, message: str) -> str:
 
 
 def make_repo(root: Path) -> Path:
-    """A committed repository with orbit_guard/, configs/, scripts/ and docs/; returns its root."""
+    """A committed repository with orbit_guard/, configs/, scripts/, data/ and docs/; returns its root."""
     root.mkdir(parents=True, exist_ok=True)
     git(root, "init", "-q")
     for relative, content in {
         "orbit_guard/module.py": "VALUE = 1\n",
         "configs/default.yaml": "a: 1\n",
         "scripts/run.sh": "echo run\n",
+        "data/tle.csv": "norad,a,e\n",
         "docs/notes.md": "notes\n",
         ".gitignore": "__pycache__/\n",
     }.items():
