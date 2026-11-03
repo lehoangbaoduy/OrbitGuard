@@ -15,23 +15,37 @@ Per-control-step pipeline (docs/OrbitGuard_progress.md Q14-Q20):
      on the first step after reset, computed fresh); it is this step's
      "pre" assessment, i.e. what each agent observes and acts on.
   3. Build this step's observations from belief + "pre" assessment.
-  4. Map each agent's discrete action to an ECI delta-v (Part B), capped by
-     capability (never silently substituted with NO_MANEUVER, PRD §13).
+  4. Predict the outcome of the RAW joint proposal from this step's "pre"
+     beliefs and baseline predictions (`pair_assessment.assess_proposal`):
+     each proposed burn is mapped from the BELIEF state, sized by the
+     satellite's own per-action limit, never capability-capped; NO_MANEUVER
+     and non-controllable satellites reuse their baseline prediction. This is
+     the ONE estimator scoring R_safety and the coordination term (PRD §25/
+     §28, CORE-2) in both this environment and the shielded one, whose shield
+     builds `proposal_evaluation` with the same functions.
+     Then map each agent's discrete action to an ECI delta-v (Part B) for
+     actuation, capped by capability (never silently substituted with
+     NO_MANEUVER, PRD §13).
   5. Apply delta-v to GROUND TRUTH and propagate it at `physics_dt_s`
      resolution across the full control step (not just the endpoints --
      relative velocities ~2km/s traverse ~120km in one 60s control step).
   6. Ground-truth collision check over that fine-grained window (PRD §18).
   7. Form a fresh belief AFTER the physical step and assess all pairs again
-     -- this is both the "post" assessment feeding this step's reward (PRD
-     §21/§27 R_safety and the coordination term) AND next step's "pre".
+     -- next step's "pre" assessment and observations, and this step's
+     realized outcome metrics. It does NOT feed the safety/coordination
+     reward: a second, independently-noised assessment would put pure sensing
+     noise into the coordination term (~0.095/step under all-no-op actions at
+     N=15) that the shielded arm never sees.
   8. Mission deviation (PRD §25) compares the post-step belief against a
      deterministically-evolved (zero-noise-after-reset) shadow belief, at
      the same instant -- never ground truth (Q14's leakage-boundary choice).
-  9. Assemble each agent's reward (Part C) and this step's observations
-     (next step's "pre" observations) together.
+  9. Assemble each agent's reward (Part C): safety and coordination from
+     step 4's predicted outcome, mission from step 8, delta-v on the raw
+     request, the collision penalty from step 6 -- and this step's
+     observations (next step's "pre" observations) together.
 
 Ground truth is used ONLY for actuation (converting a maneuver intent to an
-ECI delta-v relative to the satellite's own true state, step 4), propagation,
+ECI delta-v relative to the satellite's own true state, step 4's actuation half), propagation,
 and collision detection (steps 5-6) above; everything feeding observations
 or rewards is belief-derived, enforced structurally by `sensing.belief`'s own
 TypeError guards.
@@ -51,7 +65,9 @@ from pettingzoo import ParallelEnv
 from orbit_guard.config import env_kwargs_from_config, load_config, margin_from_config
 from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.pair_assessment import (
+    PairAssessment,
     assess_all_pairs,
+    assess_proposal,
     pair_density,
     predict_all,
 )
@@ -340,6 +356,7 @@ class OrbitGuardEnv(ParallelEnv):
         pre_assessments = self._pending_assessments
         pre_beliefs = self._pending_beliefs
         approved_actions, decision = self._approve_actions(actions)
+        outcome_assessments = self._outcome_assessments(actions, decision)  # before actuation moves the state
         applied_delta_v, approved_requested = self._apply_actions(approved_actions)
         requested_delta_v = approved_requested if approved_actions is actions else self._requested_delta_v(actions)
         fine_trajectories = self._propagate_ground_truth(applied_delta_v)
@@ -357,7 +374,7 @@ class OrbitGuardEnv(ParallelEnv):
         )
 
         rewards = self._compute_rewards(
-            actions, requested_delta_v, pre_assessments, self._outcome_assessments(post_assessments, decision),
+            actions, requested_delta_v, pre_assessments, outcome_assessments,
             post_beliefs, self._shadow_states, newly_collided,
         )
 
@@ -409,9 +426,20 @@ class OrbitGuardEnv(ParallelEnv):
         """Hook: turn raw proposals into the actions actually applied. Identity here (no shield)."""
         return actions, None
 
-    def _outcome_assessments(self, post_assessments, decision):
-        """Hook: assessments scoring the safety/coordination reward terms. The realized post-step ones here."""
-        return post_assessments
+    def _outcome_assessments(self, actions: dict, decision) -> list[PairAssessment]:
+        """Hook: the predicted outcome of the RAW joint proposal, scoring R_safety and the coordination term.
+
+        The one estimator of both shield arms (CORE-2): decision-time beliefs and baseline predictions, burns
+        from the belief state sized by each satellite's own per-action limit; satellites without an action
+        (non-controllable) burn nothing. Must run before actuation, while the pending state is still "pre".
+        """
+        intents = [int(actions.get(agent, ManeuverIntent.NO_MANEUVER)) for agent in self.possible_agents]
+        return assess_proposal(
+            self._pending_beliefs, intents, [c.max_delta_v_per_action_mps for c in self._capabilities],
+            phase_fraction=self._phase_fraction, lookahead_s=self._lookahead_s, physics_dt_s=self._physics_dt_s,
+            margin_fn=self._margin_fn, baseline_predictions=self._pending_predictions,
+            density_radius_m=self._density_radius_m, density_ref_count=self._density_ref_count, **self._risk_params,
+        )
 
     def _step_infos(self, decision) -> dict:
         return {agent: {} for agent in self.agents}
@@ -599,10 +627,11 @@ class OrbitGuardEnv(ParallelEnv):
         )
 
     def _compute_rewards(
-        self, actions, requested_delta_v, pre_assessments, post_assessments, post_beliefs, shadow_states, newly_collided
+        self, actions, requested_delta_v, pre_assessments, outcome_assessments, post_beliefs, shadow_states, newly_collided
     ) -> dict:
+        """Safety/coordination on the predicted raw-proposal outcome; mission/collision on the realized step."""
         total_risk_pre = sum(a.risk_proxy for a in pre_assessments)
-        total_risk_post = sum(a.risk_proxy for a in post_assessments)
+        total_risk_post = sum(a.risk_proxy for a in outcome_assessments)
         coordination_term = compute_coordination_term(total_risk_pre, total_risk_post)
 
         rewards = {}
@@ -610,7 +639,7 @@ class OrbitGuardEnv(ParallelEnv):
             idx = self._agent_index[agent]
             margins = [
                 compute_pairwise_margin(a.d_min_m, a.d_safe_m)
-                for a in post_assessments
+                for a in outcome_assessments
                 if idx in (a.i, a.j)
             ]
             safety_term = compute_safety_term(margins)

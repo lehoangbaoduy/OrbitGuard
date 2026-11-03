@@ -8,10 +8,14 @@ an evaluation-time toggle on shielded weights.
 
 Semantics (PRD §28):
   * the realized transition applies the shield-APPROVED joint action;
-  * the safety and coordination reward terms are scored against the shield's
-    predicted outcome of each agent's RAW proposal, so an agent is still
-    penalized for proposing something unsafe even when the shield prevented the
-    bad outcome;
+  * the safety and coordination reward terms are scored against the predicted
+    outcome of the RAW joint proposal from the decision-time beliefs, so an
+    agent is still penalized for proposing something unsafe even when the
+    shield prevented the bad outcome. This is the ONE estimator both arms use
+    (CORE-2, `pair_assessment.assess_proposal`): the base environment computes
+    it itself, and here it is read from `ShieldResult.proposal_evaluation`,
+    which the shield builds with the same functions -- equal by construction,
+    so the shield-vs-no-shield ablation differs only in the shield;
   * the delta-v term is charged on the raw request (Q21), so the shield's
     own corrective burns are free to the agent -- it is not punished for the
     shield's work, and not rewarded for relying on it either;
@@ -44,7 +48,6 @@ class ShieldedOrbitGuardEnv(OrbitGuardEnv):
             lookahead_s=self._lookahead_s,
             physics_dt_s=self._physics_dt_s,
             margin_fn=self._margin_fn,
-            base_delta_v_mps=self._capability_template.max_delta_v_per_action_mps,
             phase_fraction=self._phase_fraction,
             collision_distance_m=2.0 * self._hard_body_radius_m,
             exact_max_agents=exact_max_agents,
@@ -71,7 +74,8 @@ class ShieldedOrbitGuardEnv(OrbitGuardEnv):
         approved = {agent: result.approved[self._agent_index[agent]] for agent in actions}
         return approved, result
 
-    def _outcome_assessments(self, post_assessments, decision: ShieldResult):
+    def _outcome_assessments(self, actions: dict, decision: ShieldResult):
+        """The shield already predicted the raw proposal with the shared estimator; reuse it, never recompute."""
         return list(decision.proposal_evaluation.pairs)
 
     def _shield_step(self, decision: ShieldResult) -> ShieldStep:

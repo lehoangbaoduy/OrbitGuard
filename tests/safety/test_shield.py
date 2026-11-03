@@ -167,18 +167,31 @@ def test_proposal_evaluation_predicts_the_joint_effect_of_both_burns(conjunction
     assert pair.d_min_m == pytest.approx(expected_d_min_m, rel=0.02, abs=5.0)
 
 
-def test_per_action_delta_v_limit_violation_is_rejected(conjunction_beliefs):
-    capability = SatelliteCapability(0.05, 2.0, True, 1.0)  # a 0.1 m/s burn exceeds the 0.05 limit
-    shield = _shield(margin_fn=_fixed_margin(_SMALL_MARGIN_M), base_delta_v_mps=0.1)
+def test_each_satellites_burn_is_sized_by_its_own_per_action_limit(conjunction_beliefs):
+    small = SatelliteCapability(0.05, 2.0, True, 1.0)  # this satellite's burns are half the template's
+    shield = _shield(margin_fn=_fixed_margin(_SMALL_MARGIN_M))
+    proposal = (int(ManeuverIntent.RAISE_ORBIT), 0)
 
-    result = shield.filter(conjunction_beliefs, (int(ManeuverIntent.RAISE_ORBIT), 0), _capabilities(2, capability))
+    result = shield.filter(conjunction_beliefs, proposal, [small, _CAPABILITY])
+
+    assert not any(v.kind is ViolationKind.CAPABILITY for v in result.proposal_evaluation.violations)
+    state = conjunction_beliefs[0].state_vector.copy()
+    state[3:6] += map_intent_to_delta_v(proposal[0], state[:3], state[3:6], base_delta_v_mps=0.05)
+    burned = propagate(state, _DT_S, round(_LOOKAHEAD_S / _DT_S), state_derivative)
+    coasting = propagate(conjunction_beliefs[1].state_vector, _DT_S, round(_LOOKAHEAD_S / _DT_S), state_derivative)
+    expected_d_min_m = float(np.min(np.linalg.norm(burned[:, :3] - coasting[:, :3], axis=1)))
+    (pair,) = result.proposal_evaluation.pairs
+    assert pair.d_min_m == pytest.approx(expected_d_min_m, rel=0.02, abs=5.0)
+
+
+def test_a_phase_burn_above_the_per_action_limit_is_rejected(conjunction_beliefs):
+    shield = _shield(margin_fn=_fixed_margin(_SMALL_MARGIN_M), phase_fraction=1.5)  # 0.15 m/s > the 0.1 limit
+
+    result = shield.filter(conjunction_beliefs, (int(ManeuverIntent.PHASE_FORWARD), 0), _capabilities(2))
 
     assert any(v.kind is ViolationKind.CAPABILITY and v.agents == (0,) for v in result.proposal_evaluation.violations)
-    assert result.approved[0] != int(ManeuverIntent.RAISE_ORBIT)
+    assert result.approved[0] != int(ManeuverIntent.PHASE_FORWARD)
     assert result.intervened[0]
-    for intent, cap in zip(result.approved, _capabilities(2, capability), strict=True):
-        magnitude = float(np.linalg.norm(map_intent_to_delta_v(intent, np.array([7e6, 0, 0.0]), np.array([0, 7.5e3, 0.0]), 0.1)))
-        assert magnitude <= cap.max_delta_v_per_action_mps + 1e-12
 
 
 def test_insufficient_remaining_budget_is_rejected_not_silently_capped(benign_beliefs):

@@ -3,14 +3,18 @@
 All satellites propose an intent simultaneously (§26); the shield judges the
 JOINT set before anything is applied:
 
-  1. map every intent to a delta-v (the frozen §23 mapper);
+  1. map every intent to a delta-v (the frozen §23 mapper) from the belief
+     state, sized by each satellite's OWN `max_delta_v_per_action_mps`;
   2. capability validation -- per-action limit, remaining budget,
      `maneuver_enabled` -- violating burns are rejected, never silently capped;
   3. short-horizon consequence prediction -- each satellite's *belief* state
      plus its burn is propagated over the lookahead window; satellite dynamics
      are uncoupled, so each (satellite, intent) trajectory is propagated at
      most once per call and every joint assignment is then scored by pairwise
-     lookups on those cached trajectories;
+     lookups on those cached trajectories. The RAW proposal is predicted with
+     `pair_assessment.predict_proposal_trajectories`/`assess_trajectories`,
+     the same estimator the no-shield environment scores its rewards with
+     (CORE-2), so `proposal_evaluation.pairs` is that estimator's output;
   4. safety checks per pair (collision, new conjunction, risk worsened,
      `d_safe` violated) and per agent (mission-deviation limit);
   5. accept the joint proposal if nothing is violated;
@@ -47,8 +51,11 @@ from orbit_guard.conjunction.pair_assessment import (
     DEFAULT_DENSITY_REF_COUNT,
     PairAssessment,
     assess_pair,
+    assess_trajectories,
+    intent_delta_v,
     pair_density,
     predict_all,
+    predict_proposal_trajectories,
     prediction_steps,
 )
 from orbit_guard.conjunction.risk import DEFAULT_EPSILON_M, DEFAULT_K, DEFAULT_Z0
@@ -61,7 +68,7 @@ from orbit_guard.physics.mission_deviation import (
 )
 from orbit_guard.physics.state import SatelliteCapability
 from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
-from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
+from orbit_guard.safety.maneuver_mapper import ManeuverIntent
 from orbit_guard.safety.repair_search import (
     DEFAULT_BEAM_WIDTH,
     DEFAULT_EXACT_MAX_AGENTS,
@@ -139,12 +146,29 @@ class _JointContext:
     def delta_v(self, agent: int, intent: int) -> np.ndarray:
         key = (agent, intent)
         if key not in self._delta_v:
-            state = self.beliefs[agent].state_vector
-            self._delta_v[key] = map_intent_to_delta_v(
-                intent, state[:3], state[3:6],
-                base_delta_v_mps=self._shield.base_delta_v_mps, phase_fraction=self._shield.phase_fraction,
+            self._delta_v[key] = intent_delta_v(
+                self.beliefs[agent], intent,
+                self.capabilities[agent].max_delta_v_per_action_mps, self._shield.phase_fraction,
             )
         return self._delta_v[key]
+
+    def seed_proposal(self, assignment: Sequence[int], baseline_predictions) -> None:
+        """Cache the raw proposal's trajectories and pair assessments from the shared estimator (CORE-2)."""
+        trajectories = predict_proposal_trajectories(
+            self.beliefs, assignment, [c.max_delta_v_per_action_mps for c in self.capabilities],
+            phase_fraction=self._shield.phase_fraction, lookahead_s=self._shield.lookahead_s,
+            physics_dt_s=self._shield.physics_dt_s, baseline_predictions=baseline_predictions,
+        )
+        for agent, intent in enumerate(assignment):
+            self._trajectories[(agent, intent)] = trajectories[agent]
+        shield = self._shield
+        assessments = assess_trajectories(
+            self.beliefs, trajectories, shield.physics_dt_s, shield.margin_fn,
+            density_radius_m=shield.density_radius_m, density_ref_count=shield.density_ref_count,
+            risk_epsilon_m=shield.risk_epsilon_m, risk_z0=shield.risk_z0, risk_k=shield.risk_k,
+        )
+        for (i, j), assessment in zip(self.all_pairs, assessments, strict=True):
+            self._pairs[(i, assignment[i], j, assignment[j])] = assessment
 
     def prefetch(self, keys: Sequence[tuple[int, int]]) -> None:
         """Propagate every not-yet-cached (agent, intent) trajectory together, in one vectorized call."""
@@ -240,7 +264,6 @@ class JointActionShield:
         physics_dt_s: float = 10.0,
         *,
         margin_fn: MarginFn | None = None,
-        base_delta_v_mps: float = 0.1,
         phase_fraction: float = 0.5,
         collision_distance_m: float = DEFAULT_COLLISION_DISTANCE_M,
         exact_max_agents: int = DEFAULT_EXACT_MAX_AGENTS,
@@ -257,7 +280,6 @@ class JointActionShield:
         self.physics_dt_s = physics_dt_s
         self.n_steps = prediction_steps(lookahead_s, physics_dt_s)
         self.margin_fn = margin_fn if margin_fn is not None else make_adaptive_margin()
-        self.base_delta_v_mps = base_delta_v_mps
         self.phase_fraction = phase_fraction
         self.collision_distance_m = collision_distance_m
         self.exact_max_agents = exact_max_agents
@@ -310,7 +332,7 @@ class JointActionShield:
         predictions = baseline_predictions if baseline_predictions is not None else predict_all(beliefs, self.lookahead_s, self.physics_dt_s)
         context = _JointContext(self, list(beliefs), list(capabilities), deviations, predictions)
 
-        context.prefetch([(agent, intent) for agent, intent in enumerate(effective) if intent != NO_MANEUVER_INTENT])
+        context.seed_proposal(effective, predictions)
         proposal_evaluation = context.evaluate(effective)
         affected = sorted({a for v in proposal_evaluation.violations for a in v.agents if active[a]})
         if not proposal_evaluation.violations or not affected:
