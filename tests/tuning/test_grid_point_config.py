@@ -55,7 +55,7 @@ def test_freeze_best_hash_is_the_shared_overlay_digest(tmp_path):
     results = [GridResult(GridPoint("strong", margin={"alpha": 2.0}), _report(0), 0.01, "q27")]
     target = tmp_path / "tuned.yaml"
 
-    digest = freeze_best(results, target)
+    digest = freeze_best(results, target, measure=lambda config: 1234.4)  # stub: the real Q30 measurement is pinned in tests/tuning/test_fixed_margin.py
 
     frozen = yaml.safe_load(target.read_text())
     body = {key: value for key, value in frozen.items() if key != "config_hash"}

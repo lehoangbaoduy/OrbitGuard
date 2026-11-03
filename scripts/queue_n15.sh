@@ -6,7 +6,8 @@
 #   stop:     kill $(cat ~/orbitguard_runs/logs/queue_n15.pid)   # then stop the python training child
 #   then:     scripts/run_experiments.sh
 # Retraining with a tuned grid point goes ONLY through the frozen, hashed overlay (tuning.grid_search writes
-# tuned.yaml; every run gets --overlay "$OVERLAY"), into a fresh runs dir:
+# tuned.yaml, with the Fixed-Margin constant re-measured for tuned margin coefficients; every run gets
+# --overlay "$OVERLAY", so the fixed arm trains with it too), into a fresh runs dir:
 #   RUNS=~/orbitguard_runs_tuned OVERLAY=~/orbitguard_runs/grid/tuned.yaml scripts/queue_n15.sh
 # Never pass reward weights (--w1..--w4, --collision-penalty) or margin coefficients (--margin-alpha/-beta/
 # -gamma-margin) through TUNED_FLAGS: evaluation rebuilds the env from config + overlay only, and the experiment

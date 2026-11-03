@@ -110,11 +110,12 @@ def test_freeze_best_writes_a_hashed_overlay_of_the_winning_point(tmp_path):
     )
     target = tmp_path / "tuned.yaml"
 
-    digest = freeze_best(results, target)
+    digest = freeze_best(results, target, measure=lambda config: 1234.4)  # stub: the real Q30 measurement is pinned in tests/tuning/test_fixed_margin.py
 
     frozen = yaml.safe_load(target.read_text())
     assert frozen["selected"] == "strong"
     assert frozen["adaptive_margin"] == {"alpha": 2.0}
+    assert frozen["fixed_margin"] == {"d_safe_m": 1234.0}
     assert frozen["selected_on"] == "validation"
     assert frozen["config_hash"] == digest
     body = {key: value for key, value in frozen.items() if key != "config_hash"}

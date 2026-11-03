@@ -5,8 +5,9 @@ YAML is read into environment arguments, margin functions and provenance digests
 standard library are imported at module level; the environment value types are imported inside the
 functions that build them, so the loader stays light for physics-free layers.
 
-An overlay (`tuning/grid_search.freeze_best` writes one) may override only the `reward`, `adaptive_margin`
-and `rl` blocks, key by key. Reward overlay keys use the `compute_reward` names (w1..w4, collision_penalty).
+An overlay (`tuning/grid_search.freeze_best` writes one) may override only the `reward`, `adaptive_margin`,
+`fixed_margin` and `rl` blocks, key by key. `fixed_margin` is overridable so freeze_best can re-match the
+Fixed-Margin constant to tuned adaptive coefficients (tuning/fixed_margin.py, progress Q30 protocol). Reward overlay keys use the `compute_reward` names (w1..w4, collision_penalty).
 When an overlay carries `config_hash` it must have been produced against these base config bytes:
 sha256(base bytes + canonical JSON of the overlay body without the hash), the PRD section 33 freeze rule.
 """
@@ -26,7 +27,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "default.yaml"
 
-OVERLAY_BLOCKS = ("reward", "adaptive_margin", "rl")
+OVERLAY_BLOCKS = ("reward", "adaptive_margin", "fixed_margin", "rl")
 OVERLAY_METADATA_KEYS = ("selected", "selected_on", "validation", "config_hash")
 REWARD_OVERLAY_KEYS = {
     "w1": "w1_safety",
