@@ -5,6 +5,11 @@ replay UI needs (see `visualization.replay_meta`): scenario, policy, shield flag
 trained weights and the init seed of the untrained network. Re-run it after any retrain: stale traces are then
 detectable from their recorded weights hash. The untrained policy is a freshly initialised actor built exactly like
 the trainer's (`ctde_module._mlp`, PyTorch default init) under a fixed seed.
+
+A tuned overlay (`overlay_path`) applies to every episode of a recording: it reaches the environment and the
+untrained actor's architecture, and the meta records it with `config_digest(config, overlay)`. A trained checkpoint
+whose run_config.json sidecar records a different digest is refused (`CheckpointProvenanceError`) before anything
+is recorded, exactly as the experiment refuses it.
 """
 
 from __future__ import annotations
@@ -15,10 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
 from gymnasium.spaces.utils import flatdim
 
+from orbit_guard.config import config_digest, load_config
 from orbit_guard.evaluation.baselines import build_env_factory
+from orbit_guard.evaluation.experiment import check_checkpoint_provenance
 from orbit_guard.evaluation.shifts import condition_env_kwargs
 from orbit_guard.rl.actor_policy import (
     ActorWeights,
@@ -70,13 +76,13 @@ def build_plan(
     return plan
 
 
-def _actor_hidden_layers(config_path: Path) -> tuple[int, ...]:
-    return tuple(yaml.safe_load(config_path.read_text())["rl"]["actor_hidden_layers"])
+def _actor_hidden_layers(config_path: str | Path, overlay_path: str | Path | None) -> tuple[int, ...]:
+    return tuple(load_config(config_path, overlay_path)["rl"]["actor_hidden_layers"])
 
 
 def untrained_actor_weights(
     obs_dim: int, num_actions: int, init_seed: int = DEFAULT_INIT_SEED, hidden: Sequence[int] | None = None,
-    config_path: Path = _DEFAULT_CONFIG,
+    config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None,
 ) -> ActorWeights:
     """A freshly initialised actor with the trainer's architecture; the global torch RNG is left untouched."""
     import torch
@@ -84,7 +90,7 @@ def untrained_actor_weights(
     from orbit_guard.rl.actor_policy import weights_from_actor
     from orbit_guard.rl.ctde_module import _mlp
 
-    layers = tuple(hidden) if hidden is not None else _actor_hidden_layers(config_path)
+    layers = tuple(hidden) if hidden is not None else _actor_hidden_layers(config_path, overlay_path)
     state = torch.get_rng_state()
     try:
         torch.manual_seed(init_seed)
@@ -98,6 +104,15 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def check_plan_provenance(
+    plan: Sequence[EpisodePlan], *, config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None
+) -> None:
+    """Refuse the plan if any trained checkpoint's run_config.json records another config_digest."""
+    for item in plan:
+        if item.policy == "trained" and item.weights_path is not None:
+            check_checkpoint_provenance(item.weights_path, config_path=config_path, overlay_path=overlay_path)
+
+
 def record_plan_item(
     item: EpisodePlan,
     *,
@@ -105,18 +120,21 @@ def record_plan_item(
     out_dir: str | Path,
     init_seed: int = DEFAULT_INIT_SEED,
     env_kwargs: Mapping[str, Any] | None = None,
-    config_path: Path = _DEFAULT_CONFIG,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
 ) -> Path:
     """Run one episode and write its trace; returns the path (the file name is informational only)."""
+    check_plan_provenance([item], config_path=config_path, overlay_path=overlay_path)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     env_model = "adaptive_mappo" if item.shield else "adaptive_mappo_no_shield"
     kwargs = {**condition_env_kwargs(item.condition, config_path), **(env_kwargs or {})}
-    env = build_env_factory(env_model, num_agents, config_path=config_path, **kwargs)({})
+    env = build_env_factory(env_model, num_agents, config_path=config_path, overlay_path=overlay_path, **kwargs)({})
     agent = env.possible_agents[0]
     if item.policy == "untrained":
         weights = untrained_actor_weights(
-            flatdim(env.observation_space(agent)), int(env.action_space(agent).n), init_seed, config_path=config_path
+            flatdim(env.observation_space(agent)), int(env.action_space(agent).n), init_seed,
+            config_path=config_path, overlay_path=overlay_path,
         )
         (out / WEIGHTS_SUBDIR).mkdir(exist_ok=True)  # weights live beside, not among, the traces the UI scans
         save_actor_weights(weights, out / WEIGHTS_SUBDIR / f"untrained_actor_init{init_seed}.npz")
@@ -136,6 +154,8 @@ def record_plan_item(
         max_delta_v_per_action_mps=env.max_delta_v_per_action_mps,
         weights_sha256=weights_sha,
         init_seed=seed_for_meta,
+        config_digest=config_digest(config_path, overlay_path),
+        overlay_path=None if overlay_path is None else str(overlay_path),
     )
     trace = record_episode(env, NumpyActorPolicy(weights), seed=item.seed, meta=meta)
     path = out / f"{item.condition}_{item.seed}__{item.policy}__shield-{'on' if item.shield else 'off'}.npz"
@@ -150,10 +170,17 @@ def record_all(
     num_agents: int,
     init_seed: int = DEFAULT_INIT_SEED,
     env_kwargs: Mapping[str, Any] | None = None,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
     progress: Callable[[str], None] = print,
 ) -> list[Path]:
+    """Record every plan item under one configuration; every checkpoint is checked before the first episode runs."""
+    check_plan_provenance(plan, config_path=config_path, overlay_path=overlay_path)
     paths = []
     for number, item in enumerate(plan, start=1):
         progress(f"[{number}/{len(plan)}] {item.condition}:{item.seed} {item.policy} shield={'on' if item.shield else 'off'}")
-        paths.append(record_plan_item(item, num_agents=num_agents, out_dir=out_dir, init_seed=init_seed, env_kwargs=env_kwargs))
+        paths.append(record_plan_item(
+            item, num_agents=num_agents, out_dir=out_dir, init_seed=init_seed, env_kwargs=env_kwargs,
+            config_path=config_path, overlay_path=overlay_path,
+        ))
     return paths
