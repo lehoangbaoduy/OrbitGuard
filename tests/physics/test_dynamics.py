@@ -5,6 +5,7 @@ from orbit_guard.physics.constants import J2, MU_EARTH_M3_S2, R_EARTH_EQUATORIAL
 from orbit_guard.physics.dynamics import (
     j2_acceleration,
     state_derivative,
+    state_derivative_batch,
     total_acceleration,
     two_body_acceleration,
     two_body_state_derivative,
@@ -156,3 +157,13 @@ def test_raw_acceleration_helpers_remain_unchecked_below_surface():
     position = np.array([6_000_000.0, 0.0, 0.0])
     assert np.all(np.isfinite(two_body_acceleration(position)))
     assert np.all(np.isfinite(j2_acceleration(position)))
+
+
+def test_state_derivative_batch_raises_loudly_when_any_row_is_below_earth_equatorial_radius():
+    # The vectorized derivative is the one the environment and shield propagate with; it must apply the same
+    # PRD §12 physical-validity check as the single-state wrapper.
+    valid = np.concatenate([[R_EARTH_EQUATORIAL_M + 463_000.0, 0.0, 0.0], [0.0, 7600.0, 0.0]])
+    inside_earth = np.concatenate([[6_300_000.0, 0.0, 0.0], [0.0, 7600.0, 0.0]])
+    with pytest.raises(ValueError, match="below Earth"):
+        state_derivative_batch(np.stack([valid, inside_earth]))
+    assert np.all(np.isfinite(state_derivative_batch(np.stack([valid, valid]))))

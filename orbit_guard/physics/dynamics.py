@@ -88,6 +88,11 @@ def state_derivative_batch(states: np.ndarray) -> np.ndarray:
     r = np.linalg.norm(position, axis=1)
     if np.any(r <= 0.0):
         raise ValueError(f"Degenerate (zero-norm) position in batch: {position}")
+    if np.any(r < R_EARTH_EQUATORIAL_M):
+        raise ValueError(
+            f"Physically invalid state: position radius {float(r.min()):.1f} m is below Earth's "
+            f"equatorial radius {R_EARTH_EQUATORIAL_M:.1f} m"
+        )
     z_over_r_sq = (position[:, 2] / r) ** 2
     j2_coeff = -1.5 * J2 * MU_EARTH_M3_S2 * R_EARTH_EQUATORIAL_M**2 / r**5
     j2_acceleration_batch = np.stack(
