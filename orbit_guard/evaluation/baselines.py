@@ -7,21 +7,47 @@ only, no code edit" is literally `build_env_factory(model, ...)` +
 `build_policy(model, ...)`.
 
 Rule-Based (frozen heuristic, PRD §31 #2). Fully specified here and never
-tuned: from the agent's own observation, take the highest-risk valid neighbour
-(observations are already ranked by risk). If its risk proxy is at or above the
-FIXED threshold `RULE_RISK_THRESHOLD`, burn along-track away from it -- neighbour
-ahead of me (+T) -> RAISE_ORBIT (prograde: a longer period, so I fall behind);
-neighbour behind me -> LOWER_ORBIT; neighbour level with me within
-`ALONG_TRACK_DEADBAND` -> RADIAL_ADJUSTMENT. Satellites that cannot manoeuvre,
-or have no budget, do nothing. Conflicts need no arbitration: when both members
-of a pair run the rule they see each other with opposite along-track signs and
-so burn in opposite directions. The policy is stateless and deterministic.
+tuned. It reads only the agent's own observation:
+
+1. A satellite that cannot manoeuvre, or has no budget left, does nothing.
+2. Take the top neighbour slot (observations are already ranked by risk). If it
+   is not valid, or its risk proxy is below the FIXED threshold
+   `RULE_RISK_THRESHOLD`, do nothing.
+3. Take that neighbour's relative position (R, T, N) in the agent's own RTN
+   frame and pick the component of largest magnitude. Exact ties go to R, then
+   T, then N.
+4. If that magnitude is below `RELATIVE_POSITION_DEADBAND` (the neighbour sits
+   within 5 m of me on every axis), fall back to RADIAL_ADJUSTMENT.
+5. Otherwise map the sign of the dominant component to a tangential burn:
+   - radial-dominant: neighbour below me (R < 0) -> RAISE_ORBIT, above -> LOWER_ORBIT;
+   - along-track-dominant: neighbour ahead (T > 0) -> RAISE_ORBIT (prograde: a
+     longer period, so I fall behind), behind -> LOWER_ORBIT;
+   - cross-track-dominant: N > 0 -> RAISE_ORBIT, N < 0 -> LOWER_ORBIT.
+
+Burn magnitudes are the fixed ones of the maneuver mapper. The policy is
+stateless and deterministic.
+
+Conflicts are resolved by antisymmetry, not by arbitration. The two members of
+a pair see each other's relative position with opposite sign on each axis, up
+to the small rotation between their two RTN frames. That rotation adds only
+second-order same-sign terms: chord curvature (about -d^2/2r) on R, and the
+crossing-plane tilt on T, at most tan(theta/2) of N. So the dominant component
+flips sign between the members, and they burn opposite tangential directions.
+The sign of the along-track component alone is NOT antisymmetric for
+crossing-plane encounters: both members see the same T sign. The previous
+along-track-only rule therefore made both burn the same way. Limits: the two
+members can pick different axes when two components are nearly equal in
+magnitude, and the rule only pairs up when each member's top neighbour is the
+other. The deadband fallback (+R for both) is symmetric, but it is reachable
+only when the belief already puts the pair inside the hard body. Direction
+mapping PROVISIONAL pending astrodynamics sign-off.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from orbit_guard.config import load_config, margin_from_config
@@ -40,11 +66,22 @@ MODEL_NAMES = (
 )
 
 RULE_RISK_THRESHOLD = 0.5
-ALONG_TRACK_DEADBAND = 1.0e-3  # in observation units (relative position / 5 km)
+RELATIVE_POSITION_DEADBAND = 1.0e-3  # in observation units (relative position / 5 km)
 
 # Observation indices (rl/observation.py layout).
 _OWN_REMAINING_DV, _OWN_MANEUVER_ENABLED = 6, 9
-_NEIGHBOR_ALONG_TRACK, _NEIGHBOR_RISK, _NEIGHBOR_VALID = 1, 6, 9
+_NEIGHBOR_POSITION, _NEIGHBOR_RISK, _NEIGHBOR_VALID = slice(0, 3), 6, 9
+_RADIAL_AXIS = 0
+
+
+def _tangential_burn_away(relative_position_rtn: np.ndarray) -> ManeuverIntent:
+    """Burn direction from the sign of the neighbour's dominant relative-position component (module docstring)."""
+    axis = int(np.argmax(np.abs(relative_position_rtn)))  # first maximum: ties go R, then T, then N
+    component = float(relative_position_rtn[axis])
+    if abs(component) < RELATIVE_POSITION_DEADBAND:
+        return ManeuverIntent.RADIAL_ADJUSTMENT
+    toward_raise = component < 0.0 if axis == _RADIAL_AXIS else component > 0.0
+    return ManeuverIntent.RAISE_ORBIT if toward_raise else ManeuverIntent.LOWER_ORBIT
 
 
 def rule_based_policy(agent: str, observation: dict) -> int:
@@ -55,10 +92,7 @@ def rule_based_policy(agent: str, observation: dict) -> int:
     top = observation["neighbors"][0]
     if top[_NEIGHBOR_VALID] < 0.5 or top[_NEIGHBOR_RISK] < RULE_RISK_THRESHOLD:
         return int(ManeuverIntent.NO_MANEUVER)
-    along_track = top[_NEIGHBOR_ALONG_TRACK]
-    if abs(along_track) < ALONG_TRACK_DEADBAND:
-        return int(ManeuverIntent.RADIAL_ADJUSTMENT)
-    return int(ManeuverIntent.RAISE_ORBIT if along_track > 0 else ManeuverIntent.LOWER_ORBIT)
+    return int(_tangential_burn_away(np.asarray(top[_NEIGHBOR_POSITION], dtype=float)))
 
 
 def _spec_from_config(model: str, config: dict) -> dict:

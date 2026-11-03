@@ -49,8 +49,10 @@ def test_rule_based_moves_away_along_track_from_the_threat():
     assert behind == ManeuverIntent.LOWER_ORBIT
 
 
-def test_rule_based_uses_a_radial_burn_when_the_threat_is_not_along_track():
+def test_rule_based_falls_back_to_a_radial_burn_only_when_the_threat_is_co_located():
+    # every relative-position component is inside the deadband (within 5 m on all three axes)
     assert rule_based_policy("sat_0", _observation(along_track=0.0)) == ManeuverIntent.RADIAL_ADJUSTMENT
+    assert rule_based_policy("sat_0", _observation(along_track=5.0e-4)) == ManeuverIntent.RADIAL_ADJUSTMENT
 
 
 def test_rule_based_cannot_act_when_disabled_or_out_of_budget():
