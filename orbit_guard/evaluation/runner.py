@@ -17,7 +17,11 @@ torn LAST line: readers skip it with a warning on stderr, and `run_tasks` cuts i
 off before appending so it can never turn into a corrupt line mid-file. An
 invalid line anywhere else is corruption and raises. When a key is logged more
 than once (a retried episode) the LAST record wins; `retry_failed=True` reruns the
-tasks whose latest record has status 'failed'.
+tasks whose latest record has status 'failed'. The key leaves the configuration out, so every
+record also carries `actor_weights_sha256` (the checkpoint's weights, None for scripted models),
+and `run_tasks` raises `EpisodeLogMismatchError` before touching the file when a task's latest
+logged record has another `config_hash` or checkpoint hash: a rerun into the same log after a
+retrain or under a new overlay can never silently report the old configuration's numbers.
 
 Per-step logging (PRD §40, FR13) is opt-in per task: when `EpisodeTask.step_log_dir` is set (a plain string,
 since tasks are pickled into spawn workers), the runner collects `env.step_records()` after every `env.step()`
@@ -34,6 +38,7 @@ The original keys stay, because the experiment reports and older logs read them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
@@ -52,6 +57,10 @@ from orbit_guard.evaluation.step_log import write_step_log
 from orbit_guard.rl.episode_metrics import LABEL_SIMULATION_FAILURE
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
+
+
+class EpisodeLogMismatchError(ValueError):
+    """An episode log already holds a task's key, but logged under another config_hash or checkpoint."""
 
 
 @dataclass(frozen=True)
@@ -133,12 +142,18 @@ def _metadata(task: EpisodeTask) -> dict[str, Any]:
         "model_name": task.model,
         "git_commit": task.git_commit,
         "config_hash": config_digest(task.config_path, task.overlay_path),
+        "actor_weights_sha256": _weights_sha256(task.actor_weights_path),
         "config_path": task.config_path,
         "overlay_path": task.overlay_path,
         "start_time": datetime.now(UTC).isoformat(),
         "n_satellites": task.n_agents,
         "shift_type": task.condition,
     }
+
+
+def _weights_sha256(path: str | None) -> str | None:
+    """sha256 of a learned model's exported actor weights; None for a scripted model (no checkpoint)."""
+    return None if path is None else hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def _play(env, policy, scenario_seed: int, step_sink: list[dict] | None) -> float:
@@ -261,6 +276,55 @@ def _repair_tail(path: Path) -> None:
                 handle.write(b"\n")
 
 
+_HASH_FIELD = "actor_weights_sha256"
+
+
+def _require_same_configuration(path: Path, tasks: list[EpisodeTask]) -> None:
+    """Refuse to resume `path` when a task's latest logged record ran another config or checkpoint.
+
+    The key leaves out the configuration on purpose ("last record wins" needs it stable), so without this
+    check a rerun after a retrain or under a new overlay would skip every task and report the old numbers.
+    Every task with a logged record is checked, skipped or about to be retried alike. A record written before
+    checkpoints were hashed (no `actor_weights_sha256`) only mismatches a task that has a checkpoint.
+    """
+    if not path.exists():
+        return
+    latest = _latest_by_key(_read_log(path).records)
+    digests: dict[tuple[str, str | None], str] = {}
+    weights: dict[str | None, str | None] = {}
+    for task in tasks:
+        record = latest.get(task.key())
+        if record is None:
+            continue
+        config_key = (task.config_path, task.overlay_path)
+        if config_key not in digests:
+            digests[config_key] = config_digest(task.config_path, task.overlay_path)
+        expected = digests[config_key]
+        if record.get("config_hash") != expected:
+            raise EpisodeLogMismatchError(
+                f"{path}: episode {task.key()} is logged with config_hash {record.get('config_hash')} but this run "
+                f"uses config_hash {expected} (config {task.config_path}, overlay {task.overlay_path}); resuming "
+                "would report the old configuration's results. Write to a new episode log instead."
+            )
+        if task.actor_weights_path not in weights:
+            weights[task.actor_weights_path] = _weights_sha256(task.actor_weights_path)
+        current = weights[task.actor_weights_path]
+        if _HASH_FIELD not in record:
+            if current is None:
+                continue
+            raise EpisodeLogMismatchError(
+                f"{path}: episode {task.key()} is logged without {_HASH_FIELD} (the record predates checkpoint "
+                f"hashing), so it cannot be shown to come from checkpoint {task.actor_weights_path} "
+                f"({_HASH_FIELD} {current}). Write to a new episode log instead."
+            )
+        if record[_HASH_FIELD] != current:
+            raise EpisodeLogMismatchError(
+                f"{path}: episode {task.key()} is logged with {_HASH_FIELD} {record[_HASH_FIELD]} but this run "
+                f"uses {current} ({task.actor_weights_path}); the checkpoint changed (a retrain?). "
+                "Write to a new episode log instead."
+            )
+
+
 def run_tasks(
     tasks: list[EpisodeTask], out_path: str | Path, workers: int = 1, *, retry_failed: bool = False
 ) -> list[dict]:
@@ -270,6 +334,7 @@ def run_tasks(
     appended and, being the last for its key, supersedes the failed one in `read_records`.
     """
     out = Path(out_path)
+    _require_same_configuration(out, tasks)  # before _repair_tail: a refused resume never touches the file
     done = _completed_keys(out, retry_failed)
     pending = [task for task in tasks if task.key() not in done]
     _repair_tail(out)

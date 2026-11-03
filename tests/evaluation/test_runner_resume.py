@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+from orbit_guard.config import DEFAULT_CONFIG_PATH, config_digest
 from orbit_guard.evaluation import experiment, runner
 from orbit_guard.evaluation.runner import (
     EpisodeTask,
@@ -30,6 +31,8 @@ def _record(seed: int, status: str = "ok", marker: str = "") -> dict:
     return {
         "experiment_id": "unit", "model_name": "rule_based", "training_seed": None, "shift_type": "normal",
         "scenario_seed": seed, "status": status, "marker": marker,
+        # what _task(seed) runs under, so run_tasks' configuration guard accepts these records on resume
+        "config_hash": config_digest(DEFAULT_CONFIG_PATH), "actor_weights_sha256": None,
     }
 
 
