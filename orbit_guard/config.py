@@ -151,6 +151,9 @@ def env_kwargs_from_config(config: Mapping[str, Any], *, shielded: bool) -> dict
             maneuver_enabled=True,
             mission_deviation_limit=_positive(capability["mission_deviation_limit"], "capability.mission_deviation_limit"),
         ),
+        "remaining_delta_v_range_mps": budget_range(
+            capability.get("remaining_delta_v_range_mps"), "capability.remaining_delta_v_range_mps"
+        ),
         "distribution_mix": mix,
         "noise_model": NoiseModel(
             position_sigma_m=_non_negative(sensing["position_sigma_m"], "sensing.position_sigma_m"),
@@ -177,6 +180,18 @@ def env_kwargs_from_config(config: Mapping[str, Any], *, shielded: bool) -> dict
         )
         kwargs["shield_beam_width"] = _positive_int(config["shield"]["beam_width"], "shield.beam_width")
     return kwargs
+
+
+def budget_range(value: Any, name: str = "remaining_delta_v_range_mps") -> tuple[float, float] | None:
+    """A per-episode Δv budget range (PRD §17): None stays None, otherwise two finite numbers with 0 <= low <= high."""
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes)) or not hasattr(value, "__len__") or len(value) != 2:
+        raise ValueError(f"{name} must be null or [low, high], got {value!r}")
+    low, high = (_non_negative(bound, name) for bound in value)
+    if low > high:
+        raise ValueError(f"{name} must have low <= high, got {value!r}")
+    return low, high
 
 
 def _parse_mapping(raw: bytes, source: Path) -> dict:

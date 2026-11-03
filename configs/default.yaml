@@ -63,7 +63,10 @@ maneuver:
   phase_fraction: 0.5
 
 capability:
-  remaining_delta_v_mps: 2.0
+  remaining_delta_v_mps: 2.0  # nominal per-satellite budget (PRD §39 default); observation scale and replay meta
+  # PRD §17 per-episode randomization: each satellite's initial budget ~ Uniform(range) at reset, mean 2.0, ±25%.
+  # PROVISIONAL astro-adjacent choice (CORE-3); null = every satellite starts with remaining_delta_v_mps.
+  remaining_delta_v_range_mps: [1.5, 2.5]
   mission_deviation_limit: 1.0
 
 reward:

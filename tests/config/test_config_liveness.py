@@ -163,6 +163,17 @@ def test_capability_template_sets_budget_per_action_and_mission_limit(tmp_path):
     assert all(capability.mission_deviation_limit == 3.0 for capability in env._capabilities)
 
 
+def test_delta_v_budget_range_sets_the_per_episode_budgets(tmp_path):
+    narrow = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, {"capability.remaining_delta_v_range_mps": [0.7, 0.7]}, "narrow.yaml"))
+    fixed = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, {"capability.remaining_delta_v_range_mps": None}, "fixed.yaml"))
+
+    narrow.reset(seed=_SEED)
+    fixed.reset(seed=_SEED)
+
+    assert [c.remaining_delta_v_mps for c in narrow._capabilities] == [0.7] * 3
+    assert [c.remaining_delta_v_mps for c in fixed._capabilities] == [2.0] * 3
+
+
 def test_distribution_mix_decides_whether_conjunctions_are_injected(tmp_path):
     benign_only = {"experiment.training_distribution_mix": {"benign": 1.0, "single_conjunction": 0.0, "multi_conjunction": 0.0}}
     env = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, benign_only))

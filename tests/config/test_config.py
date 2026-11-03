@@ -179,6 +179,7 @@ def test_env_kwargs_carry_every_value_the_simulation_blocks_declare():
     assert kwargs["distribution_mix"] == {"benign": 0.30, "single_conjunction": 0.50, "multi_conjunction": 0.20}
     assert kwargs["capability_template"].max_delta_v_per_action_mps == 0.1
     assert kwargs["capability_template"].remaining_delta_v_mps == 2.0
+    assert kwargs["remaining_delta_v_range_mps"] == (1.5, 2.5)
     assert kwargs["capability_template"].mission_deviation_limit == 1.0
     assert kwargs["noise_model"].position_sigma_m == 100.0
     assert kwargs["noise_model"].velocity_sigma_mps == 0.1
@@ -218,6 +219,11 @@ def test_env_kwargs_resolve_the_tle_file_against_the_repo_root():
         ("shield", "beam_width", 0, "beam_width"),
         ("shield", "exact_enumeration_max_agents", 0, "exact_enumeration_max_agents"),
         ("reward", "coordination_clip", 0, "coordination_clip"),
+        ("capability", "remaining_delta_v_range_mps", [2.5, 1.5], "remaining_delta_v_range_mps"),
+        ("capability", "remaining_delta_v_range_mps", [-0.5, 1.5], "remaining_delta_v_range_mps"),
+        ("capability", "remaining_delta_v_range_mps", [1.5, float("inf")], "remaining_delta_v_range_mps"),
+        ("capability", "remaining_delta_v_range_mps", [1.5], "remaining_delta_v_range_mps"),
+        ("capability", "remaining_delta_v_range_mps", 2.0, "remaining_delta_v_range_mps"),
     ],
 )
 def test_env_kwargs_reject_unsupported_or_invalid_values(section, key, value, message):
@@ -260,3 +266,10 @@ def test_an_overlay_written_by_freeze_best_loads_with_its_hash_verified(tmp_path
     assert config["reward"]["w4_coordination"] == 1.5
     assert config["adaptive_margin"]["alpha"] == 2.0
     assert "selected" not in config
+
+
+def test_a_null_delta_v_budget_range_means_the_fixed_template_budget():
+    config = load_config()
+    config["capability"]["remaining_delta_v_range_mps"] = None
+
+    assert env_kwargs_from_config(config, shielded=False)["remaining_delta_v_range_mps"] is None

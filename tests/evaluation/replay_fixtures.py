@@ -23,6 +23,9 @@ ENV_KWARGS = {
     "lookahead_s": 1800.0,
     "noise_model": NoiseModel(0.0, 0.0),
     "hard_body_radius_m": 100.0,
+    # Fixed 2.0 m/s budgets (no PRD §17 per-episode draw): the expected fuel totals and capability flags below are
+    # literals chosen offline against the template budget.
+    "remaining_delta_v_range_mps": None,
 }
 COLLISION_SEED = 3  # N=2, no maneuvers: the pair collides
 SHIELD_SEED = 0  # N=2, rule-based policy: many shield interventions and burns

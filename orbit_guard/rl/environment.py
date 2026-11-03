@@ -63,7 +63,12 @@ from gymnasium import spaces
 from gymnasium.spaces.utils import flatten
 from pettingzoo import ParallelEnv
 
-from orbit_guard.config import env_kwargs_from_config, load_config, margin_from_config
+from orbit_guard.config import (
+    budget_range,
+    env_kwargs_from_config,
+    load_config,
+    margin_from_config,
+)
 from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.pair_assessment import (
     PairAssessment,
@@ -117,6 +122,18 @@ _NUM_ACTIONS = len(ManeuverIntent)
 _OWN_DIM = 10
 _NEIGHBOR_DIM = 10
 _GLOBAL_SUMMARY_DIM = 4
+
+# Per-episode Δv budgets (PRD §17, CORE-3) come from their OWN stream, SeedSequence([episode_seed, this id]), so
+# drawing them leaves every existing stream (scenario, sensing) bit-identical and the draw count never depends on
+# actions, the model or the shield. The value is arbitrary but fixed: changing it changes every episode's budgets.
+_DELTA_V_BUDGET_STREAM_ID = 0xDE17A
+
+
+class _Unset:
+    """Marker for "argument not given", where None is itself a meaningful value."""
+
+
+_UNSET = _Unset()
 
 
 @dataclass(frozen=True)
@@ -186,6 +203,7 @@ class OrbitGuardEnv(ParallelEnv):
         density_ref_count: float | None = None,
         mission_weights: dict | None = None,
         coordination_clip: float | None = None,
+        remaining_delta_v_range_mps: tuple[float, float] | None | _Unset = _UNSET,
     ):
         # Every argument not given resolves from configs/default.yaml (the single source of truth, CORE-1).
         base_config = load_config()
@@ -214,6 +232,13 @@ class OrbitGuardEnv(ParallelEnv):
         resolved = {key: defaults[key] if value is None else value for key, value in explicit.items()}
         if margin_fn is None:
             margin_fn = margin_from_config(base_config, "adaptive")
+        # Not given: an explicit capability_template keeps its fixed budget (bare test constructions); otherwise the
+        # config's range applies. Given (None included, meaning fixed): it wins.
+        if isinstance(remaining_delta_v_range_mps, _Unset):
+            remaining_delta_v_range_mps = (
+                None if capability_template is not None else defaults["remaining_delta_v_range_mps"]
+            )
+        self._budget_range_mps = budget_range(remaining_delta_v_range_mps)
 
         if num_agents < 2:
             raise ValueError("OrbitGuard is a multi-agent env; num_agents must be >= 2")
@@ -337,7 +362,7 @@ class OrbitGuardEnv(ParallelEnv):
 
         self._last_scenario = scenario
         self._ground_truth = [sat.state.as_vector() for sat in scenario.satellites]
-        self._capabilities = [sat.capability for sat in scenario.satellites]
+        self._capabilities = self._with_drawn_budgets([sat.capability for sat in scenario.satellites], seed)
         if self._capability_degradation is not None:
             self._capabilities = self._capability_degradation.apply(self._capabilities, scenario.injected_conjunctions)
         self._initial_budgets_mps = tuple(c.remaining_delta_v_mps for c in self._capabilities)
@@ -427,6 +452,14 @@ class OrbitGuardEnv(ParallelEnv):
 
     def render(self):
         raise NotImplementedError("OrbitGuardEnv has no rendering.")
+
+    def _with_drawn_budgets(self, capabilities: list[SatelliteCapability], episode_seed: int) -> list[SatelliteCapability]:
+        """Each satellite's initial budget ~ Uniform(range) from the dedicated budget stream; unchanged without a range."""
+        if self._budget_range_mps is None:
+            return capabilities
+        rng = np.random.default_rng(np.random.SeedSequence([int(episode_seed), _DELTA_V_BUDGET_STREAM_ID]))
+        budgets = rng.uniform(*self._budget_range_mps, size=len(capabilities))
+        return [c.with_remaining_delta_v(float(b)) for c, b in zip(capabilities, budgets, strict=True)]
 
     def _store_pending(self, beliefs) -> list:
         """Predict and assess `beliefs`; keep all three as next step's decision-time state."""

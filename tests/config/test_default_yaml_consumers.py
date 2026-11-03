@@ -56,6 +56,7 @@ CONSUMED = {
     "maneuver.base_delta_v_mps": "env_kwargs_from_config",
     "maneuver.phase_fraction": "env_kwargs_from_config",
     "capability.remaining_delta_v_mps": "env_kwargs_from_config",
+    "capability.remaining_delta_v_range_mps": "env_kwargs_from_config",
     "capability.mission_deviation_limit": "env_kwargs_from_config",
     "reward.w1_safety": "env_kwargs_from_config",
     "reward.w2_mission": "env_kwargs_from_config",

@@ -8,7 +8,12 @@ import pytest
 from orbit_guard.rl.environment import CapabilityDegradation, OrbitGuardEnv
 from orbit_guard.scenarios.conjunction_generator import DEFAULT_DISTRIBUTION_MIX
 
-_KW = {"episode_horizon_s": 120.0, "control_dt_s": 60.0, "physics_dt_s": 10.0, "lookahead_s": 60.0}
+# Fixed budgets (no per-episode draw): these tests pin the degradation logic against the 2.0 m/s template;
+# tests/rl/test_delta_v_budget_randomization.py covers degradation on top of drawn budgets.
+_KW = {
+    "episode_horizon_s": 120.0, "control_dt_s": 60.0, "physics_dt_s": 10.0, "lookahead_s": 60.0,
+    "remaining_delta_v_range_mps": None,
+}
 _SINGLE_ONLY = {"benign": 0.0, "single_conjunction": 1.0, "multi_conjunction": 0.0}
 
 
