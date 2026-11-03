@@ -294,6 +294,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._step_count = 0
         self._ground_truth: list[np.ndarray] = []
         self._capabilities: list[SatelliteCapability] = []
+        self._initial_budgets_mps: tuple[float, ...] = ()
         self._shadow_states: list[np.ndarray] = []
         self._last_observations: dict = {}
         self._pending_assessments = None
@@ -339,6 +340,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._capabilities = [sat.capability for sat in scenario.satellites]
         if self._capability_degradation is not None:
             self._capabilities = self._capability_degradation.apply(self._capabilities, scenario.injected_conjunctions)
+        self._initial_budgets_mps = tuple(c.remaining_delta_v_mps for c in self._capabilities)
         self.agents = list(self.possible_agents)
         self._step_count = 0
         self._collided_agents = set()
@@ -404,6 +406,7 @@ class OrbitGuardEnv(ParallelEnv):
 
     @property
     def delta_v_budget_mps(self) -> float:
+        """The NOMINAL per-satellite budget (the capability template); each satellite's own is `initial_delta_v_budgets_mps`."""
         return self._capability_template.remaining_delta_v_mps
 
     @property
@@ -411,11 +414,15 @@ class OrbitGuardEnv(ParallelEnv):
         """Delta-v of one full-size burn (phase burns use a fraction of it)."""
         return self._capability_template.max_delta_v_per_action_mps
 
+    def initial_delta_v_budgets_mps(self) -> dict[str, float]:
+        """Each satellite's budget at the start of this episode, after any capability degradation (CORE-3)."""
+        return {agent: self._initial_budgets_mps[self._agent_index[agent]] for agent in self.possible_agents}
+
     def delta_v_used_mps(self) -> dict[str, float]:
-        """Delta-v each satellite has spent so far this episode (budget minus remaining)."""
+        """Delta-v each satellite has spent so far this episode: its OWN initial budget minus what remains."""
         return {
-            agent: self.delta_v_budget_mps - self._capabilities[self._agent_index[agent]].remaining_delta_v_mps
-            for agent in self.possible_agents
+            agent: self._initial_budgets_mps[index] - self._capabilities[index].remaining_delta_v_mps
+            for agent, index in self._agent_index.items()
         }
 
     def render(self):

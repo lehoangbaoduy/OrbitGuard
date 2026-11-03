@@ -105,3 +105,38 @@ def test_max_delta_v_per_action_is_public_and_matches_what_a_burn_applies():
     assert env.max_delta_v_per_action_mps == pytest.approx(0.1)
     env.step({agent: 1 for agent in env.agents})  # RAISE_ORBIT: one full-size burn
     assert max(env.delta_v_used_mps().values()) == pytest.approx(env.max_delta_v_per_action_mps)
+
+
+def _reduced_budget_env(**overrides) -> OrbitGuardEnv:
+    return OrbitGuardEnv(
+        num_agents=10,
+        distribution_mix=_SINGLE_ONLY,
+        capability_degradation=CapabilityDegradation(reduced_count=2, reduced_budget_scale=0.25),
+        **{**_KW, **overrides},
+    )
+
+
+def test_a_reduced_budget_satellite_that_never_burns_has_used_no_delta_v():
+    env = _reduced_budget_env()
+    env.reset(seed=2)
+    while env.agents:
+        env.step({agent: 0 for agent in env.agents})
+
+    assert env.delta_v_used_mps() == {agent: 0.0 for agent in env.possible_agents}
+
+
+def test_initial_budgets_are_each_satellites_own_starting_budget_after_degradation():
+    env = _reduced_budget_env()
+    env.reset(seed=2)
+    starting = [cap.remaining_delta_v_mps for cap in env._capabilities]
+
+    env.step({agent: 1 for agent in env.agents})  # RAISE_ORBIT: one full-size burn each
+
+    initial = env.initial_delta_v_budgets_mps()
+    assert [initial[agent] for agent in env.possible_agents] == starting
+    assert sorted(starting)[:2] == pytest.approx([0.25 * env.delta_v_budget_mps] * 2)
+    used = env.delta_v_used_mps()
+    for agent in env.possible_agents:
+        remaining = env._capabilities[env._agent_index[agent]].remaining_delta_v_mps
+        assert used[agent] == pytest.approx(initial[agent] - remaining)
+        assert used[agent] == pytest.approx(env.max_delta_v_per_action_mps)

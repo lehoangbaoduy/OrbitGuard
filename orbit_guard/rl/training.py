@@ -369,10 +369,9 @@ def main(argv: list[str] | None = None) -> None:
             print("run config:", write_run_config(report.checkpoint_path, run_config), flush=True)
         baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)
         trained = evaluate(algo, env_factory, args.eval_episodes, args.eval_seed)
-        budget_mps = env_factory({}).delta_v_budget_mps
         print("baseline:", dataclasses.asdict(baseline), flush=True)
         print("trained: ", dataclasses.asdict(trained), flush=True)
-        print("verdict: ", gate_verdict(trained, baseline, budget_mps), flush=True)
+        print("verdict: ", gate_verdict(trained, baseline), flush=True)
     finally:
         algo.stop()
 

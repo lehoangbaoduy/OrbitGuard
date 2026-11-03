@@ -250,10 +250,10 @@ def test_an_overlay_written_by_freeze_best_loads_with_its_hash_verified(tmp_path
     report = EvaluationReport(
         episodes=10, mean_return_per_agent=0.0, collision_episodes=0, maneuver_rate=0.0,
         threat_maneuver_rate=0.0, calm_maneuver_rate=0.0, threat_step_fraction=0.0,
-        mean_delta_v_used_mps=0.1, mean_episode_steps=360.0,
+        mean_delta_v_used_mps=0.1, mean_budget_fraction_used=0.05, unsafe_episodes=0, mean_episode_steps=360.0,
     )
     target = tmp_path / "tuned.yaml"
-    freeze_best([GridResult(GridPoint("wide", reward_weights={"w4": 1.5}, margin={"alpha": 2.0}), report, 0.01)], target)
+    freeze_best([GridResult(GridPoint("wide", reward_weights={"w4": 1.5}, margin={"alpha": 2.0}), report, 0.01, "q27")], target)
 
     config = load_config(overlay_path=target)
 

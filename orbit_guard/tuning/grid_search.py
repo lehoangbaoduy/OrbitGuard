@@ -8,20 +8,30 @@ pool module in the import closure, no reference to one in any tuning source).
 
 The ranking score is fixed BEFORE running any grid, and deliberately weight-free
 (raw returns are not comparable across reward weightings): the §4 safety
-hierarchy puts collisions first and fuel second,
+hierarchy puts collisions first and fuel second. Two pre-registered rules exist
+(lower is better in both; `fraction` is the mean fraction of each satellite's OWN
+initial Δv budget used, since budgets differ per satellite -- CORE-3):
 
-    score = collision_episodes / episodes + 0.25 * mean_delta_v_used / budget      (lower is better)
+    q27       score = collision_episodes / episodes + 0.25 * fraction
+    extended  score = collision_episodes / episodes + 0.5 * unsafe_episodes / episodes + 0.25 * fraction
 
-so one avoided collision episode in ten (0.1) outweighs spending an extra 40%
-of the Δv budget (0.1). The winner is frozen into an overlay file whose hash
+`q27` (Q27, the default) means one avoided collision episode in ten (0.1)
+outweighs spending an extra 40% of the budget (0.1). `extended` is the R3 rule
+of the pre-registered compute plan, used when the No-Maneuver collision-episode
+rate on validation is too low (< 0.10) for collisions alone to rank grid points;
+an unsafe episode is one with a non-colliding pair inside the common adaptive
+reference margin (PRD §36 #2, Q28). The rule is part of the logged run settings,
+so a resumed grid never mixes rules. The winner is frozen into an overlay file whose hash
 covers `configs/default.yaml` plus the overrides, snapshotted before any
 final-test evaluation (PRD §33, "freeze tuned params before final test").
 """
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +53,9 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 _DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
 _VALIDATION_CONFIG = _CONFIG_DIR / "validation.yaml"
 _FUEL_WEIGHT = 0.25
+_UNSAFE_WEIGHT = 0.5
+SCORE_RULES = ("q27", "extended")
+DEFAULT_SCORE_RULE = "q27"
 
 
 @dataclass(frozen=True)
@@ -59,6 +72,7 @@ class GridResult:
     point: GridPoint
     report: EvaluationReport
     score: float
+    score_rule: str
 
 
 def default_grid() -> list[GridPoint]:
@@ -91,8 +105,21 @@ def factory_for_point(point: GridPoint, num_agents: int, *, shielded: bool, base
     )
 
 
-def validation_score(report: EvaluationReport, delta_v_budget_mps: float) -> float:
-    return report.collision_episodes / report.episodes + _FUEL_WEIGHT * report.mean_delta_v_used_mps / delta_v_budget_mps
+def _require_score_rule(rule: str) -> None:
+    if rule not in SCORE_RULES:
+        raise ValueError(f"unknown score rule {rule!r}; expected one of {list(SCORE_RULES)}")
+
+
+def validation_score(report: EvaluationReport, rule: str) -> float:
+    """The pre-registered grid score of `report` under `rule` ('q27' or 'extended'; see the module docstring)."""
+    _require_score_rule(rule)
+    fraction = report.mean_budget_fraction_used
+    if not math.isfinite(fraction):
+        raise ValueError(f"report has no finite mean_budget_fraction_used ({fraction}); it cannot be scored")
+    score = report.collision_episodes / report.episodes + _FUEL_WEIGHT * fraction
+    if rule == "extended":
+        score += _UNSAFE_WEIGHT * report.unsafe_episodes / report.episodes
+    return score
 
 
 def _logged_reports(log_path: Path, settings: dict | None, episodes: int) -> dict[str, EvaluationReport]:
@@ -118,7 +145,7 @@ def _logged_reports(log_path: Path, settings: dict | None, episodes: int) -> dic
 def run_grid(
     points: Sequence[GridPoint],
     run_point: Callable[[GridPoint, Sequence[int]], EvaluationReport],
-    delta_v_budget_mps: float,
+    score_rule: str,
     *,
     validation_config: str | Path = _VALIDATION_CONFIG,
     max_seeds: int | None = None,
@@ -128,10 +155,13 @@ def run_grid(
 ) -> list[GridResult]:
     """Evaluate every point on the validation pool (or its first `max_seeds`); best score first.
 
-    Each finished point is logged with the run `settings`. With `resume`, points already logged under identical
-    settings (and the same episode count) are not run again but still take part in the ranking, so a killed grid
-    continues where it stopped instead of starting over.
+    Each finished point is logged with the run `settings`, to which the `score_rule` is always added. With
+    `resume`, points already logged under identical settings (rule included) and the same episode count are not
+    run again but still take part in the ranking, so a killed grid continues where it stopped instead of starting
+    over, and never ranks points scored under different rules together.
     """
+    _require_score_rule(score_rule)
+    settings = {**(settings or {}), "score": score_rule}
     config = yaml.safe_load(Path(validation_config).read_text())
     pool_path = Path(config["seed_pool_file"])
     if not pool_path.is_absolute():
@@ -144,10 +174,11 @@ def run_grid(
     results = []
     for point in points:
         if point.name in logged:
-            results.append(GridResult(point, logged[point.name], validation_score(logged[point.name], delta_v_budget_mps)))
+            report = logged[point.name]
+            results.append(GridResult(point, report, validation_score(report, score_rule), score_rule))
             continue
         report = run_point(point, seeds)
-        result = GridResult(point, report, validation_score(report, delta_v_budget_mps))
+        result = GridResult(point, report, validation_score(report, score_rule), score_rule)
         results.append(result)
         if log_path is not None:
             with Path(log_path).open("a") as handle:
@@ -167,6 +198,9 @@ def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
             "episodes": best.report.episodes,
             "collision_episodes": best.report.collision_episodes,
             "mean_delta_v_used_mps": best.report.mean_delta_v_used_mps,
+            "mean_budget_fraction_used": best.report.mean_budget_fraction_used,
+            "unsafe_episodes": best.report.unsafe_episodes,
+            "score_rule": best.score_rule,
             "score": best.score,
         },
     }
@@ -175,13 +209,8 @@ def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
     return digest
 
 
-def main(argv: list[str] | None = None) -> None:
-    """CLI: train + validate every grid point (sequentially), log each, freeze the winner."""
-    import argparse
-
-    from orbit_guard.rl.evaluation import evaluate
-    from orbit_guard.rl.training import build_algo, load_training_settings, train
-
+def build_parser() -> argparse.ArgumentParser:
+    """Arguments of the grid CLI (kept Ray-free so they can be tested without training)."""
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--agents", type=int, default=15)
     parser.add_argument("--iterations", type=int, default=25)
@@ -192,7 +221,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--only", nargs="*", default=None, help="restrict to these grid point names")
     parser.add_argument("--out-dir", default="grid_runs")
     parser.add_argument("--resume", action="store_true", help="skip points already in the log under the same settings (a killed run continues)")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--score", choices=SCORE_RULES, default=DEFAULT_SCORE_RULE,
+        help="pre-registered ranking rule: q27 (collisions + fuel) or extended (adds unsafe episodes; prereg R3)",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI: train + validate every grid point (sequentially), log each, freeze the winner."""
+    from orbit_guard.rl.evaluation import evaluate
+    from orbit_guard.rl.training import build_algo, load_training_settings, train
+
+    args = build_parser().parse_args(argv)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -211,9 +252,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[grid] {point.name}: {dataclasses.asdict(report)}", flush=True)
         return report
 
-    probe = factory_for_point(GridPoint("default"), args.agents, shielded=args.shield)({})
     results = run_grid(
-        points, run_point, probe.delta_v_budget_mps,
+        points, run_point, args.score,
         max_seeds=args.validation_episodes, log_path=out_dir / "grid_log.jsonl", resume=args.resume,
         settings={"agents": args.agents, "iterations": args.iterations, "validation_episodes": args.validation_episodes, "seed": args.seed, "shield": args.shield},
     )

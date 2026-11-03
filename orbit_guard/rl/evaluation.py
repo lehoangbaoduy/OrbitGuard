@@ -8,7 +8,9 @@ BEFORE tuning, so "clean" can't drift to whatever the latest run happened to
 produce:
 
   C1 safety       -- no more collision episodes than the baseline
-  C2 efficiency   -- mean delta-v used <= `max_delta_v_fraction` of the budget
+  C2 efficiency   -- mean fraction of each satellite's OWN initial budget used
+                     <= `max_delta_v_fraction` (with equal budgets this is the old
+                     "mean delta-v used <= fraction x budget" test; CORE-3)
   C3 return       -- mean return >= the baseline's
   C4 conditioning -- maneuvers at least `min_threat_calm_ratio` times as often
                      on threatening steps as on calm ones, and on at most
@@ -17,6 +19,13 @@ produce:
 
 A "threatening" step is one where the agent's own observation reports a
 neighbor with risk_proxy above `THREATENING_RISK_THRESHOLD`.
+
+Budgets differ per satellite (PRD §17 per-episode randomization, and the §32
+capability-reduction shift), so fuel is reported as `mean_budget_fraction_used`:
+per episode, the mean over satellites with a non-zero initial budget of
+used / initial, then averaged over episodes (NaN when no satellite had a budget).
+`unsafe_episodes` counts episodes whose `episode_summary().unsafe_conjunction_count`
+is positive (PRD §36 #2), the extra term of the pre-registered R3 grid score.
 """
 
 from __future__ import annotations
@@ -51,6 +60,8 @@ class EvaluationReport:
     threat_step_fraction: float
     mean_delta_v_used_mps: float
     mean_episode_steps: float
+    mean_budget_fraction_used: float  # per-satellite used / own initial budget, averaged (NaN if no budgets)
+    unsafe_episodes: int  # episodes with at least one unsafe (non-colliding, inside-margin) conjunction
     shield_intervention_rate: float = 0.0  # intervened agent-steps / agent-steps (0 without a shield)
     shield_infeasible_step_rate: float = 0.0  # steps whose approved joint action still had a violation
 
@@ -84,6 +95,17 @@ def _rate(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def _episode_budget_fraction(env) -> float | None:
+    """Mean over satellites with a positive initial budget of used / initial; None if none has one (or no accounting)."""
+    used = getattr(env, "delta_v_used_mps", None)
+    initial = getattr(env, "initial_delta_v_budgets_mps", None)
+    if used is None or initial is None:
+        return None
+    spent, budgets = used(), initial()
+    fractions = [spent[agent] / budget for agent, budget in budgets.items() if budget > 0.0]
+    return float(np.mean(fractions)) if fractions else None
+
+
 def evaluate_policy(
     policy: Policy,
     env_factory: EnvFactory,
@@ -100,8 +122,8 @@ def evaluate_policy(
     episode_seeds = tuple(seeds) if seeds is not None else tuple(seed + episode for episode in range(num_episodes))
 
     env = env_factory({})
-    returns, steps, delta_v_used = [], [], []
-    collision_episodes = 0
+    returns, steps, delta_v_used, budget_fractions = [], [], [], []
+    collision_episodes = unsafe_episodes = 0
     threat_steps = threat_maneuvers = calm_steps = calm_maneuvers = 0
     shield_agent_steps = shield_interventions = shield_steps = shield_infeasible_steps = 0
 
@@ -131,6 +153,11 @@ def evaluate_policy(
         collision_episodes += collided
         used = getattr(env, "delta_v_used_mps", None)
         delta_v_used.append(float(np.mean(list(used().values()))) if used else math.nan)
+        fraction = _episode_budget_fraction(env)
+        if fraction is not None:
+            budget_fractions.append(fraction)
+        summary = getattr(env, "episode_summary", None)
+        unsafe_episodes += bool(summary and summary().unsafe_conjunction_count > 0)
 
     total_steps = threat_steps + calm_steps
     return EvaluationReport(
@@ -143,6 +170,8 @@ def evaluate_policy(
         threat_step_fraction=_rate(threat_steps, total_steps),
         mean_delta_v_used_mps=float(np.mean(delta_v_used)),
         mean_episode_steps=float(np.mean(steps)),
+        mean_budget_fraction_used=float(np.mean(budget_fractions)) if budget_fractions else math.nan,
+        unsafe_episodes=unsafe_episodes,
         shield_intervention_rate=_rate(shield_interventions, shield_agent_steps),
         shield_infeasible_step_rate=_rate(shield_infeasible_steps, shield_steps),
     )
@@ -171,13 +200,15 @@ class GateVerdict:
 def gate_verdict(
     trained: EvaluationReport,
     baseline: EvaluationReport,
-    delta_v_budget_mps: float,
     criteria: GateCriteria = GateCriteria(),  # noqa: B008 - frozen dataclass default
 ) -> GateVerdict:
-    """Apply C1-C4 (see module docstring) to a trained policy vs. the no-maneuver baseline."""
+    """Apply C1-C4 (see module docstring) to a trained policy vs. the no-maneuver baseline.
+
+    C2 reads the per-satellite budget fraction, so it needs no budget argument (a NaN fraction fails it).
+    """
     checks = {
         "C1_safety": trained.collision_episodes <= baseline.collision_episodes,
-        "C2_efficiency": trained.mean_delta_v_used_mps <= criteria.max_delta_v_fraction * delta_v_budget_mps,
+        "C2_efficiency": trained.mean_budget_fraction_used <= criteria.max_delta_v_fraction,
         "C3_return": trained.mean_return_per_agent >= baseline.mean_return_per_agent,
         "C4_conditioning": (
             trained.threat_maneuver_rate >= criteria.min_threat_calm_ratio * trained.calm_maneuver_rate

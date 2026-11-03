@@ -21,7 +21,7 @@ def _report() -> EvaluationReport:
     return EvaluationReport(
         episodes=1, mean_return_per_agent=0.0, collision_episodes=0, maneuver_rate=0.0,
         threat_maneuver_rate=0.0, calm_maneuver_rate=0.0, threat_step_fraction=0.0,
-        mean_delta_v_used_mps=0.0, mean_episode_steps=1.0,
+        mean_delta_v_used_mps=0.0, mean_budget_fraction_used=0.0, unsafe_episodes=0, mean_episode_steps=1.0,
     )
 
 
