@@ -129,3 +129,24 @@ def test_unsafe_conjunctions_are_scored_against_the_adaptive_margin_even_for_a_f
     summary = _run_no_op(OrbitGuardEnv, _NEAR_MISS_SEED, margin_fn=make_fixed_margin(1.0))
 
     assert summary.unsafe_conjunction_count == 1
+
+
+def test_mean_mission_deviation_averages_the_post_step_deviations_the_next_observation_reports():
+    from orbit_guard.physics.mission_deviation import (
+        compute_mission_deviation,
+        compute_weighted_mission_deviation,
+    )
+    from orbit_guard.safety.maneuver_mapper import ManeuverIntent
+
+    env = OrbitGuardEnv(num_agents=2, episode_horizon_s=300.0, control_dt_s=60.0, physics_dt_s=10.0, lookahead_s=600.0)
+    env.reset(seed=11)
+    expected = []
+    while env.agents:
+        acting = list(env.agents)
+        env.step({agent: int(ManeuverIntent.RAISE_ORBIT) for agent in acting})
+        for agent in acting:
+            idx = env._agent_index[agent]
+            components = compute_mission_deviation(env._pending_beliefs[idx].state_vector, env._shadow_states[idx])
+            expected.append(compute_weighted_mission_deviation(components, **env._mission_weights))
+
+    assert env.episode_summary().mean_mission_deviation == pytest.approx(sum(expected) / len(expected), rel=1e-12)

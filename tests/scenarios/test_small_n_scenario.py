@@ -109,3 +109,35 @@ def test_is_deterministic_under_seed():
     )
     assert a.episode_type == b.episode_type
     assert a.satellites[0].state.position_m == b.satellites[0].state.position_m
+
+
+_TRIPLE_ONLY = {"triple_conjunction": 1.0}
+
+
+def test_triple_conjunction_injects_three_disjoint_pairs_when_n_has_room_for_them():
+    scenario = generate_small_n_conjunction_scenario(
+        6, seed=0, shell=_SHELL, capability_template=_CAPABILITY, episode_horizon_s=_EPISODE_HORIZON_S,
+        distribution_mix=_TRIPLE_ONLY,
+    )
+
+    members = [i for spec in scenario.injected_conjunctions for i in (spec.primary_index, spec.secondary_index)]
+    assert scenario.episode_type == "triple_conjunction"
+    assert len(scenario.injected_conjunctions) == 3
+    assert len(set(members)) == 6
+
+
+@pytest.mark.parametrize("n", [4, 5])
+def test_a_mix_needing_more_disjoint_pairs_than_n_allows_is_a_clear_value_error(n):
+    with pytest.raises(ValueError, match="triple_conjunction needs 6 satellites"):
+        generate_small_n_conjunction_scenario(
+            n, seed=0, shell=_SHELL, capability_template=_CAPABILITY, episode_horizon_s=_EPISODE_HORIZON_S,
+            distribution_mix={"single_conjunction": 0.5, "triple_conjunction": 0.5},
+        )
+
+
+def test_an_unknown_episode_type_in_the_mix_is_a_value_error():
+    with pytest.raises(ValueError, match="unknown episode type"):
+        generate_small_n_conjunction_scenario(
+            4, seed=0, shell=_SHELL, capability_template=_CAPABILITY, episode_horizon_s=_EPISODE_HORIZON_S,
+            distribution_mix={"quadruple_conjunction": 1.0},
+        )

@@ -29,8 +29,9 @@ def _with_zero(series: np.ndarray) -> np.ndarray:
 def running_metrics(trace: EpisodeTrace, *, shield_enabled: bool) -> RunningMetrics:
     applied = trace.applied_dv_mps
     ever_collided = np.logical_or.accumulate(trace.collided_pair, axis=0) if trace.num_steps else trace.collided_pair
-    # The environment averages deviation over agents still alive at each of steps 0..T-1.
-    samples = np.cumsum((trace.mission_deviation[:-1] * trace.alive[:-1]).sum(axis=1))
+    # The environment averages, over the agents active in each step 0..T-1 (alive at its start), the POST-step
+    # deviation that step produced, i.e. snapshot t+1 (CORE-3: it no longer lags one step behind).
+    samples = np.cumsum((trace.mission_deviation[1:] * trace.alive[:-1]).sum(axis=1))
     counts = np.cumsum(trace.alive[:-1].sum(axis=1))
     with np.errstate(invalid="ignore", divide="ignore"):
         mean_deviation = np.where(counts > 0, samples / np.maximum(counts, 1), np.nan)

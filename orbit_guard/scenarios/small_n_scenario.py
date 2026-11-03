@@ -14,6 +14,11 @@ therefore unsupported below N=4 -- the distribution mix is renormalized
 over the remaining episode types in that case, proportionally, so the
 relative weighting of what remains is unchanged (e.g. the default
 30/50/20 mix with multi_conjunction dropped becomes 37.5/62.5 benign/single).
+
+Pair counts come from the generator's own episode-type table, so the §32 #3
+simultaneous-conjunctions shift (`triple_conjunction`, 3 pairs) works for
+N >= 6; any positive-mass type needing more disjoint satellites than N is a
+ValueError naming the type, raised before sampling (CORE-3).
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from orbit_guard.scenarios.conjunction_generator import (
     _COLLISION_COURSE_D_MIN_RANGE_M,
     _COLLISION_COURSE_FRACTION,
     _CROSSING_ANGLE_RANGE_RAD,
+    _EPISODE_TYPE_CONJUNCTION_COUNT,
     _NEAR_MISS_D_MIN_RANGE_M,
     DEFAULT_DISTRIBUTION_MIX,
     ConjunctionScenario,
@@ -47,6 +53,23 @@ def _renormalize_mix_without_multi_conjunction(
     if total <= 0:
         raise ValueError("distribution_mix has no mass left after dropping multi_conjunction")
     return {k: v / total for k, v in remaining.items()}
+
+
+def _require_room_for_every_episode_type(n: int, distribution_mix: Mapping[str, float]) -> None:
+    """Every episode type with positive mass must be known and fit its disjoint injected pairs into n satellites.
+
+    Checked on the whole mix before sampling, so whether a configuration is valid never depends on the seed.
+    """
+    for episode_type, weight in distribution_mix.items():
+        if episode_type not in _EPISODE_TYPE_CONJUNCTION_COUNT:
+            raise ValueError(
+                f"unknown episode type {episode_type!r}; expected one of {sorted(_EPISODE_TYPE_CONJUNCTION_COUNT)}"
+            )
+        needed = 2 * _EPISODE_TYPE_CONJUNCTION_COUNT[episode_type]
+        if weight > 0 and needed > n:
+            raise ValueError(
+                f"{episode_type} needs {needed} satellites for its disjoint injected pairs, got num_agents={n}"
+            )
 
 
 def sample_small_n_satellites(
@@ -82,11 +105,13 @@ def generate_small_n_conjunction_scenario(
         else distribution_mix
     )
 
+    _require_room_for_every_episode_type(n, effective_mix)
+
     satellites = list(sample_small_n_satellites(n, seed, shell, capability_template))
 
     rng = np.random.default_rng(seed)
     episode_type = sample_episode_type(rng, effective_mix)
-    n_conjunctions = {"benign": 0, "single_conjunction": 1, "multi_conjunction": 2}[episode_type]
+    n_conjunctions = _EPISODE_TYPE_CONJUNCTION_COUNT[episode_type]
 
     pool = list(range(n))
     rng.shuffle(pool)

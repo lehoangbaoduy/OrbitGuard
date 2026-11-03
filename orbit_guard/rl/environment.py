@@ -353,7 +353,8 @@ class OrbitGuardEnv(ParallelEnv):
 
         beliefs = self._current_beliefs()
         self._store_pending(beliefs)
-        observations = self._observations_from(beliefs, self._pending_assessments, self._shadow_states)
+        self._refresh_mission_deviations(beliefs)
+        observations = self._observations_from(beliefs, self._pending_assessments)
         self._last_observations = dict(observations)
         infos = {agent: {} for agent in self.agents}
         return observations, infos
@@ -374,6 +375,9 @@ class OrbitGuardEnv(ParallelEnv):
 
         post_beliefs = self._current_beliefs()
         post_assessments = self._store_pending(post_beliefs)
+        # Before the metrics record them: the episode's mission deviation is the POST-step value, the same one
+        # the reward's mission term and the next observation use (it used to lag one step behind).
+        self._refresh_mission_deviations(post_beliefs)
         self.last_step = self._describe_step(actions, approved_actions, applied_delta_v, collided_pairs)
         self._record_step_metrics(
             applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision, pre_beliefs
@@ -384,7 +388,7 @@ class OrbitGuardEnv(ParallelEnv):
             post_beliefs, self._shadow_states, newly_collided,
         )
 
-        observations = self._observations_from(post_beliefs, post_assessments, self._shadow_states)
+        observations = self._observations_from(post_beliefs, post_assessments)
         self._last_observations.update(observations)
 
         terminations = {agent: self._agent_index[agent] in newly_collided for agent in self.agents}
@@ -484,13 +488,19 @@ class OrbitGuardEnv(ParallelEnv):
         )
         self._shadow_states = [trajectory[-1] for trajectory in trajectories]
 
-    def _observations_from(self, beliefs, assessments, shadow_states) -> dict:
+    def _refresh_mission_deviations(self, beliefs) -> None:
+        """Weighted mission deviation (PRD §25) of every active satellite: `beliefs` against the shadow, same instant."""
+        for agent in self.agents:
+            idx = self._agent_index[agent]
+            components = compute_mission_deviation(beliefs[idx].state_vector, self._shadow_states[idx])
+            self._pending_mission_deviations[idx] = compute_weighted_mission_deviation(components, **self._mission_weights)
+
+    def _observations_from(self, beliefs, assessments) -> dict:
+        """Observations from `beliefs`; the mission deviation is the one `_refresh_mission_deviations` just stored."""
         observations = {}
         for agent in self.agents:
             idx = self._agent_index[agent]
-            components = compute_mission_deviation(beliefs[idx].state_vector, shadow_states[idx])
-            own_mission_deviation = compute_weighted_mission_deviation(components, **self._mission_weights)
-            self._pending_mission_deviations[idx] = own_mission_deviation
+            own_mission_deviation = self._pending_mission_deviations[idx]
             candidates = build_neighbor_candidates(idx, beliefs, assessments)
             cap = self._capabilities[idx]
             obs = build_observation(
