@@ -24,15 +24,10 @@ from pathlib import Path
 
 import yaml
 
+from orbit_guard.config import load_config, margin_from_config
 from orbit_guard.rl.actor_policy import NumpyActorPolicy, load_actor_weights
-from orbit_guard.rl.env_factory import (
-    EnvFactory,
-    load_margin_fn,
-    load_reward_weights,
-    make_env_factory,
-)
+from orbit_guard.rl.env_factory import EnvFactory, make_env_factory_from_config
 from orbit_guard.rl.evaluation import Policy, no_maneuver_policy
-from orbit_guard.safety.adaptive_margin import FixedMargin
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
@@ -66,10 +61,14 @@ def rule_based_policy(agent: str, observation: dict) -> int:
     return int(ManeuverIntent.RAISE_ORBIT if along_track > 0 else ManeuverIntent.LOWER_ORBIT)
 
 
-def _model_spec(model: str, config_path: str | Path) -> dict:
+def _spec_from_config(model: str, config: dict) -> dict:
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; expected one of {MODEL_NAMES}")
-    return yaml.safe_load(Path(config_path).read_text())["models"][model]
+    return config["models"][model]
+
+
+def _model_spec(model: str, config_path: str | Path = _DEFAULT_CONFIG) -> dict:
+    return _spec_from_config(model, load_config(config_path))
 
 
 def model_from_config(config_path: str | Path = _DEFAULT_CONFIG) -> str:
@@ -81,26 +80,35 @@ def model_from_config(config_path: str | Path = _DEFAULT_CONFIG) -> str:
 
 
 def build_env_factory(
-    model: str, num_agents: int, *, config_path: str | Path = _DEFAULT_CONFIG, **env_kwargs
+    model: str,
+    num_agents: int,
+    *,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
+    **env_kwargs,
 ) -> EnvFactory:
-    """Environment for `model`: shield on/off and the margin come from the config's `models:` block."""
-    spec = _model_spec(model, config_path)
-    config = yaml.safe_load(Path(config_path).read_text())
-    margin_fn = (
-        FixedMargin(float(config["fixed_margin"]["d_safe_m"]))
-        if spec["margin"] == "fixed"
-        else load_margin_fn(config_path)
-    )
-    return make_env_factory(
-        num_agents, load_reward_weights(config_path), shielded=bool(spec["shield"]), margin_fn=margin_fn, **env_kwargs
+    """Environment for `model`: shield on/off and the margin come from the config's `models:` block.
+
+    Every other argument comes from the config (plus the optional tuned overlay); explicit `env_kwargs`,
+    such as a shift condition's, win over it.
+    """
+    config = load_config(config_path, overlay_path)
+    spec = _spec_from_config(model, config)
+    return make_env_factory_from_config(
+        config, num_agents, shielded=bool(spec["shield"]), margin_fn=margin_from_config(config, spec["margin"]),
+        **env_kwargs,
     )
 
 
 def build_policy(
-    model: str, actor_weights_path: str | Path | None = None, *, config_path: str | Path = _DEFAULT_CONFIG
+    model: str,
+    actor_weights_path: str | Path | None = None,
+    *,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
 ) -> Policy:
     """Decentralized policy for `model`; the learned models need their exported actor weights."""
-    kind = _model_spec(model, config_path)["policy"]
+    kind = _spec_from_config(model, load_config(config_path, overlay_path))["policy"]
     if kind == "no_maneuver":
         return no_maneuver_policy
     if kind == "rule_based":

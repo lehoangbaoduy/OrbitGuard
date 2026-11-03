@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from scipy.special import expit
 
+DEFAULT_EPSILON_M = 1.0
+DEFAULT_Z0 = 3.0
+DEFAULT_K = 1.5
+
 
 def risk_proxy(
     d_min_m: float,
     sigma_rel_m: float,
-    epsilon_m: float = 1.0,
-    z0: float = 3.0,
-    k: float = 1.5,
+    epsilon_m: float = DEFAULT_EPSILON_M,
+    z0: float = DEFAULT_Z0,
+    k: float = DEFAULT_K,
 ) -> float:
     """Compute bounded conjunction risk proxy R_proxy in [0, 1].
 

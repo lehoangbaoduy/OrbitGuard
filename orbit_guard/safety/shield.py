@@ -36,7 +36,7 @@ Design decisions beyond the PRD text (see docs/OrbitGuard_progress.md, Q22-Q24):
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -51,6 +51,7 @@ from orbit_guard.conjunction.pair_assessment import (
     predict_all,
     prediction_steps,
 )
+from orbit_guard.conjunction.risk import DEFAULT_EPSILON_M, DEFAULT_K, DEFAULT_Z0
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.physics.dynamics import state_derivative_batch
 from orbit_guard.physics.integrator import propagate_batch
@@ -178,7 +179,9 @@ class _JointContext:
             return True
         candidate_end = self.trajectory(agent, intent)[-1]
         baseline_end = self.trajectory(agent, NO_MANEUVER_INTENT)[-1]
-        deviation = compute_weighted_mission_deviation(compute_mission_deviation(candidate_end, baseline_end))
+        deviation = compute_weighted_mission_deviation(
+            compute_mission_deviation(candidate_end, baseline_end), **self._shield.mission_weights
+        )
         limit = self.capabilities[agent].mission_deviation_limit
         return self._mission_deviations[agent] + deviation <= limit + _LIMIT_SLACK
 
@@ -194,6 +197,7 @@ class _JointContext:
             self._pairs[key] = assess_pair(
                 i, j, self.trajectory(i, intent_i), self.trajectory(j, intent_j),
                 self._shield.physics_dt_s, sigma_rel_m, rho, self._shield.margin_fn,
+                risk_epsilon_m=self._shield.risk_epsilon_m, risk_z0=self._shield.risk_z0, risk_k=self._shield.risk_k,
             )
         return self._pairs[key]
 
@@ -244,6 +248,10 @@ class JointActionShield:
         risk_tolerance: float = DEFAULT_RISK_TOLERANCE,
         density_radius_m: float = DEFAULT_DENSITY_RADIUS_M,
         density_ref_count: float = DEFAULT_DENSITY_REF_COUNT,
+        risk_epsilon_m: float = DEFAULT_EPSILON_M,
+        risk_z0: float = DEFAULT_Z0,
+        risk_k: float = DEFAULT_K,
+        mission_weights: Mapping[str, float] | None = None,
     ):
         self.lookahead_s = lookahead_s
         self.physics_dt_s = physics_dt_s
@@ -257,6 +265,10 @@ class JointActionShield:
         self.risk_tolerance = risk_tolerance
         self.density_radius_m = density_radius_m
         self.density_ref_count = density_ref_count
+        self.risk_epsilon_m = risk_epsilon_m
+        self.risk_z0 = risk_z0
+        self.risk_k = risk_k
+        self.mission_weights = dict(mission_weights or {})
 
     def pair_violations(self, assessment: PairAssessment, baseline: PairAssessment, moving: bool) -> list[Violation]:
         agents = (assessment.i, assessment.j)

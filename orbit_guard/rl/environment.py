@@ -48,6 +48,7 @@ from gymnasium import spaces
 from gymnasium.spaces.utils import flatten
 from pettingzoo import ParallelEnv
 
+from orbit_guard.config import env_kwargs_from_config, load_config, margin_from_config
 from orbit_guard.conjunction.collision import detect_collision
 from orbit_guard.conjunction.pair_assessment import (
     assess_all_pairs,
@@ -78,12 +79,9 @@ from orbit_guard.rl.reward import (
     compute_reward,
     compute_safety_term,
 )
-from orbit_guard.safety.adaptive_margin import MarginFn, make_adaptive_margin
+from orbit_guard.safety.adaptive_margin import MarginFn
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
-from orbit_guard.scenarios.conjunction_generator import (
-    DEFAULT_DISTRIBUTION_MIX,
-    generate_conjunction_scenario,
-)
+from orbit_guard.scenarios.conjunction_generator import generate_conjunction_scenario
 from orbit_guard.scenarios.constellation import (
     MIN_SUPPORTED_N,
     fit_shell_distribution,
@@ -93,18 +91,7 @@ from orbit_guard.scenarios.small_n_scenario import generate_small_n_conjunction_
 from orbit_guard.sensing.belief import GroundTruthState, form_belief, observe
 from orbit_guard.sensing.noise import NoiseModel
 
-_DEFAULT_TLE_PATH = Path(__file__).resolve().parents[2] / "data" / "TLE_snapshot_53deg_shell.csv"
-_DEFAULT_CAPABILITY = SatelliteCapability(
-    max_delta_v_per_action_mps=0.1,
-    remaining_delta_v_mps=2.0,
-    maneuver_enabled=True,
-    mission_deviation_limit=1.0,
-)
-_DEFAULT_NOISE_MODEL = NoiseModel(position_sigma_m=100.0, velocity_sigma_mps=0.1)
 _NUM_ACTIONS = len(ManeuverIntent)
-_K_NEIGHBORS = 4
-_HARD_BODY_RADIUS_M = 5.0
-_REWARD_WEIGHTS = {"w1": 1.0, "w2": 0.3, "w3": 0.1, "w4": 0.5, "collision_penalty": -100.0}
 
 # Duplicated raw shape numbers rather than imported from rl.observation -- Part
 # B's frozen contract (tests/rl/test_observation.py) fixes these shapes via
@@ -160,25 +147,70 @@ class OrbitGuardEnv(ParallelEnv):
     def __init__(
         self,
         num_agents: int = 2,
-        episode_horizon_s: float = 21_600.0,
-        physics_dt_s: float = 10.0,
-        control_dt_s: float = 60.0,
-        lookahead_s: float = 1800.0,
-        k_neighbors: int = _K_NEIGHBORS,
-        hard_body_radius_m: float = _HARD_BODY_RADIUS_M,
-        capability_template: SatelliteCapability = _DEFAULT_CAPABILITY,
-        distribution_mix=DEFAULT_DISTRIBUTION_MIX,
-        noise_model: NoiseModel = _DEFAULT_NOISE_MODEL,
-        tle_path: str | Path = _DEFAULT_TLE_PATH,
+        episode_horizon_s: float | None = None,
+        physics_dt_s: float | None = None,
+        control_dt_s: float | None = None,
+        lookahead_s: float | None = None,
+        k_neighbors: int | None = None,
+        hard_body_radius_m: float | None = None,
+        capability_template: SatelliteCapability | None = None,
+        distribution_mix=None,
+        noise_model: NoiseModel | None = None,
+        tle_path: str | Path | None = None,
         reward_weights: dict | None = None,
         margin_fn: MarginFn | None = None,
         phase_spread_rad: float | None = None,
         capability_degradation: CapabilityDegradation | None = None,
+        phase_fraction: float | None = None,
+        risk_epsilon_m: float | None = None,
+        risk_z0: float | None = None,
+        risk_k: float | None = None,
+        density_radius_m: float | None = None,
+        density_ref_count: float | None = None,
+        mission_weights: dict | None = None,
     ):
+        # Every argument not given resolves from configs/default.yaml (the single source of truth, CORE-1).
+        base_config = load_config()
+        defaults = env_kwargs_from_config(base_config, shielded=False)
+        explicit = {
+            "episode_horizon_s": episode_horizon_s,
+            "physics_dt_s": physics_dt_s,
+            "control_dt_s": control_dt_s,
+            "lookahead_s": lookahead_s,
+            "k_neighbors": k_neighbors,
+            "hard_body_radius_m": hard_body_radius_m,
+            "capability_template": capability_template,
+            "distribution_mix": distribution_mix,
+            "noise_model": noise_model,
+            "tle_path": tle_path,
+            "reward_weights": reward_weights,
+            "phase_fraction": phase_fraction,
+            "risk_epsilon_m": risk_epsilon_m,
+            "risk_z0": risk_z0,
+            "risk_k": risk_k,
+            "density_radius_m": density_radius_m,
+            "density_ref_count": density_ref_count,
+            "mission_weights": mission_weights,
+        }
+        resolved = {key: defaults[key] if value is None else value for key, value in explicit.items()}
+        if margin_fn is None:
+            margin_fn = margin_from_config(base_config, "adaptive")
+
         if num_agents < 2:
             raise ValueError("OrbitGuard is a multi-agent env; num_agents must be >= 2")
-        if control_dt_s <= 0 or physics_dt_s <= 0 or control_dt_s < physics_dt_s:
+        if resolved["control_dt_s"] <= 0 or resolved["physics_dt_s"] <= 0 or resolved["control_dt_s"] < resolved["physics_dt_s"]:
             raise ValueError("control_dt_s and physics_dt_s must be > 0 with control_dt_s >= physics_dt_s")
+        episode_horizon_s = resolved["episode_horizon_s"]
+        physics_dt_s = resolved["physics_dt_s"]
+        control_dt_s = resolved["control_dt_s"]
+        lookahead_s = resolved["lookahead_s"]
+        k_neighbors = resolved["k_neighbors"]
+        hard_body_radius_m = resolved["hard_body_radius_m"]
+        capability_template = resolved["capability_template"]
+        distribution_mix = resolved["distribution_mix"]
+        noise_model = resolved["noise_model"]
+        tle_path = resolved["tle_path"]
+        reward_weights = resolved["reward_weights"]
 
         self.possible_agents = [f"sat_{i}" for i in range(num_agents)]
         self._agent_index = {agent: i for i, agent in enumerate(self.possible_agents)}
@@ -194,8 +226,21 @@ class OrbitGuardEnv(ParallelEnv):
         self._capability_template = capability_template
         self._distribution_mix = distribution_mix
         self._noise_model = noise_model
-        self._reward_weights = reward_weights or _REWARD_WEIGHTS
+        self._reward_weights = reward_weights
         self._margin_fn = margin_fn
+        self._phase_fraction = resolved["phase_fraction"]
+        self._risk_params = {
+            "risk_epsilon_m": resolved["risk_epsilon_m"],
+            "risk_z0": resolved["risk_z0"],
+            "risk_k": resolved["risk_k"],
+        }
+        self._density_radius_m = resolved["density_radius_m"]
+        self._density_ref_count = resolved["density_ref_count"]
+        self._mission_weights = resolved["mission_weights"]
+        # Outcome metrics are scored against the PRD section 22 standard of the DEFAULT config, never a tuned
+        # overlay, so every run (and every tuning point) is judged by one reference (docs/OrbitGuard_progress.md).
+        self._reference_margin = margin_from_config(base_config, "adaptive")
+        self._reference_density = (defaults["density_radius_m"], defaults["density_ref_count"])
         self._phase_spread_rad = phase_spread_rad
         self._capability_degradation = capability_degradation
         self._last_scenario = None
@@ -355,7 +400,8 @@ class OrbitGuardEnv(ParallelEnv):
         self._pending_predictions = predict_all(beliefs, self._lookahead_s, self._physics_dt_s)
         self._pending_assessments = assess_all_pairs(
             beliefs, self._lookahead_s, self._physics_dt_s,
-            margin_fn=self._margin_fn, predicted=self._pending_predictions,
+            density_radius_m=self._density_radius_m, density_ref_count=self._density_ref_count,
+            margin_fn=self._margin_fn, predicted=self._pending_predictions, **self._risk_params,
         )
         return self._pending_assessments
 
@@ -379,6 +425,7 @@ class OrbitGuardEnv(ParallelEnv):
             requested[idx] = map_intent_to_delta_v(
                 ManeuverIntent(action), gt[:3], gt[3:6],
                 base_delta_v_mps=self._capabilities[idx].max_delta_v_per_action_mps,
+                phase_fraction=self._phase_fraction,
             )
         return requested
 
@@ -408,7 +455,7 @@ class OrbitGuardEnv(ParallelEnv):
         for agent in self.agents:
             idx = self._agent_index[agent]
             components = compute_mission_deviation(beliefs[idx].state_vector, shadow_states[idx])
-            own_mission_deviation = compute_weighted_mission_deviation(components)
+            own_mission_deviation = compute_weighted_mission_deviation(components, **self._mission_weights)
             self._pending_mission_deviations[idx] = own_mission_deviation
             candidates = build_neighbor_candidates(idx, beliefs, assessments)
             cap = self._capabilities[idx]
@@ -436,7 +483,8 @@ class OrbitGuardEnv(ParallelEnv):
             cap = self._capabilities[idx]
             gt = self._ground_truth[idx]
             proposed = map_intent_to_delta_v(
-                ManeuverIntent(action), gt[:3], gt[3:6], base_delta_v_mps=cap.max_delta_v_per_action_mps
+                ManeuverIntent(action), gt[:3], gt[3:6],
+                base_delta_v_mps=cap.max_delta_v_per_action_mps, phase_fraction=self._phase_fraction,
             )
             proposed_mag = float(np.linalg.norm(proposed))
 
@@ -509,12 +557,15 @@ class OrbitGuardEnv(ParallelEnv):
         Outcome metrics must compare every model against ONE safety standard; a Fixed-Margin run
         scoring itself against its own constant would be marking its own homework.
         """
-        if self._margin_fn is None:
-            return assessments
         positions = np.array([belief.state_vector[:3] for belief in beliefs])
-        reference = make_adaptive_margin()
+        radius_m, ref_count = self._reference_density
         return [
-            replace(a, d_safe_m=reference(a.sigma_rel_m, pair_density(a.i, a.j, positions), a.risk_proxy))
+            replace(
+                a,
+                d_safe_m=self._reference_margin(
+                    a.sigma_rel_m, pair_density(a.i, a.j, positions, radius_m, ref_count), a.risk_proxy
+                ),
+            )
             for a in assessments
         ]
 
@@ -565,7 +616,7 @@ class OrbitGuardEnv(ParallelEnv):
             safety_term = compute_safety_term(margins)
 
             components = compute_mission_deviation(post_beliefs[idx].state_vector, shadow_states[idx])
-            mission_term = compute_mission_term(components.d_a, components.d_e, components.d_i, components.d_m)
+            mission_term = compute_mission_term(components.d_a, components.d_e, components.d_i, components.d_m, **self._mission_weights)
 
             # Charged on the REQUEST, not the capped burn: once the budget is spent every
             # action is a physical no-op, and an applied-only cost would leave the policy

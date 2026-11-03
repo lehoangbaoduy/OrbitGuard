@@ -21,19 +21,26 @@ final-test evaluation (PRD §33, "freeze tuned params before final test").
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+from orbit_guard.config import (
+    DEFAULT_CONFIG_PATH,
+    apply_overlay,
+    load_config,
+    margin_from_config,
+    overlay_digest,
+)
 from orbit_guard.evaluation.seed_pools import load_seed_pool
+from orbit_guard.rl.env_factory import EnvFactory, make_env_factory_from_config
 from orbit_guard.rl.evaluation import EvaluationReport
 
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
-_DEFAULT_CONFIG = _CONFIG_DIR / "default.yaml"
+_DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
 _VALIDATION_CONFIG = _CONFIG_DIR / "validation.yaml"
 _FUEL_WEIGHT = 0.25
 
@@ -68,6 +75,20 @@ def default_grid() -> list[GridPoint]:
         GridPoint("w3_2.5", reward_weights={"w3": 2.5}),
         GridPoint("w3_10", reward_weights={"w3": 10.0}),
     ]
+
+
+def config_for_point(point: GridPoint, base_config: Mapping | None = None) -> dict:
+    """The default configuration with this point's reward and margin overrides applied (a fresh dict)."""
+    base = load_config() if base_config is None else base_config
+    return apply_overlay(base, {"reward": point.reward_weights, "adaptive_margin": point.margin})
+
+
+def factory_for_point(point: GridPoint, num_agents: int, *, shielded: bool, base_config: Mapping | None = None) -> EnvFactory:
+    """Environment factory for a grid point, built through the same config path as every other run."""
+    config = config_for_point(point, base_config)
+    return make_env_factory_from_config(
+        config, num_agents, shielded=shielded, margin_fn=margin_from_config(config, "adaptive")
+    )
 
 
 def validation_score(report: EvaluationReport, delta_v_budget_mps: float) -> float:
@@ -149,7 +170,7 @@ def freeze_best(results: Sequence[GridResult], path: str | Path) -> str:
             "score": best.score,
         },
     }
-    digest = hashlib.sha256(_DEFAULT_CONFIG.read_bytes() + json.dumps(body, sort_keys=True).encode()).hexdigest()
+    digest = overlay_digest(_DEFAULT_CONFIG.read_bytes(), body)
     Path(path).write_text(yaml.safe_dump({**body, "config_hash": digest}, sort_keys=True))
     return digest
 
@@ -159,14 +180,7 @@ def main(argv: list[str] | None = None) -> None:
     import argparse
 
     from orbit_guard.rl.evaluation import evaluate
-    from orbit_guard.rl.training import (
-        build_algo,
-        load_margin_fn,
-        load_reward_weights,
-        load_training_settings,
-        make_env_factory,
-        train,
-    )
+    from orbit_guard.rl.training import build_algo, load_training_settings, train
 
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--agents", type=int, default=15)
@@ -185,8 +199,7 @@ def main(argv: list[str] | None = None) -> None:
     points = [p for p in default_grid() if args.only is None or p.name in args.only]
 
     def run_point(point: GridPoint, seeds: Sequence[int]) -> EvaluationReport:
-        reward_weights = load_reward_weights(**point.reward_weights)
-        factory = make_env_factory(args.agents, reward_weights, args.shield, load_margin_fn(**point.margin))
+        factory = factory_for_point(point, args.agents, shielded=args.shield)
         settings = load_training_settings(num_env_runners=args.num_env_runners, seed=args.seed)
         print(f"[grid] {point.name}: training {args.iterations} iterations", flush=True)
         algo = build_algo(factory, settings)
@@ -198,7 +211,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[grid] {point.name}: {dataclasses.asdict(report)}", flush=True)
         return report
 
-    probe = make_env_factory(args.agents, load_reward_weights(), args.shield)({})
+    probe = factory_for_point(GridPoint("default"), args.agents, shielded=args.shield)({})
     results = run_grid(
         points, run_point, probe.delta_v_budget_mps,
         max_seeds=args.validation_episodes, log_path=out_dir / "grid_log.jsonl", resume=args.resume,

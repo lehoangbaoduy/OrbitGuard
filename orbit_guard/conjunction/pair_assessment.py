@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from orbit_guard.conjunction.risk import DEFAULT_EPSILON_M, DEFAULT_K, DEFAULT_Z0
 from orbit_guard.conjunction.risk import risk_proxy as compute_risk_proxy
 from orbit_guard.conjunction.screening import generate_candidate_pairs
 from orbit_guard.conjunction.tca import compute_tca
@@ -84,10 +85,14 @@ def assess_pair(
     sigma_rel_m: float,
     rho: float,
     margin_fn: MarginFn,
+    *,
+    risk_epsilon_m: float = DEFAULT_EPSILON_M,
+    risk_z0: float = DEFAULT_Z0,
+    risk_k: float = DEFAULT_K,
 ) -> PairAssessment:
     """Predicted TCA/d_min -> risk proxy -> margin for two (possibly maneuvered) trajectories."""
     _t_tca_s, d_min_m = compute_tca(trajectory_i, trajectory_j, physics_dt_s)
-    risk = compute_risk_proxy(d_min_m, sigma_rel_m)
+    risk = compute_risk_proxy(d_min_m, sigma_rel_m, risk_epsilon_m, risk_z0, risk_k)
     d_safe_m = margin_fn(sigma_rel_m, rho, risk)
     return PairAssessment(i=i, j=j, d_min_m=d_min_m, risk_proxy=risk, sigma_rel_m=sigma_rel_m, d_safe_m=d_safe_m)
 
@@ -104,6 +109,9 @@ def assess_all_pairs(
     *,
     margin_fn: MarginFn | None = None,
     predicted: Sequence[PredictedState] | None = None,
+    risk_epsilon_m: float = DEFAULT_EPSILON_M,
+    risk_z0: float = DEFAULT_Z0,
+    risk_k: float = DEFAULT_K,
 ) -> list[PairAssessment]:
     """Assess every candidate pair; `predicted` reuses an earlier `predict_all`, `margin_fn` overrides the adaptive default."""
     if predicted is None:
@@ -118,6 +126,7 @@ def assess_all_pairs(
             combined_relative_sigma(beliefs[i], beliefs[j]),
             pair_density(i, j, positions_now, density_radius_m, density_ref_count),
             margin_fn,
+            risk_epsilon_m=risk_epsilon_m, risk_z0=risk_z0, risk_k=risk_k,
         )
         for i, j in generate_candidate_pairs(len(beliefs))
     ]

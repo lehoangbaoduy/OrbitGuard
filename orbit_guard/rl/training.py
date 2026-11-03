@@ -17,17 +17,26 @@ Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
 
 from __future__ import annotations
 
+import dataclasses
+import json
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 
+from orbit_guard.config import (
+    DEFAULT_CONFIG_PATH,
+    REPO_ROOT,
+    config_digest,
+    load_config,
+    margin_from_config,
+)
 from orbit_guard.rl.actor_policy import export_from_algo
 from orbit_guard.rl.ctde_module import (
     DEFAULT_ACTOR_HIDDEN_LAYERS,
@@ -38,18 +47,20 @@ from orbit_guard.rl.ctde_module import (
 from orbit_guard.rl.env_factory import (
     load_margin_fn,
     load_reward_weights,
-    make_env_factory,
+    make_env_factory,  # noqa: F401  (re-exported: callers import it from here)
+    make_env_factory_from_config,
 )
 from orbit_guard.rl.rllib_env import (
     CTDEParallelPettingZooEnv,
     EnvFactory,
     register_orbit_guard_env,
 )
-from orbit_guard.safety.adaptive_margin import FixedMargin
+from orbit_guard.safety.adaptive_margin import AdaptiveMargin, FixedMargin
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
 ACTOR_WEIGHTS_FILENAME = "actor_weights.npz"
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
+RUN_CONFIG_FILENAME = "run_config.json"
+_DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 
 @dataclass(frozen=True)
@@ -73,10 +84,11 @@ class TrainingSettings:
     seed: int | None = None
 
 
-def load_training_settings(config_path: str | Path = _DEFAULT_CONFIG_PATH, **overrides: Any) -> TrainingSettings:
-    """Read the `rl:` block of a config YAML; `overrides` win over the file."""
-    with Path(config_path).open() as handle:
-        rl_block = yaml.safe_load(handle)["rl"]
+def load_training_settings(
+    config_path: str | Path = _DEFAULT_CONFIG_PATH, overlay_path: str | Path | None = None, **overrides: Any
+) -> TrainingSettings:
+    """Read the `rl:` block of the config (and of a tuned overlay, if given); `overrides` win over both."""
+    rl_block = load_config(config_path, overlay_path)["rl"]
     settings = {
         "learning_rate": rl_block["learning_rate"],
         "gamma": rl_block["gamma"],
@@ -128,6 +140,58 @@ def build_mappo_config(env_name: str, local_obs_dim: int, settings: TrainingSett
     if settings.seed is not None:
         config = config.debugging(seed=settings.seed)
     return config
+
+
+def build_run_config(
+    *,
+    config_path: str | Path,
+    overlay_path: str | Path | None,
+    reward_weights: dict,
+    margin_fn: Any,
+    shield: bool,
+    settings: TrainingSettings,
+    num_agents: int,
+    git_commit: str | None,
+) -> dict:
+    """Provenance record of one training run: which config, overlay, reward, margin and settings produced it."""
+    return {
+        "config_path": str(config_path),
+        "overlay_path": None if overlay_path is None else str(overlay_path),
+        "config_digest": config_digest(config_path, overlay_path),
+        "reward_weights": dict(reward_weights),
+        "margin": _margin_record(margin_fn),
+        "shield": bool(shield),
+        "training": dataclasses.asdict(settings),
+        "seed": settings.seed,
+        "num_agents": num_agents,
+        "git_commit": git_commit,
+    }
+
+
+def _margin_record(margin_fn: Any) -> dict:
+    if isinstance(margin_fn, FixedMargin):
+        return {"kind": "fixed", "d_safe_m": margin_fn.d_safe_m}
+    if isinstance(margin_fn, AdaptiveMargin):
+        return {"kind": "adaptive", **dataclasses.asdict(margin_fn)}
+    raise ValueError(f"cannot record margin of type {type(margin_fn).__name__}")
+
+
+def write_run_config(checkpoint_dir: str | Path, run_config: dict) -> Path:
+    """Write the provenance sidecar next to the checkpoint's actor weights."""
+    path = Path(checkpoint_dir) / RUN_CONFIG_FILENAME
+    path.write_text(json.dumps(run_config, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def _git_commit() -> str | None:
+    """HEAD of the checkout the run came from; None when git or the repository is unavailable."""
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return completed.stdout.strip() or None
 
 
 def build_algo(env_factory: EnvFactory, settings: TrainingSettings, env_name: str = DEFAULT_ENV_NAME) -> Algorithm:
@@ -222,6 +286,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--eval-seed", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG_PATH))
+    parser.add_argument(
+        "--overlay", default=None,
+        help="tuned overlay (tuning/grid_search tuned.yaml) merged over --config; explicit flags still win",
+    )
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--num-env-runners", type=int, default=None)
     parser.add_argument(
@@ -254,13 +322,15 @@ def main(argv: list[str] | None = None) -> None:
         "entropy_coeff": args.entropy_coeff,
         "gamma": args.gamma,
     }
-    settings = load_training_settings(args.config, **{k: v for k, v in overrides.items() if v is not None})
+    settings = load_training_settings(
+        args.config, args.overlay, **{k: v for k, v in overrides.items() if v is not None}
+    )
     weight_overrides = {
         key: getattr(args, key)
         for key in ("w1", "w2", "w3", "w4", "collision_penalty")
         if getattr(args, key) is not None
     }
-    reward_weights = load_reward_weights(args.config, **weight_overrides)
+    reward_weights = load_reward_weights(args.config, args.overlay, **weight_overrides)
     print(settings, reward_weights, f"shield={args.shield} margin={args.margin}", flush=True)
 
     margin_overrides = {
@@ -270,12 +340,14 @@ def main(argv: list[str] | None = None) -> None:
     }
     if args.margin_gamma_margin is not None:
         margin_overrides["gamma"] = args.margin_gamma_margin
+    config = load_config(args.config, args.overlay)
     if args.margin == "fixed":
-        with Path(args.config).open() as handle:
-            margin_fn = FixedMargin(float(yaml.safe_load(handle)["fixed_margin"]["d_safe_m"]))
+        margin_fn = margin_from_config(config, "fixed")
     else:
-        margin_fn = load_margin_fn(args.config, **margin_overrides)
-    env_factory = make_env_factory(args.agents, reward_weights, shielded=args.shield, margin_fn=margin_fn)
+        margin_fn = load_margin_fn(args.config, args.overlay, **margin_overrides)
+    env_factory = make_env_factory_from_config(
+        config, args.agents, shielded=args.shield, margin_fn=margin_fn, reward_weights=reward_weights,
+    )
 
     algo = build_algo(env_factory, settings)
     try:
@@ -287,7 +359,14 @@ def main(argv: list[str] | None = None) -> None:
                 flush=True,
             )
 
-        train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
+        report = train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
+        if report.checkpoint_path is not None:
+            run_config = build_run_config(
+                config_path=args.config, overlay_path=args.overlay, reward_weights=reward_weights,
+                margin_fn=margin_fn, shield=args.shield, settings=settings, num_agents=args.agents,
+                git_commit=_git_commit(),
+            )
+            print("run config:", write_run_config(report.checkpoint_path, run_config), flush=True)
         baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)
         trained = evaluate(algo, env_factory, args.eval_episodes, args.eval_seed)
         budget_mps = env_factory({}).delta_v_budget_mps

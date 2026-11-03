@@ -20,6 +20,7 @@ Semantics (PRD §28):
 
 from __future__ import annotations
 
+from orbit_guard.config import env_kwargs_from_config, load_config
 from orbit_guard.rl.environment import OrbitGuardEnv
 from orbit_guard.rl.episode_metrics import ShieldStep
 from orbit_guard.safety.shield import JointActionShield, ShieldResult
@@ -28,16 +29,30 @@ from orbit_guard.safety.shield import JointActionShield, ShieldResult
 class ShieldedOrbitGuardEnv(OrbitGuardEnv):
     """`OrbitGuardEnv` whose actions pass through the joint-action safety shield."""
 
-    def __init__(self, *args, shield_exact_max_agents: int = 4, shield_beam_width: int = 50, **kwargs):
+    def __init__(
+        self,
+        *args,
+        shield_exact_max_agents: int | None = None,
+        shield_beam_width: int | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
+        defaults = env_kwargs_from_config(load_config(), shielded=True)
+        exact_max_agents = defaults["shield_exact_max_agents"] if shield_exact_max_agents is None else shield_exact_max_agents
+        beam_width = defaults["shield_beam_width"] if shield_beam_width is None else shield_beam_width
         self._shield = JointActionShield(
             lookahead_s=self._lookahead_s,
             physics_dt_s=self._physics_dt_s,
             margin_fn=self._margin_fn,
             base_delta_v_mps=self._capability_template.max_delta_v_per_action_mps,
+            phase_fraction=self._phase_fraction,
             collision_distance_m=2.0 * self._hard_body_radius_m,
-            exact_max_agents=shield_exact_max_agents,
-            beam_width=shield_beam_width,
+            exact_max_agents=exact_max_agents,
+            beam_width=beam_width,
+            density_radius_m=self._density_radius_m,
+            density_ref_count=self._density_ref_count,
+            mission_weights=self._mission_weights,
+            **self._risk_params,
         )
         self.last_shield_result: ShieldResult | None = None
 
