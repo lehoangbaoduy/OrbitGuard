@@ -102,7 +102,7 @@ def _n15_shielded(seed: int):
         active = tuple(agent in actions for agent in env.possible_agents)
         decision_context = (
             list(env._pending_beliefs), list(env._capabilities),
-            list(env._pending_mission_deviations), list(env._pending_predictions),
+            list(env.maneuver_mission_deviations()), list(env._pending_predictions),
         )
         env.step(actions)
         result = env.last_shield_result

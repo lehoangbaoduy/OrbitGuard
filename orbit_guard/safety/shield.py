@@ -319,7 +319,14 @@ class JointActionShield:
         mission_deviations: Sequence[float] | None = None,
         baseline_predictions: Sequence[PredictedState] | None = None,
     ) -> ShieldResult:
-        """Judge the joint `proposals` (one intent per satellite) and return the approved joint action."""
+        """Judge the joint `proposals` (one intent per satellite) and return the approved joint action.
+
+        `mission_deviations` is each satellite's ALREADY-ACCUMULATED mission deviation from its own past
+        maneuvers (default 0). A candidate burn passes MISSION_LIMIT when that value plus the burn's own
+        predicted deviation at the end of the lookahead stays within `mission_deviation_limit`.
+        ShieldedOrbitGuardEnv passes the noise-free maneuvered-shadow deviation (`safety.maneuver_shadow`),
+        never the noisy belief-vs-shadow value.
+        """
         n = len(beliefs)
         if not all(isinstance(b, AgentBelief) for b in beliefs):
             raise TypeError("JointActionShield works on AgentBelief only -- never ground truth (PRD §14)")
