@@ -18,6 +18,18 @@ off before appending so it can never turn into a corrupt line mid-file. An
 invalid line anywhere else is corruption and raises. When a key is logged more
 than once (a retried episode) the LAST record wins; `retry_failed=True` reruns the
 tasks whose latest record has status 'failed'.
+
+Per-step logging (PRD §40, FR13) is opt-in per task: when `EpisodeTask.step_log_dir` is set (a plain string,
+since tasks are pickled into spawn workers), the runner collects `env.step_records()` after every `env.step()`
+and writes them with `evaluation.step_log` as one gzipped JSON Lines file per episode. The record then carries
+`step_log` (the file's path relative to the PARENT of the step-log directory, so '<dir name>/<file>'; the
+experiment CLI puts the directory next to the episode log) and `step_log_sha256`. A failed episode logs the
+steps that completed and is still recorded as failed. With no directory both fields are None.
+
+Besides the existing summary keys, every record carries the PRD §40 per-episode summary names that the
+EpisodeSummary does not spell the same way: `total_delta_v` (= total_delta_v_mps), `return`
+(= return_per_agent) and `mission_deviation_summary` = {"mean", "max"} of the post-step mission deviations.
+The original keys stay, because the experiment reports and older logs read them.
 """
 
 from __future__ import annotations
@@ -36,6 +48,7 @@ import numpy as np
 from orbit_guard.config import config_digest
 from orbit_guard.evaluation.baselines import build_env_factory, build_policy
 from orbit_guard.evaluation.shifts import condition_env_kwargs
+from orbit_guard.evaluation.step_log import write_step_log
 from orbit_guard.rl.episode_metrics import LABEL_SIMULATION_FAILURE
 
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
@@ -54,6 +67,13 @@ class EpisodeTask:
     overlay_path: str | None = None
     experiment_id: str = "adhoc"
     git_commit: str = "unknown"
+    step_log_dir: str | None = None  # None = no per-step log (the grid and validation passes stay cheap)
+
+    def __post_init__(self) -> None:
+        if self.step_log_dir is not None and not isinstance(self.step_log_dir, str):
+            raise TypeError(f"step_log_dir must be a plain string or None, got {type(self.step_log_dir).__name__}")
+        if self.step_log_dir == "":
+            raise ValueError("step_log_dir must be a directory path or None, not an empty string")
 
     def key(self) -> str:
         return _key(self.experiment_id, self.model, self.training_seed, self.condition, self.scenario_seed)
@@ -81,7 +101,31 @@ def run_episode_task(task: EpisodeTask) -> dict:
         task.model, task.n_agents, config_path=task.config_path, overlay_path=task.overlay_path,
         **{**shift_kwargs, **task.env_kwargs},
     )
-    record: dict[str, Any] = {
+    record = _metadata(task)
+    started = time.perf_counter()
+    env = factory({})
+    step_records: list[dict] = []
+    try:
+        episode_return = _play(env, policy, task.scenario_seed, None if task.step_log_dir is None else step_records)
+        record.update(
+            {"status": "ok", **_summary_fields(env.episode_summary(), episode_return), "error": None}
+        )
+    except Exception as error:  # noqa: BLE001 - a failed episode is data (PRD §36 #9), not a crash
+        record.update(
+            {
+                "status": "failed",
+                **_summary_fields(env.episode_summary(), float("nan")),
+                "failure_labels": [LABEL_SIMULATION_FAILURE],
+                "error": f"{type(error).__name__}: {error}",
+            }
+        )
+    record.update(_write_steps(task, step_records))
+    record["wall_time_s"] = time.perf_counter() - started
+    return record
+
+
+def _metadata(task: EpisodeTask) -> dict[str, Any]:
+    return {
         "experiment_id": task.experiment_id,
         "scenario_id": f"{task.condition}-{task.scenario_seed}",
         "scenario_seed": task.scenario_seed,
@@ -95,37 +139,43 @@ def run_episode_task(task: EpisodeTask) -> dict:
         "n_satellites": task.n_agents,
         "shift_type": task.condition,
     }
-    started = time.perf_counter()
-    env = factory({})
-    try:
-        observations, _ = env.reset(seed=task.scenario_seed)
-        episode_return = 0.0
-        while env.agents:
-            actions = {agent: int(policy(agent, observations[agent])) for agent in env.agents}
-            observations, rewards, _, _, _ = env.step(actions)
-            episode_return += sum(rewards.values()) / max(len(rewards), 1)
-        summary = env.episode_summary()
-        record.update(
-            {"status": "ok", "return_per_agent": episode_return, **_summary_fields(summary), "error": None}
-        )
-    except Exception as error:  # noqa: BLE001 - a failed episode is data (PRD §36 #9), not a crash
-        record.update(
-            {
-                "status": "failed",
-                "return_per_agent": float("nan"),
-                **_summary_fields(env.episode_summary()),
-                "failure_labels": [LABEL_SIMULATION_FAILURE],
-                "error": f"{type(error).__name__}: {error}",
-            }
-        )
-    record["wall_time_s"] = time.perf_counter() - started
-    return record
 
 
-def _summary_fields(summary) -> dict:
+def _play(env, policy, scenario_seed: int, step_sink: list[dict] | None) -> float:
+    """Run the episode to the end; append each completed step's §40 records to `step_sink` if given."""
+    observations, _ = env.reset(seed=scenario_seed)
+    episode_return = 0.0
+    while env.agents:
+        actions = {agent: int(policy(agent, observations[agent])) for agent in env.agents}
+        observations, rewards, _, _, _ = env.step(actions)
+        if step_sink is not None:
+            step_sink.extend(env.step_records())
+        episode_return += sum(rewards.values()) / max(len(rewards), 1)
+    return episode_return
+
+
+def _write_steps(task: EpisodeTask, step_records: list[dict]) -> dict[str, str | None]:
+    """Write the episode's step log (if enabled); an I/O error here propagates, it is not episode data."""
+    if task.step_log_dir is None:
+        return {"step_log": None, "step_log_sha256": None}
+    directory = Path(task.step_log_dir).resolve()
+    written = write_step_log(directory, task.key(), step_records)
+    return {"step_log": f"{directory.name}/{written.relative_path}", "step_log_sha256": written.sha256}
+
+
+def _summary_fields(summary, episode_return: float) -> dict:
+    """The EpisodeSummary fields plus the PRD §40 per-episode summary names (aliases, nothing renamed)."""
     fields = dict(summary.__dict__)
     fields["failure_labels"] = list(fields["failure_labels"])
-    return fields
+    return {
+        "return_per_agent": episode_return,
+        **fields,
+        "total_delta_v": fields["total_delta_v_mps"],
+        "mission_deviation_summary": {
+            "mean": fields["mean_mission_deviation"], "max": fields["max_mission_deviation"],
+        },
+        "return": episode_return,
+    }
 
 
 @dataclass(frozen=True)

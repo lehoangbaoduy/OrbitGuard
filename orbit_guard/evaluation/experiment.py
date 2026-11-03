@@ -17,7 +17,9 @@
 CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
 `--overlay` (default configs/default.yaml, no overlay). `run --split validation --conditions ...` runs the
 validation seeds under any of the five shift conditions (or `all`), reusing the same seeds for each; the test
-split always runs the frozen pool's five conditions and refuses a pool that lacks one.
+split always runs the frozen pool's five conditions and refuses a pool that lacks one. `run --step-logs` /
+`--no-step-logs` writes the PRD §40 per-control-step log of every episode to <out dir>/steps (`step_log_dir_for`);
+the default is on for the test split and off for validation, which stays cheap.
 """
 
 from __future__ import annotations
@@ -104,6 +106,7 @@ def build_tasks(
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
     env_kwargs: Mapping | None = None,
+    step_log_dir: str | None = None,
 ) -> list[EpisodeTask]:
     """Every (model, training seed, condition, scenario seed) task; learned checkpoints must match the config."""
     tasks: list[EpisodeTask] = []
@@ -122,7 +125,7 @@ def build_tasks(
                         model=model, condition=condition, scenario_seed=seed, n_agents=n_agents,
                         training_seed=training_seed, actor_weights_path=weights,
                         env_kwargs=dict(env_kwargs or {}), config_path=str(config_path), overlay_path=overlay,
-                        experiment_id=experiment_id, git_commit=git_commit,
+                        experiment_id=experiment_id, git_commit=git_commit, step_log_dir=step_log_dir,
                     )
                     for seed in seeds
                 )
@@ -130,6 +133,18 @@ def build_tasks(
 
 
 ALL_CONDITIONS = "all"
+STEP_LOG_DIRNAME = "steps"
+
+
+def step_log_dir_for(split: str, episode_log_path: str | Path, enabled: bool | None) -> str | None:
+    """Where `run` writes per-step logs: <episode log dir>/steps, by default only for the test split.
+
+    `enabled` is the --step-logs/--no-step-logs flag (None = not given). Returned as a plain string because
+    tasks travel to spawn workers.
+    """
+    if not (split == "test" if enabled is None else enabled):
+        return None
+    return str(Path(episode_log_path).parent / STEP_LOG_DIRNAME)
 
 
 def validation_condition_seeds(seeds: Sequence[int], conditions: Sequence[str]) -> dict[str, tuple[int, ...]]:
@@ -454,6 +469,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--freeze-snapshot", default=None, help="required for --split test")
     run.add_argument(
+        "--step-logs", action=argparse.BooleanOptionalAction, default=None,
+        help="write each episode's PRD §40 per-step log to <out dir>/steps (default: on for test, off for validation)",
+    )
+    run.add_argument(
         "--retry-failed", action="store_true", help="rerun episodes whose latest logged record has status 'failed'"
     )
 
@@ -542,6 +561,7 @@ def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
     tasks = build_tasks(
         args.models, condition_seeds, registry, n_agents=args.n_agents, experiment_id=args.experiment_id,
         git_commit=_git_commit(), config_path=args.config, overlay_path=args.overlay,
+        step_log_dir=step_log_dir_for(args.split, args.out, args.step_logs),
     )
     print(f"{len(tasks)} episodes ({args.workers} workers)", flush=True)
     run_tasks(tasks, args.out, workers=args.workers, retry_failed=args.retry_failed)
