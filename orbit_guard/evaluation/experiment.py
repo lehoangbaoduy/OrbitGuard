@@ -6,7 +6,13 @@
                         secondary endpoints, pooled across training seeds, with degradation vs `normal`.
   * `paired_by_scenario` paired difference between two models on matched scenario seeds.
   * `format_report`     the markdown table.
-CLI subcommands (see `main`): `freeze`, `run`, `report`.
+  * `check_checkpoint_provenance`  a checkpoint trained under one configuration is never evaluated under
+                        another: the run_config.json sidecar that rl/training.py writes next to
+                        actor_weights.npz records `config.config_digest(config, overlay)`, and a mismatch
+                        with the digest the experiment is about to use raises `CheckpointProvenanceError`.
+                        A model trained with a tuned overlay must therefore be evaluated with that overlay.
+CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
+`--overlay` (default configs/default.yaml, no overlay).
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
+from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
 from orbit_guard.evaluation.baselines import MODEL_NAMES, _model_spec
 from orbit_guard.evaluation.runner import EpisodeTask, read_records, run_tasks
 from orbit_guard.evaluation.statistics import (
@@ -30,7 +37,54 @@ from orbit_guard.evaluation.statistics import (
     pooled_by_training_seed,
 )
 
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
+_DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
+_DEFAULT_VALIDATION_POOL = REPO_ROOT / "configs" / "validation_seeds.json"
+_DEFAULT_TEST_POOL = REPO_ROOT / "configs" / "test_seeds.json"
+# rl/training.py writes this sidecar next to actor_weights.npz; the name is repeated here (and pinned equal by a
+# test) because importing rl.training pulls in Ray, which evaluation workers deliberately never need.
+RUN_CONFIG_FILENAME = "run_config.json"
+
+
+class CheckpointProvenanceError(ValueError):
+    """A checkpoint's training configuration differs from the configuration it is about to be evaluated with."""
+
+
+def check_checkpoint_provenance(
+    weights_path: str | Path, *, config_path: str | Path = _DEFAULT_CONFIG, overlay_path: str | Path | None = None
+) -> None:
+    """Refuse `weights_path` if its run_config.json sidecar records a different config_digest.
+
+    Digests, not paths, are compared: an overlay copied elsewhere with identical bytes is the same
+    configuration. A checkpoint with no sidecar (exported before sidecars existed) is accepted.
+    """
+    sidecar = Path(weights_path).parent / RUN_CONFIG_FILENAME
+    if not sidecar.exists():
+        return
+    try:
+        recorded = json.loads(sidecar.read_text())
+        trained_digest = recorded["config_digest"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise CheckpointProvenanceError(f"{sidecar} is unreadable or has no config_digest ({error!r})") from error
+    expected = config_digest(config_path, overlay_path)
+    if trained_digest != expected:
+        raise CheckpointProvenanceError(
+            f"checkpoint {weights_path} was trained under config_digest {trained_digest} "
+            f"(config {recorded.get('config_path')!r}, overlay {recorded.get('overlay_path')!r}) but would be "
+            f"evaluated under {expected} (config {str(config_path)!r}, overlay "
+            f"{None if overlay_path is None else str(overlay_path)!r}); pass the overlay it was trained with"
+        )
+
+
+def check_registry_provenance(
+    registry: Mapping[str, Mapping[int, str]],
+    *,
+    config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
+) -> None:
+    """`check_checkpoint_provenance` for every registered checkpoint."""
+    for seeds in registry.values():
+        for weights in seeds.values():
+            check_checkpoint_provenance(weights, config_path=config_path, overlay_path=overlay_path)
 
 
 def build_tasks(
@@ -42,13 +96,18 @@ def build_tasks(
     experiment_id: str,
     git_commit: str = "unknown",
     config_path: str | Path = _DEFAULT_CONFIG,
+    overlay_path: str | Path | None = None,
     env_kwargs: Mapping | None = None,
 ) -> list[EpisodeTask]:
+    """Every (model, training seed, condition, scenario seed) task; learned checkpoints must match the config."""
     tasks: list[EpisodeTask] = []
+    overlay = None if overlay_path is None else str(overlay_path)
     for model in models:
         learned = _model_spec(model, config_path)["policy"] == "mappo"
         if learned and not registry.get(model):
             raise ValueError(f"{model} is learned: register its trained checkpoints (training seed -> actor weights)")
+        if learned:
+            check_registry_provenance({model: registry[model]}, config_path=config_path, overlay_path=overlay_path)
         variants = sorted(registry[model].items()) if learned else [(None, None)]
         for training_seed, weights in variants:
             for condition, seeds in condition_seeds.items():
@@ -56,7 +115,7 @@ def build_tasks(
                     EpisodeTask(
                         model=model, condition=condition, scenario_seed=seed, n_agents=n_agents,
                         training_seed=training_seed, actor_weights_path=weights,
-                        env_kwargs=dict(env_kwargs or {}), config_path=str(config_path),
+                        env_kwargs=dict(env_kwargs or {}), config_path=str(config_path), overlay_path=overlay,
                         experiment_id=experiment_id, git_commit=git_commit,
                     )
                     for seed in seeds
@@ -178,8 +237,7 @@ def format_report(records: Sequence[Mapping]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> None:
-    """CLI: `run` a sweep from a registry of exported actors, then `report` on the episode log."""
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=main.__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -193,7 +251,8 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--experiment-id", default="exp")
     run.add_argument("--max-seeds", type=int, default=None, help="validation split: use only this many seeds")
     run.add_argument("--freeze-snapshot", default=None, help="required for --split test")
-    run.add_argument("--test-pool", default="configs/test_seeds.json")
+    run.add_argument("--test-pool", default=str(_DEFAULT_TEST_POOL))
+    run.add_argument("--validation-pool", default=str(_DEFAULT_VALIDATION_POOL))
 
     report = sub.add_parser("report", help="markdown table from an episode log")
     report.add_argument("--episodes", required=True)
@@ -206,51 +265,80 @@ def main(argv: list[str] | None = None) -> None:
     freeze.add_argument("--registry", required=True)
     freeze.add_argument("--out", required=True)
 
-    args = parser.parse_args(argv)
-    if args.command == "report":
-        print(format_report(read_records(args.episodes)))
-        return
+    for command in (run, registry_cmd, freeze):
+        command.add_argument("--config", default=str(_DEFAULT_CONFIG), help="base config (default: configs/default.yaml)")
+        command.add_argument("--overlay", default=None, help="tuned overlay the checkpoints were trained with")
+    return parser
 
-    if args.command == "registry":
-        built = build_registry(args.runs_dir)
-        Path(args.out).write_text(json.dumps({m: {str(k): v for k, v in seeds.items()} for m, seeds in built.items()}, indent=2))
-        print({model: sorted(seeds) for model, seeds in built.items()})
-        return
 
-    registry_raw = json.loads(Path(args.registry).read_text())
-    registry = {model: {int(seed): path for seed, path in seeds.items()} for model, seeds in registry_raw.items()}
-    flat = {f"{model}/{seed}": path for model, seeds in registry.items() for seed, path in seeds.items()}
+def _read_registry(path: str | Path) -> dict[str, dict[int, str]]:
+    raw = json.loads(Path(path).read_text())
+    return {model: {int(seed): weights for seed, weights in seeds.items()} for model, seeds in raw.items()}
 
-    if args.command == "freeze":
-        from orbit_guard.evaluation.freeze import write_freeze_snapshot
 
-        print(json.dumps(write_freeze_snapshot(args.out, flat), indent=2))
-        return
+def _flat_checkpoints(registry: Mapping[str, Mapping[int, str]]) -> dict[str, str]:
+    return {f"{model}/{seed}": path for model, seeds in registry.items() for seed, path in seeds.items()}
 
+
+def _registry_command(args: argparse.Namespace) -> None:
+    built = build_registry(args.runs_dir)
+    check_registry_provenance(built, config_path=args.config, overlay_path=args.overlay)
+    serialized = {model: {str(seed): path for seed, path in seeds.items()} for model, seeds in built.items()}
+    Path(args.out).write_text(json.dumps(serialized, indent=2))
+    print({model: sorted(seeds) for model, seeds in built.items()})
+
+
+def _freeze_command(args: argparse.Namespace) -> None:
+    from orbit_guard.evaluation.freeze import write_freeze_snapshot
+
+    registry = _read_registry(args.registry)
+    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
+    print(json.dumps(write_freeze_snapshot(args.out, _flat_checkpoints(registry), config_path=args.config), indent=2))
+
+
+def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     from orbit_guard.evaluation.freeze import _git_commit
     from orbit_guard.evaluation.shifts import CONDITION_NAMES
 
+    registry = _read_registry(args.registry)
+    # Before any seed pool is read: a mismatched checkpoint must not even open the final-test pool.
+    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
     if args.split == "validation":
         from orbit_guard.evaluation.seed_pools import load_seed_pool
 
-        seeds = load_seed_pool("configs/validation_seeds.json", "validation")[: args.max_seeds]
+        seeds = load_seed_pool(args.validation_pool, "validation")[: args.max_seeds]
         condition_seeds = {"normal": seeds}
     else:
         if args.freeze_snapshot is None:
             parser.error("--split test requires --freeze-snapshot (freeze configs and checkpoints first)")
         from orbit_guard.evaluation.test_seed_pool import load_test_pool
 
-        condition_seeds = load_test_pool(args.test_pool, args.freeze_snapshot, flat)
+        condition_seeds = load_test_pool(args.test_pool, args.freeze_snapshot, _flat_checkpoints(registry), args.config)
         assert tuple(condition_seeds) == CONDITION_NAMES
 
     tasks = build_tasks(
-        args.models, condition_seeds, registry, n_agents=args.n_agents,
-        experiment_id=args.experiment_id, git_commit=_git_commit(),
+        args.models, condition_seeds, registry, n_agents=args.n_agents, experiment_id=args.experiment_id,
+        git_commit=_git_commit(), config_path=args.config, overlay_path=args.overlay,
     )
     print(f"{len(tasks)} episodes ({args.workers} workers)", flush=True)
     run_tasks(tasks, args.out, workers=args.workers)
     print(format_report(read_records(args.out)))
 
 
+def main(argv: list[str] | None = None) -> None:
+    """CLI: `registry` of exported actors, `run` a sweep, `freeze` before the final test, `report` on the log."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "report":
+        print(format_report(read_records(args.episodes)))
+    elif args.command == "registry":
+        _registry_command(args)
+    elif args.command == "freeze":
+        _freeze_command(args)
+    else:
+        _run_command(args, parser)
+
+
 if __name__ == "__main__":
     main()
+

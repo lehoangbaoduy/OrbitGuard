@@ -1,7 +1,10 @@
 """Episode runner for the experiment matrix (PRD §33-35, §40).
 
 One `EpisodeTask` = one (model, shift condition, scenario seed, training seed)
-episode. `run_episode_task` is a module-level pure function of the task, so it
+episode. The task names the base config and the optional tuned overlay (CORE-1); the record's
+`config_hash` is `config.config_digest(config_path, overlay_path)`, the same digest training writes to
+run_config.json, so an episode can be traced to the exact configuration it ran under.
+`run_episode_task` is a module-level pure function of the task, so it
 pickles into worker processes and is reproducible: the same task gives the same
 record up to the timing fields (Acceptance Test F). Learned policies run from
 exported NumPy actor weights (`rl.actor_policy`), so workers need neither Ray
@@ -14,7 +17,6 @@ skipped, so a long sweep survives interruption.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from typing import Any
 
 import numpy as np
 
+from orbit_guard.config import config_digest
 from orbit_guard.evaluation.baselines import build_env_factory, build_policy
 from orbit_guard.evaluation.shifts import condition_env_kwargs
 from orbit_guard.rl.episode_metrics import LABEL_SIMULATION_FAILURE
@@ -42,6 +45,7 @@ class EpisodeTask:
     actor_weights_path: str | None = None
     env_kwargs: dict[str, Any] = field(default_factory=dict)
     config_path: str = str(_DEFAULT_CONFIG)
+    overlay_path: str | None = None
     experiment_id: str = "adhoc"
     git_commit: str = "unknown"
 
@@ -49,16 +53,15 @@ class EpisodeTask:
         return f"{self.experiment_id}|{self.model}|{self.training_seed}|{self.condition}|{self.scenario_seed}"
 
 
-def config_hash(config_path: str | Path = _DEFAULT_CONFIG) -> str:
-    return hashlib.sha256(Path(config_path).read_bytes()).hexdigest()
-
-
 def run_episode_task(task: EpisodeTask) -> dict:
     """Run one episode and return its flat, JSON-serializable record (PRD §40 metadata + summary)."""
-    policy = build_policy(task.model, task.actor_weights_path, config_path=task.config_path)
+    policy = build_policy(
+        task.model, task.actor_weights_path, config_path=task.config_path, overlay_path=task.overlay_path
+    )
     shift_kwargs = condition_env_kwargs(task.condition, task.config_path)
     factory = build_env_factory(
-        task.model, task.n_agents, config_path=task.config_path, **{**shift_kwargs, **task.env_kwargs}
+        task.model, task.n_agents, config_path=task.config_path, overlay_path=task.overlay_path,
+        **{**shift_kwargs, **task.env_kwargs},
     )
     record: dict[str, Any] = {
         "experiment_id": task.experiment_id,
@@ -67,7 +70,9 @@ def run_episode_task(task: EpisodeTask) -> dict:
         "training_seed": task.training_seed,
         "model_name": task.model,
         "git_commit": task.git_commit,
-        "config_hash": config_hash(task.config_path),
+        "config_hash": config_digest(task.config_path, task.overlay_path),
+        "config_path": task.config_path,
+        "overlay_path": task.overlay_path,
         "start_time": datetime.now(UTC).isoformat(),
         "n_satellites": task.n_agents,
         "shift_type": task.condition,
