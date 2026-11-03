@@ -34,10 +34,15 @@ cd "$(dirname "$0")/.."
 all_runs=()
 for seed in 0 1 2; do for variant in adaptive fixed noshield; do all_runs+=("$RUNS/n15_${variant}_s${seed}"); done; done
 # One line "done|todo|foreign <run dir>" per run; non-zero exit if any finished run is not this config's.
-if ! statuses=$(uv run python -m orbit_guard.rl.run_provenance "${all_runs[@]}" --overlay "$OVERLAY"); then
+statuses=$(uv run python -m orbit_guard.rl.run_provenance "${all_runs[@]}" --overlay "$OVERLAY")
+status_rc=$?
+if [ "$status_rc" -eq 3 ]; then  # run_provenance.FOREIGN_EXIT_CODE
   echo "!! refusing to reuse or overwrite finished runs in $RUNS that were not trained under configs/default.yaml" \
     "+ overlay '${OVERLAY:-none}' (reasons above). Use a fresh RUNS dir, e.g. RUNS=${RUNS}_new"
   echo "$statuses" | grep '^foreign ' || true
+  exit 2
+elif [ "$status_rc" -ne 0 ]; then
+  echo "!! the run-dir status helper failed (exit $status_rc; is OVERLAY='${OVERLAY}' readable?); nothing was trained"
   exit 2
 fi
 

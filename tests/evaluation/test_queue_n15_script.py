@@ -131,6 +131,17 @@ def test_a_foreign_finished_run_is_neither_reused_nor_overwritten(tmp_path, side
     assert "fresh RUNS" in output and "n15_noshield_s2" in output
 
 
+def test_a_failing_status_helper_is_not_reported_as_foreign_runs(tmp_path):
+    runs = tmp_path / "runs"
+    _finished(runs, "n15_adaptive_s0", _digest())
+
+    completed, calls = run_queue(tmp_path, runs, OVERLAY=str(tmp_path / "missing.yaml"))
+
+    output = completed.stdout + completed.stderr
+    assert completed.returncode != 0 and not calls
+    assert "status helper failed" in output and "fresh RUNS" not in output
+
+
 def test_a_partial_run_without_weights_is_cleared_and_retrained(tmp_path):
     runs = tmp_path / "runs"
     partial = runs / "n15_adaptive_s1"
