@@ -26,11 +26,17 @@ per episode, the mean over satellites with a non-zero initial budget of
 used / initial, then averaged over episodes (NaN when no satellite had a budget).
 `unsafe_episodes` counts episodes whose `episode_summary().unsafe_conjunction_count`
 is positive (PRD §36 #2), the extra term of the pre-registered R3 grid score.
+
+An episode that raises is logged to stderr with its seed and counted in
+`failed_episodes`; `episodes` stays the number ATTEMPTED and every other field
+(counts, rates, means) covers only the `ok_episodes` that finished. With no
+failure the report is exactly what it was before failures were tracked.
 """
 
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -64,6 +70,12 @@ class EvaluationReport:
     unsafe_episodes: int  # episodes with at least one unsafe (non-colliding, inside-margin) conjunction
     shield_intervention_rate: float = 0.0  # intervened agent-steps / agent-steps (0 without a shield)
     shield_infeasible_step_rate: float = 0.0  # steps whose approved joint action still had a violation
+    failed_episodes: int = 0  # attempted episodes that raised; every other field covers only the finished ones
+
+    @property
+    def ok_episodes(self) -> int:
+        """Episodes that finished: the denominator of every per-episode rate (`episodes` counts attempts)."""
+        return self.episodes - self.failed_episodes
 
 
 def no_maneuver_policy(agent: str, observation: dict[str, np.ndarray]) -> int:
@@ -107,6 +119,94 @@ def _episode_budget_fraction(env) -> float | None:
     return float(np.mean(fractions)) if fractions else None
 
 
+# Per-episode integer counters, summed over finished episodes (field names of _EpisodeOutcome).
+_COUNTERS = (
+    "steps", "threat_steps", "threat_maneuvers", "calm_steps", "calm_maneuvers",
+    "shield_steps", "shield_infeasible_steps", "shield_agent_steps", "shield_interventions",
+)
+
+
+@dataclass(frozen=True)
+class _EpisodeOutcome:
+    """Everything one finished episode contributes to an EvaluationReport (merged only if it finished)."""
+
+    episode_return: float
+    steps: int
+    collided: bool
+    unsafe: bool
+    delta_v_used: float
+    budget_fraction: float | None
+    threat_steps: int
+    threat_maneuvers: int
+    calm_steps: int
+    calm_maneuvers: int
+    shield_steps: int
+    shield_infeasible_steps: int
+    shield_agent_steps: int
+    shield_interventions: int
+
+
+def _run_episode(policy: Policy, env, episode_seed: int) -> _EpisodeOutcome:
+    """Roll one episode; raises whatever the env or the policy raises (the caller decides what a failure means)."""
+    observations, _ = env.reset(seed=episode_seed)
+    counts = dict.fromkeys(_COUNTERS, 0)
+    episode_return, collided = 0.0, False
+    while env.agents:
+        actions = {agent: policy(agent, observations[agent]) for agent in env.agents}
+        for agent, action in actions.items():
+            maneuvered = int(action != ManeuverIntent.NO_MANEUVER)
+            side = "threat" if observations[agent]["global_summary"][_MAX_RISK_INDEX] > THREATENING_RISK_THRESHOLD else "calm"
+            counts[f"{side}_steps"] += 1
+            counts[f"{side}_maneuvers"] += maneuvered
+        observations, rewards, terminations, _, infos = env.step(actions)
+        decisions = [info["shield"] for info in infos.values() if "shield" in info]
+        if decisions:
+            counts["shield_steps"] += 1
+            counts["shield_infeasible_steps"] += not decisions[0]["feasible"]
+            counts["shield_agent_steps"] += len(decisions)
+            counts["shield_interventions"] += sum(bool(d["intervened"]) for d in decisions)
+        episode_return += sum(rewards.values()) / max(len(rewards), 1)
+        counts["steps"] += 1
+        collided |= any(terminations.values())
+    used = getattr(env, "delta_v_used_mps", None)
+    summary = getattr(env, "episode_summary", None)
+    return _EpisodeOutcome(
+        episode_return=episode_return,
+        collided=collided,
+        unsafe=bool(summary and summary().unsafe_conjunction_count > 0),
+        delta_v_used=float(np.mean(list(used().values()))) if used else math.nan,
+        budget_fraction=_episode_budget_fraction(env),
+        **counts,
+    )
+
+
+def _mean(values: Sequence[float]) -> float:
+    return float(np.mean(values)) if values else math.nan
+
+
+def _report(outcomes: Sequence[_EpisodeOutcome], episodes: int) -> EvaluationReport:
+    """Aggregate the FINISHED episodes; `episodes` is the attempted count, the difference is `failed_episodes`."""
+    total = {name: sum(getattr(outcome, name) for outcome in outcomes) for name in _COUNTERS}
+    fractions = [o.budget_fraction for o in outcomes if o.budget_fraction is not None]
+    agent_steps = total["threat_steps"] + total["calm_steps"]
+    return EvaluationReport(
+        episodes=episodes,
+        mean_return_per_agent=_mean([o.episode_return for o in outcomes]),
+        collision_episodes=sum(o.collided for o in outcomes),
+        maneuver_rate=_rate(total["threat_maneuvers"] + total["calm_maneuvers"], agent_steps),
+        threat_maneuver_rate=_rate(total["threat_maneuvers"], total["threat_steps"]),
+        calm_maneuver_rate=_rate(total["calm_maneuvers"], total["calm_steps"]),
+        threat_step_fraction=_rate(total["threat_steps"], agent_steps),
+        mean_delta_v_used_mps=_mean([o.delta_v_used for o in outcomes]),
+        mean_episode_steps=_mean([o.steps for o in outcomes]),
+        mean_budget_fraction_used=_mean(fractions),
+        unsafe_episodes=sum(o.unsafe for o in outcomes),
+        shield_intervention_rate=_rate(total["shield_interventions"], total["shield_agent_steps"]),
+        shield_infeasible_step_rate=_rate(total["shield_infeasible_steps"], total["shield_steps"]),
+        failed_episodes=episodes - len(outcomes),
+    )
+
+
 def evaluate_policy(
     policy: Policy,
     env_factory: EnvFactory,
@@ -115,7 +215,11 @@ def evaluate_policy(
     *,
     seeds: Sequence[int] | None = None,
 ) -> EvaluationReport:
-    """Roll `policy` through `num_episodes` episodes on seeds `seed .. seed+num_episodes-1`, or on `seeds` if given."""
+    """Roll `policy` through `num_episodes` episodes on seeds `seed .. seed+num_episodes-1`, or on `seeds` if given.
+
+    An episode that raises (any Exception, from the env or the policy) is logged to stderr with its seed, counted
+    in `failed_episodes` and left out of every count, rate and mean; the env is rebuilt before the next episode.
+    """
     if seeds is not None:
         num_episodes = len(seeds)
     if num_episodes < 1:
@@ -123,59 +227,17 @@ def evaluate_policy(
     episode_seeds = tuple(seeds) if seeds is not None else tuple(seed + episode for episode in range(num_episodes))
 
     env = env_factory({})
-    returns, steps, delta_v_used, budget_fractions = [], [], [], []
-    collision_episodes = unsafe_episodes = 0
-    threat_steps = threat_maneuvers = calm_steps = calm_maneuvers = 0
-    shield_agent_steps = shield_interventions = shield_steps = shield_infeasible_steps = 0
-
-    for episode in range(num_episodes):
-        observations, _ = env.reset(seed=episode_seeds[episode])
-        episode_return, episode_steps, collided = 0.0, 0, False
-        while env.agents:
-            actions = {agent: policy(agent, observations[agent]) for agent in env.agents}
-            for agent, action in actions.items():
-                maneuvered = action != ManeuverIntent.NO_MANEUVER
-                if observations[agent]["global_summary"][_MAX_RISK_INDEX] > THREATENING_RISK_THRESHOLD:
-                    threat_steps, threat_maneuvers = threat_steps + 1, threat_maneuvers + maneuvered
-                else:
-                    calm_steps, calm_maneuvers = calm_steps + 1, calm_maneuvers + maneuvered
-            observations, rewards, terminations, _, infos = env.step(actions)
-            decisions = [info["shield"] for info in infos.values() if "shield" in info]
-            if decisions:
-                shield_steps += 1
-                shield_infeasible_steps += not decisions[0]["feasible"]
-                shield_agent_steps += len(decisions)
-                shield_interventions += sum(bool(d["intervened"]) for d in decisions)
-            episode_return += sum(rewards.values()) / max(len(rewards), 1)
-            episode_steps += 1
-            collided |= any(terminations.values())
-        returns.append(episode_return)
-        steps.append(episode_steps)
-        collision_episodes += collided
-        used = getattr(env, "delta_v_used_mps", None)
-        delta_v_used.append(float(np.mean(list(used().values()))) if used else math.nan)
-        fraction = _episode_budget_fraction(env)
-        if fraction is not None:
-            budget_fractions.append(fraction)
-        summary = getattr(env, "episode_summary", None)
-        unsafe_episodes += bool(summary and summary().unsafe_conjunction_count > 0)
-
-    total_steps = threat_steps + calm_steps
-    return EvaluationReport(
-        episodes=num_episodes,
-        mean_return_per_agent=float(np.mean(returns)),
-        collision_episodes=collision_episodes,
-        maneuver_rate=_rate(threat_maneuvers + calm_maneuvers, total_steps),
-        threat_maneuver_rate=_rate(threat_maneuvers, threat_steps),
-        calm_maneuver_rate=_rate(calm_maneuvers, calm_steps),
-        threat_step_fraction=_rate(threat_steps, total_steps),
-        mean_delta_v_used_mps=float(np.mean(delta_v_used)),
-        mean_episode_steps=float(np.mean(steps)),
-        mean_budget_fraction_used=float(np.mean(budget_fractions)) if budget_fractions else math.nan,
-        unsafe_episodes=unsafe_episodes,
-        shield_intervention_rate=_rate(shield_interventions, shield_agent_steps),
-        shield_infeasible_step_rate=_rate(shield_infeasible_steps, shield_steps),
-    )
+    outcomes = []
+    for episode_seed in episode_seeds:
+        try:
+            outcomes.append(_run_episode(policy, env, episode_seed))
+        except Exception as error:  # noqa: BLE001 - one bad episode must not abort the evaluation (counted, logged)
+            print(
+                f"[evaluate_policy] episode seed {episode_seed} failed: {type(error).__name__}: {error}",
+                file=sys.stderr, flush=True,
+            )
+            env = env_factory({})  # never reuse an env left mid-step
+    return _report(outcomes, num_episodes)
 
 
 def evaluate(
@@ -198,6 +260,19 @@ class GateVerdict:
     checks: dict[str, bool]
 
 
+def _no_less_safe(trained: EvaluationReport, baseline: EvaluationReport) -> bool:
+    """C1. Without failed episodes: collision-episode COUNTS (the original, frozen rule, bit-identical).
+
+    With failed episodes on either side: collision-episode RATES over the finished episodes, so crashing on seeds
+    cannot make a policy look safer; a side that finished no episode cannot be judged and fails C1.
+    """
+    if trained.failed_episodes == 0 and baseline.failed_episodes == 0:
+        return trained.collision_episodes <= baseline.collision_episodes
+    if trained.ok_episodes < 1 or baseline.ok_episodes < 1:
+        return False
+    return trained.collision_episodes / trained.ok_episodes <= baseline.collision_episodes / baseline.ok_episodes
+
+
 def gate_verdict(
     trained: EvaluationReport,
     baseline: EvaluationReport,
@@ -208,7 +283,7 @@ def gate_verdict(
     C2 reads the per-satellite budget fraction, so it needs no budget argument (a NaN fraction fails it).
     """
     checks = {
-        "C1_safety": trained.collision_episodes <= baseline.collision_episodes,
+        "C1_safety": _no_less_safe(trained, baseline),
         "C2_efficiency": trained.mean_budget_fraction_used <= criteria.max_delta_v_fraction,
         "C3_return": trained.mean_return_per_agent >= baseline.mean_return_per_agent,
         "C4_conditioning": (
