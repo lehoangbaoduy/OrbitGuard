@@ -21,8 +21,13 @@ from orbit_guard.evaluation.freeze import (
     verify_freeze,
     write_freeze_snapshot,
 )
+from orbit_guard.evaluation.registry_checks import IncompleteRegistryError
 from orbit_guard.evaluation.test_seed_pool import load_test_pool
-from tests.evaluation.freeze_world import build_world, training_sidecar
+from tests.evaluation.freeze_world import (
+    build_world,
+    training_sidecar,
+    write_checkpoint,
+)
 from tests.evaluation.git_repo_fixture import commit_all, git, make_repo
 from tests.evaluation.sidecar_fixtures import sidecar_record
 
@@ -372,22 +377,53 @@ def _registry(world: dict) -> Path:
     return path
 
 
-def test_the_freeze_command_records_the_overlay(world):
-    # The command's provenance check rebuilds the evaluation margin and reward weights, so it needs a real config
-    # and the sidecar a training run under it would write (tests/evaluation/sidecar_fixtures.py).
+def _learned_registry(world: dict) -> Path:
+    """Seed 0 of each of the three learned models (seeds 1 and 2 missing), each with its training sidecar.
+
+    The command's provenance check rebuilds the evaluation margin and reward weights, so it needs a real config
+    and the sidecar a training run under it would write (tests/evaluation/sidecar_fixtures.py).
+    """
     world["config"].write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
-    (world["run"] / "run_config.json").write_text(
-        json.dumps({**sidecar_record(world["overlay"], config_path=world["config"]), **training_sidecar(world["repo"])})
-    )
+    registry = {}
+    for model, margin, shield in (
+        ("adaptive_mappo", "adaptive", True), ("fixed_margin_mappo", "fixed", True),
+        ("adaptive_mappo_no_shield", "adaptive", False),
+    ):
+        record = sidecar_record(world["overlay"], config_path=world["config"], margin_kind=margin, shield=shield)
+        sidecar = {**record, **training_sidecar(world["repo"])}
+        registry[model] = {"0": str(write_checkpoint(world["run"].parent / f"{model}_s0", sidecar, model.encode()))}
+    path = world["snapshot"].parent / "registry.json"
+    path.write_text(json.dumps(registry))
+    return path
+
+
+def _freeze_command(world: dict, *extra: str) -> None:
     experiment.main(
         [
-            "freeze", "--registry", str(_registry(world)), "--out", str(world["snapshot"]),
+            "freeze", "--registry", str(_learned_registry(world)), "--out", str(world["snapshot"]),
             "--config", str(world["config"]), "--overlay", str(world["overlay"]),
-            "--test-pool", str(world["test_pool"]), "--validation-pool", str(world["validation_pool"]),
+            "--test-pool", str(world["test_pool"]), "--validation-pool", str(world["validation_pool"]), *extra,
         ]
     )
 
-    assert json.loads(world["snapshot"].read_text())["config_digest"] == config_digest(world["config"], world["overlay"])
+
+def test_the_freeze_command_records_the_overlay_and_an_explicit_partial_freeze(world):
+    _freeze_command(world, "--allow-partial")  # the registry holds seed 0 of each learned model only
+
+    snapshot = json.loads(world["snapshot"].read_text())
+    assert snapshot["config_digest"] == config_digest(world["config"], world["overlay"])
+    assert snapshot["allow_partial"] is True
+
+
+def test_the_freeze_command_refuses_a_registry_missing_training_seeds(world):
+    with pytest.raises(IncompleteRegistryError, match="adaptive_mappo"):
+        _freeze_command(world)
+
+    assert not world["snapshot"].exists()
+
+
+def test_a_freeze_records_that_it_is_not_partial_by_default(world):
+    assert _freeze(world)["allow_partial"] is False
 
 
 def test_the_test_split_refuses_an_overlay_other_than_the_frozen_one(world, monkeypatch):

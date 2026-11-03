@@ -2,6 +2,7 @@
 # Resumable queue of the nine N=15 trainings (adaptive / fixed-margin / no-shield x seeds 0-2).
 # Skips any run that already has actor_weights.npz, so it is safe to re-launch after an
 # interruption or reboot. Logs live on disk under $RUNS/logs (NOT /tmp, which is a RAM tmpfs).
+# A failed run does not stop the queue, but the queue then ends with a summary line and exit status 1.
 #   monitor:  tail -f ~/orbitguard_runs/logs/queue_n15.log
 #   stop:     kill $(cat ~/orbitguard_runs/logs/queue_n15.pid)   # then stop the python training child
 #   then:     scripts/run_experiments.sh
@@ -26,6 +27,7 @@ echo $$ > "$RUNS/logs/queue_n15.pid"
 export RAY_TMPDIR="$RUNS/ray_tmp"
 cd "$(dirname "$0")/.."
 
+failed=()      # "variant seed N" of every run that failed; the queue keeps going, then exits non-zero
 for seed in 0 1 2; do
   for variant in adaptive fixed noshield; do
     run="$RUNS/n15_${variant}_s${seed}"
@@ -40,7 +42,12 @@ for seed in 0 1 2; do
     uv run python -u -m orbit_guard.rl.training --agents 15 --iterations "$ITERATIONS" --num-env-runners 6 \
       --seed "$seed" $flags $TUNED_FLAGS ${overlay_flags[@]+"${overlay_flags[@]}"} --eval-episodes 2 --eval-seed 5000 --checkpoint-dir "$run" \
       > "$RUNS/logs/n15_${variant}_s${seed}.log" 2>&1 \
-      || echo "!! FAILED $variant seed $seed (see logs/n15_${variant}_s${seed}.log)"
+      || { echo "!! FAILED $variant seed $seed (see logs/n15_${variant}_s${seed}.log)"; failed+=("$variant seed $seed"); }
   done
 done
+if [ "${#failed[@]}" -gt 0 ]; then
+  summary=$(printf '%s, ' "${failed[@]}")
+  echo "== N15 QUEUE FAILED $(date +%T): ${#failed[@]} of 9 runs failed (${summary%, }); retrain them before the experiments"
+  exit 1
+fi
 echo "== ALL N15 DONE $(date +%T)"

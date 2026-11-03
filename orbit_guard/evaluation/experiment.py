@@ -17,6 +17,8 @@
                         The sidecar's recorded margin and reward weights must also equal the ones the
                         evaluation environment for that model builds from config + overlay
                         (`trained_values`), so training CLI overrides that bypass the digest are refused.
+`registry` and `freeze` refuse a registry in which a learned model lacks one of its rl.num_training_seeds training
+seeds (`registry_checks`) unless `--allow-partial` is passed; the freeze snapshot records that flag.
 CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
 `--overlay` (default configs/default.yaml, no overlay). `run --split validation --conditions ...` runs the
 validation seeds under any of the five shift conditions (or `all`), reusing the same seeds for each; the test
@@ -43,6 +45,10 @@ from orbit_guard.config import (
     load_config,
 )
 from orbit_guard.evaluation.baselines import MODEL_NAMES, _model_spec, _spec_from_config
+from orbit_guard.evaluation.registry_checks import (
+    ALLOW_PARTIAL_FLAG,
+    check_registry_complete,
+)
 from orbit_guard.evaluation.runner import EpisodeTask, read_records, run_tasks
 from orbit_guard.evaluation.shifts import CONDITION_NAMES
 from orbit_guard.evaluation.statistics import (
@@ -521,6 +527,12 @@ def _build_parser() -> argparse.ArgumentParser:
     freeze.add_argument("--registry", required=True)
     freeze.add_argument("--out", required=True)
 
+    for command in (registry_cmd, freeze):
+        command.add_argument(
+            ALLOW_PARTIAL_FLAG, action="store_true",
+            help="accept learned models missing some of their rl.num_training_seeds seeds (recorded in the freeze)",
+        )
+
     for command in (run, registry_cmd, freeze):
         command.add_argument("--config", default=str(_DEFAULT_CONFIG), help="base config (default: configs/default.yaml)")
         command.add_argument("--overlay", default=None, help="tuned overlay the checkpoints were trained with")
@@ -539,8 +551,14 @@ def _flat_checkpoints(registry: Mapping[str, Mapping[int, str]]) -> dict[str, st
     return {f"{model}/{seed}": path for model, seeds in registry.items() for seed, path in seeds.items()}
 
 
+def _check_complete(registry: Mapping[str, Mapping[int, str]], args: argparse.Namespace) -> None:
+    config = load_config(args.config, args.overlay)
+    check_registry_complete(registry, config, allow_partial=args.allow_partial)
+
+
 def _registry_command(args: argparse.Namespace) -> None:
     built = build_registry(args.runs_dir)
+    _check_complete(built, args)
     check_registry_provenance(built, config_path=args.config, overlay_path=args.overlay)
     serialized = {model: {str(seed): path for seed, path in seeds.items()} for model, seeds in built.items()}
     Path(args.out).write_text(json.dumps(serialized, indent=2))
@@ -551,10 +569,11 @@ def _freeze_command(args: argparse.Namespace) -> None:
     from orbit_guard.evaluation.freeze import write_freeze_snapshot
 
     registry = _read_registry(args.registry)
+    _check_complete(registry, args)
     check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
     snapshot = write_freeze_snapshot(
         args.out, _flat_checkpoints(registry), config_path=args.config, overlay_path=args.overlay,
-        test_pool_path=args.test_pool, validation_pool_path=args.validation_pool,
+        test_pool_path=args.test_pool, validation_pool_path=args.validation_pool, allow_partial=args.allow_partial,
     )
     print(json.dumps(snapshot, indent=2))
 

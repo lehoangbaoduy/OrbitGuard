@@ -231,8 +231,13 @@ def write_freeze_snapshot(
     test_pool_path: str | Path = DEFAULT_TEST_POOL,
     validation_pool_path: str | Path = DEFAULT_VALIDATION_POOL,
     git: GitTree | None = None,
+    allow_partial: bool = False,
 ) -> dict:
-    """Freeze config + overlay, both seed pools, every checkpoint and the commit, once; return the snapshot."""
+    """Freeze config + overlay, both seed pools, every checkpoint and the commit, once; return the snapshot.
+
+    `allow_partial` is recorded, not checked here: the experiment's freeze command checks that every learned model
+    has its training seeds (`registry_checks`) and passes True only for an explicit --allow-partial.
+    """
     snapshot_path = Path(path)
     if snapshot_path.exists():
         raise FrozenConfigError(f"freeze snapshot {snapshot_path} already exists: the freeze is one-way")
@@ -252,6 +257,7 @@ def write_freeze_snapshot(
         "checkpoints": {name: _checkpoint_record(Path(file)) for name, file in sorted(checkpoints.items())},
         "git_commit": git.head(),
         "training_commit": training_commit,
+        "allow_partial": bool(allow_partial),
         "frozen_paths": list(FROZEN_PATHS),
         "frozen_at": datetime.now(UTC).isoformat(),
     }

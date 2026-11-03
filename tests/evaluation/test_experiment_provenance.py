@@ -16,6 +16,7 @@ from orbit_guard.config import DEFAULT_CONFIG_PATH
 from orbit_guard.evaluation import experiment
 from orbit_guard.evaluation.experiment import (
     CheckpointProvenanceError,
+    build_registry,
     build_tasks,
     check_checkpoint_provenance,
 )
@@ -28,7 +29,10 @@ def _overlay(tmp_path: Path, w3: float = 1.5) -> Path:
     return path
 
 
-def _run_dir(tmp_path: Path, name: str, overlay: Path | None, *, sidecar: bool = True) -> Path:
+def _run_dir(
+    tmp_path: Path, name: str, overlay: Path | None, *, sidecar: bool = True, margin_kind: str = "adaptive",
+    shield: bool = True,
+) -> Path:
     run = tmp_path / "runs" / name
     run.mkdir(parents=True)
     (run / "actor_weights.npz").write_bytes(b"weights")
@@ -36,10 +40,21 @@ def _run_dir(tmp_path: Path, name: str, overlay: Path | None, *, sidecar: bool =
         record = {
             "config_path": str(DEFAULT_CONFIG_PATH),
             "overlay_path": None if overlay is None else str(overlay),
-            **sidecar_record(overlay),
+            **sidecar_record(overlay, margin_kind=margin_kind, shield=shield),
         }
         (run / "run_config.json").write_text(json.dumps(record))
     return run
+
+
+_VARIANTS = {"adaptive": ("adaptive", True), "fixed": ("fixed", True), "noshield": ("adaptive", False)}
+
+
+def _all_runs(tmp_path: Path, overlay: Path | None) -> Path:
+    """The nine finished queue runs (three variants x seeds 0-2), all trained under `overlay`; returns the runs dir."""
+    for variant, (margin_kind, shield) in _VARIANTS.items():
+        for seed in (0, 1, 2):
+            _run_dir(tmp_path, f"n15_{variant}_s{seed}", overlay, margin_kind=margin_kind, shield=shield)
+    return tmp_path / "runs"
 
 
 def _registry_file(tmp_path: Path, run: Path) -> Path:
@@ -116,20 +131,20 @@ def test_build_tasks_refuses_a_registry_trained_under_another_config(tmp_path):
 
 
 def test_the_registry_command_refuses_mismatched_checkpoints(tmp_path):
-    _run_dir(tmp_path, "n15_adaptive_s0", _overlay(tmp_path))
+    runs = _all_runs(tmp_path, _overlay(tmp_path))
 
     with pytest.raises(CheckpointProvenanceError):
-        experiment.main(["registry", "--runs-dir", str(tmp_path / "runs"), "--out", str(tmp_path / "reg.json")])
+        experiment.main(["registry", "--runs-dir", str(runs), "--out", str(tmp_path / "reg.json")])
 
 
 def test_the_registry_command_accepts_the_training_overlay(tmp_path):
     overlay = _overlay(tmp_path)
-    _run_dir(tmp_path, "n15_adaptive_s0", overlay)
+    runs = _all_runs(tmp_path, overlay)
     out = tmp_path / "reg.json"
 
-    experiment.main(["registry", "--runs-dir", str(tmp_path / "runs"), "--out", str(out), "--overlay", str(overlay)])
+    experiment.main(["registry", "--runs-dir", str(runs), "--out", str(out), "--overlay", str(overlay)])
 
-    assert set(json.loads(out.read_text())) == {"adaptive_mappo"}
+    assert set(json.loads(out.read_text())) == {"adaptive_mappo", "fixed_margin_mappo", "adaptive_mappo_no_shield"}
 
 
 def test_the_run_command_passes_config_and_overlay_to_every_task(tmp_path, monkeypatch):
@@ -166,7 +181,11 @@ def test_the_run_command_refuses_a_checkpoint_trained_under_another_overlay(tmp_
 
 
 def test_the_freeze_command_refuses_a_checkpoint_trained_under_another_overlay(tmp_path):
-    registry = _registry_file(tmp_path, _run_dir(tmp_path, "n15_adaptive_s0", _overlay(tmp_path)))
+    runs = _all_runs(tmp_path, _overlay(tmp_path))
+    registry = tmp_path / "reg.json"
+    registry.write_text(json.dumps(
+        {model: {str(seed): str(path) for seed, path in seeds.items()} for model, seeds in build_registry(runs).items()}
+    ))
 
     with pytest.raises(CheckpointProvenanceError):
         experiment.main(["freeze", "--registry", str(registry), "--out", str(tmp_path / "frozen.json")])
