@@ -243,6 +243,70 @@ def test_a_checkpoint_that_was_never_frozen_fails_verification(world, tmp_path):
         verify_freeze(world["snapshot"], {**world["checkpoints"], "fixed_margin_mappo/0": extra})
 
 
+def _second_seed(world: dict) -> dict:
+    """A second training seed of the same model, with its own sidecar; returns the two-checkpoint mapping."""
+    run = world["run"].parent / "n15_adaptive_s1"
+    run.mkdir()
+    (run / "actor_weights.npz").write_bytes(b"weights-seed-1")
+    (run / "run_config.json").write_text((world["run"] / "run_config.json").read_text())
+    return {**world["checkpoints"], "adaptive_mappo/1": run / "actor_weights.npz"}
+
+
+def test_dropping_a_frozen_training_seed_fails_verification(world):
+    both = _second_seed(world)
+    write_freeze_snapshot(
+        world["snapshot"], both, world["config"], world["overlay"],
+        test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+    )
+
+    with pytest.raises(FrozenConfigError, match=r"adaptive_mappo/1") as caught:
+        _verify(world)  # only adaptive_mappo/0: seed 1 dropped after seeing results
+
+    assert "not passed" in str(caught.value) or "missing" in str(caught.value)
+
+
+def test_verifying_no_checkpoints_against_a_freeze_that_has_some_fails(world):
+    _freeze(world)
+
+    with pytest.raises(FrozenConfigError, match=r"adaptive_mappo/0"):
+        verify_freeze(
+            world["snapshot"], {}, world["config"], world["overlay"],
+            test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+        )
+
+
+def test_an_added_and_a_dropped_checkpoint_are_both_named(world, tmp_path):
+    both = _second_seed(world)
+    write_freeze_snapshot(
+        world["snapshot"], both, world["config"], world["overlay"],
+        test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+    )
+    extra = tmp_path / "extra.npz"
+    extra.write_bytes(b"w")
+
+    with pytest.raises(FrozenConfigError) as caught:
+        verify_freeze(
+            world["snapshot"], {"adaptive_mappo/0": both["adaptive_mappo/0"], "adaptive_mappo/2": extra},
+            world["config"], world["overlay"],
+            test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+        )
+
+    assert "adaptive_mappo/1" in str(caught.value) and "adaptive_mappo/2" in str(caught.value)
+
+
+def test_the_full_frozen_set_still_verifies(world):
+    both = _second_seed(world)
+    write_freeze_snapshot(
+        world["snapshot"], both, world["config"], world["overlay"],
+        test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+    )
+
+    verify_freeze(
+        world["snapshot"], both, world["config"], world["overlay"],
+        test_pool_path=world["test_pool"], validation_pool_path=world["validation_pool"],
+    )
+
+
 def test_code_committed_after_the_freeze_fails_verification(world, repo):
     _freeze(world)
     (repo / "orbit_guard" / "module.py").write_text("VALUE = 2\n")

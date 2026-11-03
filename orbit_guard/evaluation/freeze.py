@@ -7,7 +7,9 @@ enforced, not promised:
     `git status --porcelain -- orbit_guard configs scripts` is empty (edits under docs/ do not block).
     It records config_digest(config, overlay) (CORE-1), the sha256 of the test and validation pool files,
     every checkpoint's actor_weights sha256 and its run_config.json sha256 (None when absent), and HEAD.
-  * `verify_freeze` re-checks every recorded hash, that those paths are still clean, and that
+  * `verify_freeze` re-checks every recorded hash, that the checkpoints passed are exactly the frozen
+    (model, training seed) set (adding or dropping a training seed after seeing results fails), that
+    those paths are still clean, and that
     `git diff --quiet <frozen commit> -- orbit_guard configs scripts` holds: no code, config or script
     change since the freeze, committed or not. Any failure raises `FrozenConfigError` naming what moved.
   * the final-test loader (`test_seed_pool.load_test_pool`) calls `verify_freeze`, so retraining,
@@ -203,11 +205,23 @@ def _verify_pools(snapshot: dict, overrides: Mapping[str, str | Path | None]) ->
             raise FrozenConfigError(f"the {split} pool file {pool} changed (or is missing) since the freeze")
 
 
+def _verify_checkpoint_set(snapshot: dict, checkpoints: Mapping[str, str | Path]) -> None:
+    """The (model, training seed) checkpoints passed must be exactly the frozen set: none added, none dropped."""
+    frozen, passed = set(snapshot["checkpoints"]), set(checkpoints)
+    if frozen == passed:
+        return
+    problems = []
+    if passed - frozen:
+        problems.append(f"never frozen, so they cannot enter the final test: {sorted(passed - frozen)}")
+    if frozen - passed:
+        problems.append(f"frozen but not passed (missing; a training seed cannot be dropped): {sorted(frozen - passed)}")
+    raise FrozenConfigError(f"the checkpoints differ from the frozen set: {'; '.join(problems)}")
+
+
 def _verify_checkpoints(snapshot: dict, checkpoints: Mapping[str, str | Path]) -> None:
+    _verify_checkpoint_set(snapshot, checkpoints)
     for name, file in checkpoints.items():
-        recorded = snapshot["checkpoints"].get(name)
-        if recorded is None:
-            raise FrozenConfigError(f"checkpoint {name} was never frozen; it cannot enter the final test")
+        recorded = snapshot["checkpoints"][name]
         current = _checkpoint_record(Path(file))
         if current["actor_weights_sha256"] != recorded["actor_weights_sha256"]:
             raise FrozenConfigError(f"checkpoint {name} changed since the freeze snapshot (actor weights {file})")
@@ -238,6 +252,8 @@ def verify_freeze(
     git: GitTree | None = None,
 ) -> dict:
     """Raise `FrozenConfigError` unless the snapshot exists and config, pools, checkpoints and code still match.
+
+    `checkpoints` must name exactly the frozen set ("model/training_seed" -> actor weights), none added or dropped.
 
     `config_path`/`overlay_path` name the configuration about to be evaluated; left out, the files the snapshot
     recorded are re-hashed (the overlay may be passed as None explicitly to mean "no overlay"). Pool paths
