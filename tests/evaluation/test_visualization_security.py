@@ -81,3 +81,28 @@ def test_a_non_finite_recorded_deviation_is_kept_as_no_value():
     summary = {"total_delta_v_mps": 1.0, "maneuver_count": 1, "shield_intervention_count": 1, "collision_count": 0, "mean_mission_deviation": float("nan")}
 
     assert summary_totals(summary, meta).mean_deviation != summary_totals(summary, meta).mean_deviation  # NaN: shown as a dash later
+
+
+def test_install_security_refuses_to_build_an_app_whose_csp_cannot_be_derived(monkeypatch):
+    """Dash changed its index page: no renderer script to hash. Serving without a CSP would be a silent downgrade."""
+    from dash import Dash, html
+
+    from orbit_guard.visualization.security import install_security
+
+    app = Dash(__name__)
+    app.layout = html.Div("replay")
+    monkeypatch.setattr(app, "index", lambda: "<!DOCTYPE html><html><body>no renderer script here</body></html>")
+
+    with pytest.raises(RuntimeError, match="Content-Security-Policy"):
+        install_security(app)
+
+
+def test_create_app_fails_before_serving_when_the_csp_cannot_be_derived(tmp_path, monkeypatch):
+    from dash import Dash
+
+    path = tmp_path / "episode.npz"
+    save_trace(shielded_trace(), path)
+    monkeypatch.setattr(Dash, "index", lambda self, *args, **kwargs: "<html><body>changed upstream</body></html>")
+
+    with pytest.raises(RuntimeError, match="Content-Security-Policy"):
+        create_app(index_from_trace(path))

@@ -188,6 +188,25 @@ def test_a_reference_log_that_is_not_utf8_is_a_reference_log_error(tmp_path):
         reference_note(log, "normal", ("m",))
 
 
+def test_a_reference_log_damaged_after_startup_answers_with_an_alert_not_a_server_error(tmp_path):
+    base = shielded_trace()
+    save_trace(_with_policy(base, "untrained"), tmp_path / "a.npz")
+    save_trace(_with_policy(base, "trained"), tmp_path / "b.npz")
+    log = tmp_path / "eval.jsonl"
+    log.write_text("")  # healthy at startup: the initial payload is built with it
+    index = discover_episodes(tmp_path)
+    app = create_app(index, reference_log=log)
+    log.write_text("this line is not json\n")  # damaged after startup, before the next click
+    meta = index.entries[0].meta
+
+    response = _click(app, index, {"scenario_id": meta.scenario_id, "policy": "untrained", "shield": True}, "trained")
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    out = response.get_json()["response"]
+    assert "Could not load this episode" in out["og-alert"]["children"] and "eval.jsonl:1" in out["og-alert"]["children"]
+    assert "og-selection" not in out and "og-payload" not in out
+
+
 def test_save_trace_leaves_no_partial_file_when_writing_fails(tmp_path, monkeypatch):
     target = tmp_path / "ep.npz"
     monkeypatch.setattr(np, "savez_compressed", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
