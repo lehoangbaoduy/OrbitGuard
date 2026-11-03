@@ -57,7 +57,7 @@ TypeError guards.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -90,6 +90,7 @@ from orbit_guard.physics.mission_deviation import (
 )
 from orbit_guard.physics.state import SatelliteCapability
 from orbit_guard.rl.budget_provenance import BudgetProvenance, budget_provenance
+from orbit_guard.rl.capability_degradation import CapabilityDegradation
 from orbit_guard.rl.conjunction_assessment import build_neighbor_candidates
 from orbit_guard.rl.episode_metrics import (
     EpisodeMetricsTracker,
@@ -139,43 +140,6 @@ class _Unset:
 
 
 _UNSET = _Unset()
-
-
-@dataclass(frozen=True)
-class CapabilityDegradation:
-    """Reduced-capability distribution shift (PRD §32 #4), deterministic given the scenario.
-
-    Victims are chosen in a fixed order -- primaries of the injected conjunctions first, then their
-    secondaries, then the remaining satellites by index -- so the satellites that most need to
-    manoeuvre are the ones that cannot, and every model faces the identical handicap. The first
-    `disabled_count` victims get `maneuver_enabled=False`; the next `reduced_count` keep it but
-    start with `reduced_budget_scale` of the delta-v budget.
-    """
-
-    disabled_count: int = 0
-    reduced_count: int = 0
-    reduced_budget_scale: float = 0.25
-
-    def __post_init__(self):
-        if self.disabled_count < 0 or self.reduced_count < 0:
-            raise ValueError("disabled_count and reduced_count must be >= 0")
-        if not 0.0 < self.reduced_budget_scale <= 1.0:
-            raise ValueError("reduced_budget_scale must be in (0, 1]")
-
-    def apply(self, capabilities: list[SatelliteCapability], conjunctions) -> list[SatelliteCapability]:
-        order: list[int] = [spec.primary_index for spec in conjunctions]
-        order += [spec.secondary_index for spec in conjunctions]
-        order += [i for i in range(len(capabilities)) if i not in order]
-        updated = list(capabilities)
-        for position, index in enumerate(order[: self.disabled_count + self.reduced_count]):
-            capability = updated[index]
-            if position < self.disabled_count:
-                updated[index] = replace(capability, maneuver_enabled=False)
-            else:
-                updated[index] = capability.with_remaining_delta_v(
-                    capability.remaining_delta_v_mps * self.reduced_budget_scale
-                )
-        return updated
 
 
 class OrbitGuardEnv(ParallelEnv):

@@ -80,6 +80,12 @@ def capability_trace() -> EpisodeTrace:
     return record_episode(env, rule_based_policy, seed=CAPABILITY_SEED, meta=meta)
 
 
+# Injected pair (1, 2): primary 1 keeps the full tank and every tank, the full one included, runs dry. Seed 2 pinned
+# the pre-fix victim order, which reduced BOTH members of its pair (2, 0); with secondary-first reduction its
+# full-tank primary 2 collides with 0 at step 12, before that tank is empty.
+DEPLETION_SEED = 11
+
+
 def _always_raise_policy(agent: str, observation: dict) -> int:
     return 1  # RAISE_ORBIT every step: deterministic, drains any budget
 
@@ -89,8 +95,8 @@ def depletion_trace() -> EpisodeTrace:
     """Three satellites, two with a 0.12 m/s budget, burning every step: their tanks run dry within a few steps."""
     degradation = CapabilityDegradation(disabled_count=0, reduced_count=2, reduced_budget_scale=0.06)
     env = OrbitGuardEnv(num_agents=3, capability_degradation=degradation, **ENV_KWARGS)
-    meta = _meta(env, condition="capability_reduction", seed=2, policy="untrained", shield=False, model="untrained_policy")
-    return record_episode(env, _always_raise_policy, seed=2, meta=meta)
+    meta = _meta(env, condition="capability_reduction", seed=DEPLETION_SEED, policy="untrained", shield=False, model="untrained_policy")
+    return record_episode(env, _always_raise_policy, seed=DEPLETION_SEED, meta=meta)
 
 
 FLEET_COLLISION_SEED = 0  # N=4, no maneuvers: satellites 0 and 2 collide, 1 and 3 survive
