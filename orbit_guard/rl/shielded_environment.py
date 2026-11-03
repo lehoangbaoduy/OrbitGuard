@@ -20,6 +20,10 @@ Semantics (PRD §28):
     own corrective burns are free to the agent -- it is not punished for the
     shield's work, and not rewarded for relying on it either;
   * the mission term stays on the realized trajectory.
+
+The PRD §40 step records (`step_records()`, CORE-4c) take shield_intervened from
+the ShieldResult and shield_reason from the raw proposal's violations involving
+each satellite, and only on a rejected step.
 """
 
 from __future__ import annotations
@@ -84,6 +88,13 @@ class ShieldedOrbitGuardEnv(OrbitGuardEnv):
             proposal_accepted=decision.accepted,
             approved_feasible=decision.feasible,
         )
+
+    def _shield_record(self, decision: ShieldResult, index: int) -> tuple[bool, list[str]]:
+        """§40 shield fields: the violation kinds involving `index` in the raw proposal, only when it was rejected."""
+        if decision.accepted:
+            return bool(decision.intervened[index]), []
+        kinds = {v.kind.value for v in decision.proposal_evaluation.violations if index in v.agents}
+        return bool(decision.intervened[index]), sorted(kinds)
 
     def _step_infos(self, decision: ShieldResult) -> dict:
         repair_mode = decision.repair.stats.mode if decision.repair is not None else None

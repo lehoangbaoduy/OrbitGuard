@@ -44,6 +44,8 @@ Per-control-step pipeline (docs/OrbitGuard_progress.md Q14-Q20):
      `coordination_clip`, PRD §25, CORE-2), mission from step 8, delta-v on the raw
      request, the collision penalty from step 6 -- and this step's
      observations (next step's "pre" observations) together.
+ 10. Keep one PRD §40 per-control-step record per satellite active at the
+     decision time (`step_records()`, `rl.step_records`, CORE-4c).
 
 Ground truth is used ONLY for actuation (converting a maneuver intent to an
 ECI delta-v relative to the satellite's own true state, step 4's actuation half), propagation,
@@ -54,6 +56,7 @@ TypeError guards.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar
@@ -101,6 +104,7 @@ from orbit_guard.rl.reward import (
     compute_reward,
     compute_safety_term,
 )
+from orbit_guard.rl.step_records import build_step_record
 from orbit_guard.safety.adaptive_margin import MarginFn
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent, map_intent_to_delta_v
 from orbit_guard.scenarios.conjunction_generator import generate_conjunction_scenario
@@ -330,6 +334,7 @@ class OrbitGuardEnv(ParallelEnv):
         self.episode_seed: int | None = None
         self._metrics = EpisodeMetricsTracker()
         self.last_step: dict = {}
+        self._step_records: tuple[dict, ...] = ()
 
     def observation_space(self, agent):
         return self._observation_space
@@ -371,6 +376,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._collided_agents = set()
         self._metrics.reset()
         self.last_step = {}
+        self._step_records = ()
 
         self._sensing_rng = np.random.default_rng(int(self._rng.integers(0, 2**31 - 1)))
         self._shadow_states = [
@@ -389,6 +395,10 @@ class OrbitGuardEnv(ParallelEnv):
     def step(self, actions):
         pre_assessments = self._pending_assessments
         pre_beliefs = self._pending_beliefs
+        # Decision-time facts for the §40 records, captured before the step moves time, agents or observations.
+        decision_time_s = self._step_count * self._control_dt_s
+        decision_agents = list(self.agents)
+        decision_observations = dict(self._last_observations)
         approved_actions, decision = self._approve_actions(actions)
         outcome_assessments = self._outcome_assessments(actions, decision)  # before actuation moves the state
         applied_delta_v, approved_requested = self._apply_actions(approved_actions)
@@ -406,6 +416,13 @@ class OrbitGuardEnv(ParallelEnv):
         # the reward's mission term and the next observation use (it used to lag one step behind).
         self._refresh_mission_deviations(post_beliefs)
         self.last_step = self._describe_step(actions, approved_actions, applied_delta_v, collided_pairs)
+        self._step_records = tuple(
+            self._step_record(
+                agent, decision_time_s, decision_observations[agent], actions, approved_actions,
+                requested_delta_v, pre_beliefs, pre_assessments, post_assessments, decision,
+            )
+            for agent in decision_agents
+        )
         self._record_step_metrics(
             applied_delta_v, collided_pairs, min_separations, pre_assessments, post_assessments, decision, pre_beliefs
         )
@@ -450,8 +467,43 @@ class OrbitGuardEnv(ParallelEnv):
             for agent, index in self._agent_index.items()
         }
 
+    def step_records(self) -> list[dict]:
+        """PRD §40 per-control-step records of the last step, one per satellite active at its decision time.
+
+        Keys and units are documented in `rl.step_records`; values are plain Python types. Empty before the
+        first step of an episode. Returns copies, so callers may keep or modify them.
+        """
+        return copy.deepcopy(list(self._step_records))
+
     def render(self):
         raise NotImplementedError("OrbitGuardEnv has no rendering.")
+
+    def _step_record(
+        self, agent, decision_time_s, observation, actions, approved_actions, requested_delta_v,
+        pre_beliefs, pre_assessments, post_assessments, decision,
+    ) -> dict:
+        idx = self._agent_index[agent]
+        intervened, reason = self._shield_record(decision, idx)
+        return build_step_record(
+            timestamp_s=decision_time_s,
+            satellite_id=agent,
+            index=idx,
+            observed_state=pre_beliefs[idx].state_vector,
+            belief_features=flatten(self._observation_space, observation),
+            selected_action=int(actions.get(agent, ManeuverIntent.NO_MANEUVER)),
+            mapped_delta_v_mps=requested_delta_v[idx],
+            shield_action=int(approved_actions.get(agent, ManeuverIntent.NO_MANEUVER)),
+            shield_intervened=intervened,
+            shield_reason=reason,
+            pre_assessments=pre_assessments,
+            post_assessments=post_assessments,
+            remaining_delta_v_mps=self._capabilities[idx].remaining_delta_v_mps,
+            mission_deviation=self._pending_mission_deviations[idx],
+        )
+
+    def _shield_record(self, decision, index: int) -> tuple[bool, list[str]]:
+        """Hook: (intervened, reason kinds) of the shield for satellite `index`. No shield here: (False, [])."""
+        return False, []
 
     def _with_drawn_budgets(self, capabilities: list[SatelliteCapability], episode_seed: int) -> list[SatelliteCapability]:
         """Each satellite's initial budget ~ Uniform(range) from the dedicated budget stream; unchanged without a range."""
