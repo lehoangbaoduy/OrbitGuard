@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Resumable queue of the nine N=15 trainings (adaptive / fixed-margin / no-shield x seeds 0-2).
-# Skips any run that already has actor_weights.npz, so it is safe to re-launch after an
-# interruption or reboot. Logs live on disk under $RUNS/logs (NOT /tmp, which is a RAM tmpfs).
+# Skips a run only when it has actor_weights.npz AND its run_config.json records the config_digest of
+# configs/default.yaml + $OVERLAY (python -m orbit_guard.rl.run_provenance), so it is safe to re-launch after an
+# interruption or reboot. If any finished run in $RUNS was trained under another config or overlay, or has no
+# sidecar, the queue refuses to start (it neither reuses nor overwrites it): use a fresh RUNS dir.
+# A run dir without weights (an interrupted run) is cleared and retrained.
+# Logs live on disk under $RUNS/logs (NOT /tmp, which is a RAM tmpfs).
 # A failed run does not stop the queue, but the queue then ends with a summary line and exit status 1.
 #   monitor:  tail -f ~/orbitguard_runs/logs/queue_n15.log
 #   stop:     kill $(cat ~/orbitguard_runs/logs/queue_n15.pid)   # then stop the python training child
@@ -27,11 +31,21 @@ echo $$ > "$RUNS/logs/queue_n15.pid"
 export RAY_TMPDIR="$RUNS/ray_tmp"
 cd "$(dirname "$0")/.."
 
+all_runs=()
+for seed in 0 1 2; do for variant in adaptive fixed noshield; do all_runs+=("$RUNS/n15_${variant}_s${seed}"); done; done
+# One line "done|todo|foreign <run dir>" per run; non-zero exit if any finished run is not this config's.
+if ! statuses=$(uv run python -m orbit_guard.rl.run_provenance "${all_runs[@]}" --overlay "$OVERLAY"); then
+  echo "!! refusing to reuse or overwrite finished runs in $RUNS that were not trained under configs/default.yaml" \
+    "+ overlay '${OVERLAY:-none}' (reasons above). Use a fresh RUNS dir, e.g. RUNS=${RUNS}_new"
+  echo "$statuses" | grep '^foreign ' || true
+  exit 2
+fi
+
 failed=()      # "variant seed N" of every run that failed; the queue keeps going, then exits non-zero
 for seed in 0 1 2; do
   for variant in adaptive fixed noshield; do
     run="$RUNS/n15_${variant}_s${seed}"
-    if [ -f "$run/actor_weights.npz" ]; then echo "== skip $variant seed $seed (done)"; continue; fi
+    if grep -qxF "done $run" <<< "$statuses"; then echo "== skip $variant seed $seed (done under this config)"; continue; fi
     case $variant in
       adaptive) flags="--shield --margin adaptive" ;;
       fixed)    flags="--shield --margin fixed" ;;

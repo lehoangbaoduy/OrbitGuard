@@ -2,10 +2,13 @@
 # Post-training pipeline (Phase 4 exit evidence -> Phase 5 sweep -> Phase 6 artifacts).
 # Run AFTER the nine N=15 trainings (adaptive/fixed/noshield x seeds 0-2) have written
 # $RUNS/n15_<variant>_s<seed>/actor_weights.npz. Usage: scripts/run_experiments.sh [RUNS_DIR] [OUT_DIR]
+# RUNS_DIR defaults to $RUNS (the variable queue_n15.sh reads), then ~/orbitguard_runs.
 # OVERLAY=<tuned.yaml> evaluates under the tuned overlay the models were trained with (CORE-1); it is passed
 # to every experiment step, and a checkpoint whose run_config.json records another config digest is refused.
+# Resumable: re-running after an interruption skips logged episodes, and an existing $OUT/frozen.json is not
+# re-frozen (the freeze is one-way); the final-test run verifies it instead, so nothing can change in between.
 set -euo pipefail
-RUNS="${1:-$HOME/orbitguard_runs}"
+RUNS="${1:-${RUNS:-$HOME/orbitguard_runs}}"
 OUT="${2:-$RUNS/experiments}"
 WORKERS="${WORKERS:-6}"
 OVERLAY="${OVERLAY:-}"
@@ -25,10 +28,16 @@ uv run python -m orbit_guard.evaluation.experiment run --split validation --max-
 # 2. FREEZE configs + checkpoints, then (and only then) the final-test pool can be read. The freeze is one-way
 #    (it refuses an existing $OUT/frozen.json) and refuses uncommitted changes under orbit_guard/, configs/,
 #    scripts/ or data/: commit everything there first, including a tuned overlay kept under configs/. docs/ is
-#    exempt. Every checkpoint must carry the run_config.json written by training.
+#    exempt. Every checkpoint must carry the run_config.json written by training, trained from a clean tree at
+#    one commit with no change to orbit_guard/, configs/ or data/ since. If $OUT/frozen.json already exists (a
+#    resumed sweep), it is kept: step 3's verify_freeze checks it against this registry, config and code.
 [ -f configs/test_seeds.json ] || uv run python -c "from orbit_guard.evaluation.test_seed_pool import write_test_pool; write_test_pool('configs/test_seeds.json')"
-uv run python -m orbit_guard.evaluation.experiment freeze --registry "$OUT/registry.json" --out "$OUT/frozen.json" \
-  ${overlay_flags[@]+"${overlay_flags[@]}"}
+if [ -f "$OUT/frozen.json" ]; then
+  echo "== $OUT/frozen.json exists: not re-freezing (one-way); the final-test run verifies it"
+else
+  uv run python -m orbit_guard.evaluation.experiment freeze --registry "$OUT/registry.json" --out "$OUT/frozen.json" \
+    ${overlay_flags[@]+"${overlay_flags[@]}"}
+fi
 
 # 3. Final-test sweep: 5 models x 5 conditions x 10 seeds (x 3 training seeds for learned models).
 uv run python -m orbit_guard.evaluation.experiment run --split test --freeze-snapshot "$OUT/frozen.json" \
