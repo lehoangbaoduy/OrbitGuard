@@ -12,9 +12,14 @@ The sign convention is asymmetric on purpose, mirroring the PRD formula:
     never pre-negated, which would double the sign.
 
 `R_safety` uses the MINIMUM pairwise margin, not the mean, so one dangerous
-encounter dominates instead of being diluted by benign ones. The coordination
-term is deliberately left unnormalized (PRD §25 leaves its clipping open);
-any scaling belongs in `compute_reward`'s `w4`, visible and tunable.
+encounter dominates instead of being diluted by benign ones.
+`compute_coordination_term` stays raw and unnormalized (frozen spec, Q13); the
+clipping PRD §25 requires before training is the separate
+`compute_clipped_coordination_term`, min(clip, raw term), with the clip set by
+`reward.coordination_clip` in configs/default.yaml (1.0; CORE-2). Each pair's
+risk is in [0, 1], but the raw term sums the degradation over up to N(N-1)/2
+pairs; clipping at 1 keeps it O(1) like the other bounded terms, so one step
+cannot dominate the gradient. Its weight remains `compute_reward`'s `w4`.
 
 Never imports the environment, training code, or any RL framework.
 """
@@ -68,6 +73,13 @@ def compute_delta_v_term(delta_v_mps: Sequence[float]) -> float:
 def compute_coordination_term(total_risk_pre: float, total_risk_post: float) -> float:
     """One-sided risk degradation, raw and unnormalized: improvements score 0."""
     return max(0.0, total_risk_post - total_risk_pre)
+
+
+def compute_clipped_coordination_term(total_risk_pre: float, total_risk_post: float, clip: float) -> float:
+    """min(clip, one-sided risk degradation): the coordination term the environment rewards with (PRD §25)."""
+    if not math.isfinite(clip) or clip <= 0:
+        raise ValueError(f"clip must be finite and > 0, got {clip}")
+    return min(clip, compute_coordination_term(total_risk_pre, total_risk_post))
 
 
 def compute_reward(

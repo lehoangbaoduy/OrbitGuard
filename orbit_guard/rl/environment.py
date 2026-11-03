@@ -40,7 +40,8 @@ Per-control-step pipeline (docs/OrbitGuard_progress.md Q14-Q20):
      deterministically-evolved (zero-noise-after-reset) shadow belief, at
      the same instant -- never ground truth (Q14's leakage-boundary choice).
   9. Assemble each agent's reward (Part C): safety and coordination from
-     step 4's predicted outcome, mission from step 8, delta-v on the raw
+     step 4's predicted outcome (the coordination term clipped at
+     `coordination_clip`, PRD §25, CORE-2), mission from step 8, delta-v on the raw
      request, the collision penalty from step 6 -- and this step's
      observations (next step's "pre" observations) together.
 
@@ -88,7 +89,7 @@ from orbit_guard.rl.episode_metrics import (
 )
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
-    compute_coordination_term,
+    compute_clipped_coordination_term,
     compute_delta_v_term,
     compute_mission_term,
     compute_pairwise_margin,
@@ -184,6 +185,7 @@ class OrbitGuardEnv(ParallelEnv):
         density_radius_m: float | None = None,
         density_ref_count: float | None = None,
         mission_weights: dict | None = None,
+        coordination_clip: float | None = None,
     ):
         # Every argument not given resolves from configs/default.yaml (the single source of truth, CORE-1).
         base_config = load_config()
@@ -207,6 +209,7 @@ class OrbitGuardEnv(ParallelEnv):
             "density_radius_m": density_radius_m,
             "density_ref_count": density_ref_count,
             "mission_weights": mission_weights,
+            "coordination_clip": coordination_clip,
         }
         resolved = {key: defaults[key] if value is None else value for key, value in explicit.items()}
         if margin_fn is None:
@@ -214,6 +217,8 @@ class OrbitGuardEnv(ParallelEnv):
 
         if num_agents < 2:
             raise ValueError("OrbitGuard is a multi-agent env; num_agents must be >= 2")
+        if not np.isfinite(resolved["coordination_clip"]) or resolved["coordination_clip"] <= 0:
+            raise ValueError(f"coordination_clip must be finite and > 0, got {resolved['coordination_clip']}")
         if resolved["control_dt_s"] <= 0 or resolved["physics_dt_s"] <= 0 or resolved["control_dt_s"] < resolved["physics_dt_s"]:
             raise ValueError("control_dt_s and physics_dt_s must be > 0 with control_dt_s >= physics_dt_s")
         episode_horizon_s = resolved["episode_horizon_s"]
@@ -253,6 +258,7 @@ class OrbitGuardEnv(ParallelEnv):
         self._density_radius_m = resolved["density_radius_m"]
         self._density_ref_count = resolved["density_ref_count"]
         self._mission_weights = resolved["mission_weights"]
+        self._coordination_clip = float(resolved["coordination_clip"])
         # Outcome metrics are scored against the PRD section 22 standard of the DEFAULT config, never a tuned
         # overlay, so every run (and every tuning point) is judged by one reference (docs/OrbitGuard_progress.md).
         self._reference_margin = margin_from_config(base_config, "adaptive")
@@ -632,7 +638,7 @@ class OrbitGuardEnv(ParallelEnv):
         """Safety/coordination on the predicted raw-proposal outcome; mission/collision on the realized step."""
         total_risk_pre = sum(a.risk_proxy for a in pre_assessments)
         total_risk_post = sum(a.risk_proxy for a in outcome_assessments)
-        coordination_term = compute_coordination_term(total_risk_pre, total_risk_post)
+        coordination_term = compute_clipped_coordination_term(total_risk_pre, total_risk_post, self._coordination_clip)
 
         rewards = {}
         for agent in actions:

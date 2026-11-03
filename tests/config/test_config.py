@@ -175,6 +175,7 @@ def test_env_kwargs_carry_every_value_the_simulation_blocks_declare():
     assert kwargs["density_ref_count"] == 5.0
     assert kwargs["mission_weights"] == {"q_a": 0.25, "q_e": 0.25, "q_i": 0.25, "q_m": 0.25}
     assert kwargs["reward_weights"] == {"w1": 1.0, "w2": 0.3, "w3": 5.0, "w4": 0.5, "collision_penalty": -100}
+    assert kwargs["coordination_clip"] == 1.0
     assert kwargs["distribution_mix"] == {"benign": 0.30, "single_conjunction": 0.50, "multi_conjunction": 0.20}
     assert kwargs["capability_template"].max_delta_v_per_action_mps == 0.1
     assert kwargs["capability_template"].remaining_delta_v_mps == 2.0
@@ -216,6 +217,7 @@ def test_env_kwargs_resolve_the_tle_file_against_the_repo_root():
         ("observation", "k_neighbors", 0, "k_neighbors"),
         ("shield", "beam_width", 0, "beam_width"),
         ("shield", "exact_enumeration_max_agents", 0, "exact_enumeration_max_agents"),
+        ("reward", "coordination_clip", 0, "coordination_clip"),
     ],
 )
 def test_env_kwargs_reject_unsupported_or_invalid_values(section, key, value, message):

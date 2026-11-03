@@ -62,6 +62,7 @@ CONSUMED = {
     "reward.w3_delta_v": "env_kwargs_from_config",
     "reward.w4_coordination": "env_kwargs_from_config",
     "reward.collision_penalty": "env_kwargs_from_config",
+    "reward.coordination_clip": "env_kwargs_from_config",
     "reward.mission_weights.q_a": "env_kwargs_from_config",
     "reward.mission_weights.q_e": "env_kwargs_from_config",
     "reward.mission_weights.q_i": "env_kwargs_from_config",

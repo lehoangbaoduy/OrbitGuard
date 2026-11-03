@@ -72,6 +72,7 @@ reward:
   w3_delta_v: 5.0  # PRD §39 start was 0.1; too weak to discourage indiscriminate burns (tuning record)
   w4_coordination: 0.5
   collision_penalty: -100
+  coordination_clip: 1.0  # PRD §25 clipping (Q13 closed by CORE-2): min(clip, summed one-sided risk degradation)
   mission_weights: {q_a: 0.25, q_e: 0.25, q_i: 0.25, q_M: 0.25}
 
 shield:

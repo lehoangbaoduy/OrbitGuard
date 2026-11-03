@@ -159,6 +159,7 @@ def env_kwargs_from_config(config: Mapping[str, Any], *, shielded: bool) -> dict
         ),
         "tle_path": _repo_path(config["data"]["tle_file"]),
         "reward_weights": reward_weights_from_config(config),
+        "coordination_clip": _positive(config["reward"]["coordination_clip"], "reward.coordination_clip"),
         "phase_fraction": _non_negative(maneuver["phase_fraction"], "maneuver.phase_fraction"),
         "risk_epsilon_m": _positive(risk["epsilon_m"], "risk.epsilon_m"),
         "risk_z0": _non_negative(risk["z0"], "risk.z0"),

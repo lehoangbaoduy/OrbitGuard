@@ -19,6 +19,7 @@ from orbit_guard.rl.environment import OrbitGuardEnv
 from orbit_guard.rl.observation import POSITION_SCALE_M
 from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent
+from tests.rl.test_coordination_clip import risk_raising_proposal
 
 _NO_SHIELD = "adaptive_mappo_no_shield"
 _SHIELDED = "adaptive_mappo"
@@ -191,6 +192,26 @@ def test_reward_weights_reach_the_environment_through_the_factory(tmp_path):
     env = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, {"reward.w3_delta_v": 7.5}))
 
     assert env._reward_weights["w3"] == 7.5
+
+
+def test_coordination_clip_caps_the_coordination_term_in_the_reward(tmp_path):
+    # A 300 s horizon puts the injected conjunction inside the 1800 s lookahead at reset.
+    w4_only = {
+        "simulation.episode_horizon_s": 300.0, "reward.w1_safety": 0.0, "reward.w2_mission": 0.0,
+        "reward.w3_delta_v": 0.0, "reward.collision_penalty": 0.0, "reward.w4_coordination": 1.0,
+    }
+    clipped = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, {**w4_only, "reward.coordination_clip": 0.01}))
+    loose = _env(_NO_SHIELD, 3, _tmp_config(tmp_path, {**w4_only, "reward.coordination_clip": 1.0}, "loose.yaml"))
+    clipped.reset(seed=_SEED)
+    loose.reset(seed=_SEED)
+    proposal, raw_term = risk_raising_proposal(loose)
+    assert raw_term > 0.01  # precondition: the clip binds
+
+    _, clipped_rewards, _, _, _ = clipped.step(proposal)
+    _, loose_rewards, _, _, _ = loose.step(proposal)
+
+    assert all(reward == -0.01 for reward in clipped_rewards.values())
+    assert all(reward == pytest.approx(-raw_term, rel=1e-12) for reward in loose_rewards.values())
 
 
 def test_bare_constructor_resolves_reward_weights_from_the_config():
