@@ -9,7 +9,9 @@ confirmed empirically rather than assumed from older tutorials:
      into one Box via `gymnasium.spaces.utils.flatten`.
   2. There is no first-class "centralized critic input" channel. The accepted
      workaround is to carry the global state in the observation vector. Each
-     agent's observation becomes ``[local | global_state]`` and
+     agent's observation becomes ``[local | global_state]`` (``global_state``
+     is the env's `state()`, layout in `rl.global_state`: slots, alive mask,
+     time remaining; its size comes from `state_space`) and
      `ctde_module.CentralizedCriticTorchRLModule` makes sure the actor only
      ever reads the ``local`` slice (PRD §28: no critic-only feature may leak
      into decentralized execution).

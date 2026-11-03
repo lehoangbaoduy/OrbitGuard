@@ -28,7 +28,7 @@ from orbit_guard.rl.training import (
 from tests.rl.stub_env import AGENT_OBS_FLAT_DIM, StubOrbitGuardEnv
 
 _NUM_AGENTS = 2
-_GLOBAL_DIM = _NUM_AGENTS * AGENT_OBS_FLAT_DIM
+_GLOBAL_DIM = _NUM_AGENTS * AGENT_OBS_FLAT_DIM + _NUM_AGENTS + 1  # slots | alive mask | time remaining
 _SETTINGS = TrainingSettings(train_batch_size=64, minibatch_size=32, num_epochs=1, seed=0)
 
 

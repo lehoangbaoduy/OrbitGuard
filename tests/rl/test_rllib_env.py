@@ -14,7 +14,7 @@ from orbit_guard.rl.rllib_env import CTDEParallelPettingZooEnv, make_env_creator
 from tests.rl.stub_env import AGENT_OBS_FLAT_DIM, StubOrbitGuardEnv
 
 _NUM_AGENTS = 2
-_GLOBAL_DIM = _NUM_AGENTS * AGENT_OBS_FLAT_DIM
+_GLOBAL_DIM = _NUM_AGENTS * AGENT_OBS_FLAT_DIM + _NUM_AGENTS + 1  # slots | alive mask | time remaining
 
 
 def _wrapped_env(include_global_state: bool = True) -> CTDEParallelPettingZooEnv:

@@ -6,8 +6,11 @@ documented primitives: a `TorchRLModule` implementing `ValueFunctionAPI`.
 
 Each agent's observation vector arrives as ``[local | global_state]``, where
 ``local`` is the agent's own flattened decentralized observation (PRD §24) and
-``global_state`` is the environment's `state()` (the concatenation of every
-agent's local observation, built by `rl.rllib_env`). The module splits it:
+``global_state`` is the environment's `state()` -- every agent's local
+observation (a collided agent's zeroed), a per-agent alive mask and the
+normalized time remaining (layout in `rl.global_state`), appended by
+`rl.rllib_env`. The time feature makes Ray 2.58's forced terminal at the
+horizon a Markov finite-horizon terminal for the critic. The module splits it:
 
   * ACTOR  -- an MLP over ``obs[..., :local_dim]`` ONLY.
   * CRITIC -- an MLP over ``obs[..., local_dim:]`` (the global state) with

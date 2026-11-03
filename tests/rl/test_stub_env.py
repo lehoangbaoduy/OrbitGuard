@@ -97,8 +97,9 @@ def test_default_episode_horizon_matches_frozen_constant():
 def test_centralized_critic_state_has_the_frozen_concatenated_shape():
     env = StubOrbitGuardEnv(num_agents=2)
     env.reset(seed=0)
-    assert env.state_space.shape == (2 * AGENT_OBS_FLAT_DIM,)
-    assert env.state().shape == (2 * AGENT_OBS_FLAT_DIM,)
+    # Two slots, a two-entry alive mask and the time remaining (orbit_guard.rl.global_state).
+    assert env.state_space.shape == (2 * AGENT_OBS_FLAT_DIM + 2 + 1,)
+    assert env.state().shape == (2 * AGENT_OBS_FLAT_DIM + 2 + 1,)
 
 
 def test_centralized_critic_state_is_the_concatenation_of_each_agents_own_observation():
@@ -108,7 +109,8 @@ def test_centralized_critic_state_is_the_concatenation_of_each_agents_own_observ
     agent_0_flat = flatten(env.observation_space("sat_0"), observations["sat_0"])
     agent_1_flat = flatten(env.observation_space("sat_1"), observations["sat_1"])
     assert np.allclose(state[:AGENT_OBS_FLAT_DIM], agent_0_flat)
-    assert np.allclose(state[AGENT_OBS_FLAT_DIM:], agent_1_flat)
+    assert np.allclose(state[AGENT_OBS_FLAT_DIM : 2 * AGENT_OBS_FLAT_DIM], agent_1_flat)
+    assert np.array_equal(state[2 * AGENT_OBS_FLAT_DIM :], [1.0, 1.0, 1.0])  # both alive, full time remaining
 
 
 def test_centralized_critic_state_updates_after_step():

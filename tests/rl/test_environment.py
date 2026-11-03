@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from gymnasium.spaces.utils import flatten
+from gymnasium.spaces.utils import flatdim, flatten
 from pettingzoo.test import parallel_api_test, parallel_seed_test
 
 from orbit_guard.physics.dynamics import state_derivative
@@ -179,7 +179,8 @@ def test_state_is_concatenation_of_each_agents_own_observation():
     obs, _ = env.reset(seed=10)
     state = env.state()
     assert state.shape == env.state_space.shape
-    flat_dim = env.state_space.shape[0] // len(env.possible_agents)
+    flat_dim = flatdim(env.observation_space(env.possible_agents[0]))
+    assert env.state_space.shape == (len(env.possible_agents) * (flat_dim + 1) + 1,)
     for slot, agent in enumerate(env.possible_agents):
         expected = flatten(env.observation_space(agent), obs[agent])
         np.testing.assert_allclose(state[slot * flat_dim : (slot + 1) * flat_dim], expected, atol=1e-5)

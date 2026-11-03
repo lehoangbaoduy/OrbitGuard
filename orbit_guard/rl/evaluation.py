@@ -74,7 +74,8 @@ def make_greedy_policy(algo: Algorithm, env_factory: EnvFactory) -> Policy:
     """Decentralized execution: argmax of the actor from the LOCAL observation only.
 
     The module still expects the full ``[local | global]`` vector shape, so the
-    global slice is zero-padded; the actor never reads it (see ctde_module).
+    global slice (alive mask and time remaining included) is zero-padded; the
+    actor never reads it (see ctde_module).
     """
     module = algo.get_module(POLICY_ID)
     probe_env = env_factory({})

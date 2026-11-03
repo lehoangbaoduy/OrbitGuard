@@ -25,13 +25,12 @@ rule that no critic-only feature leaks into the decentralized actor at
 execution time. Parameter sharing alone (one network, same weights, each
 agent's own local observation) is IPPO, not CTDE; it has no centralized
 critic and satisfies PRD §28 only partially. This stub exposes the
-centralized critic's input via `state()`/`state_space`, frozen to the
-simplest documented MAPPO-CTDE convention -- concatenation of every
-agent's own (flattened) local observation, in `possible_agents` order --
-so Part C has a concrete, fixed-shape target to build a real centralized
-critic against. Part A's real `OrbitGuardEnv` must expose the identical
-`state()`/`state_space` interface so Part C's training code is a swap-in,
-not a rewrite.
+centralized critic's input via `state()`/`state_space`: every agent's own
+(flattened) local observation in `possible_agents` order, followed by a
+per-agent alive mask and the normalized time remaining -- the layout of
+`orbit_guard.rl.global_state`, shared with the real `OrbitGuardEnv` so
+Part C's training code is a swap-in, not a rewrite. The stub never
+terminates an agent early, so its alive mask stays all ones.
 """
 
 from __future__ import annotations
@@ -42,6 +41,12 @@ import numpy as np
 from gymnasium import spaces
 from gymnasium.spaces.utils import flatten
 from pettingzoo import ParallelEnv
+
+from orbit_guard.rl.global_state import (
+    assemble_global_state,
+    global_state_space,
+    time_remaining,
+)
 
 K_NEIGHBORS = 4
 OWN_DIM = 10
@@ -79,9 +84,7 @@ class StubOrbitGuardEnv(ParallelEnv):
             }
         )
         self._action_space = spaces.Discrete(NUM_ACTIONS)
-        self.state_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(num_agents * AGENT_OBS_FLAT_DIM,), dtype=np.float32
-        )
+        self.state_space = global_state_space(num_agents, AGENT_OBS_FLAT_DIM)
         self._last_observations: dict = {}
 
     def observation_space(self, agent):
@@ -92,13 +95,13 @@ class StubOrbitGuardEnv(ParallelEnv):
 
     def state(self) -> np.ndarray:
         """Centralized-critic global state (PRD §28's CTDE requirement) --
-        the concatenation of every agent's own flattened local observation,
-        in fixed `possible_agents` order. This is the ONLY place global
+        every agent's own flattened local observation in fixed
+        `possible_agents` order, then the alive mask and the time remaining
+        (`orbit_guard.rl.global_state`). This is the ONLY place global
         information may come from; the actor network must never see it."""
-        flattened = [
-            flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents
-        ]
-        return np.concatenate(flattened).astype(np.float32)
+        slots = [flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents]
+        alive = [True] * len(self.possible_agents)
+        return assemble_global_state(slots, alive, time_remaining(self._step_count, self._episode_horizon_steps))
 
     def _sample_observation(self):
         return {

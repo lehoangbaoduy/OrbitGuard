@@ -47,6 +47,10 @@ Per-control-step pipeline (docs/OrbitGuard_progress.md Q14-Q20):
  10. Keep one PRD §40 per-control-step record per satellite active at the
      decision time (`step_records()`, `rl.step_records`, CORE-4c).
 
+`state()` is the centralized critic's input only (PRD §28), never an actor
+observation: every agent's last local observation (zeroed once it collides),
+an alive mask and the normalized time remaining (`rl.global_state`).
+
 Ground truth is used ONLY for actuation (converting a maneuver intent to an
 ECI delta-v relative to the satellite's own true state, step 4's actuation half), propagation,
 and collision detection (steps 5-6) above; everything feeding observations
@@ -63,7 +67,7 @@ from typing import ClassVar
 
 import numpy as np
 from gymnasium import spaces
-from gymnasium.spaces.utils import flatten
+from gymnasium.spaces.utils import flatdim, flatten
 from pettingzoo import ParallelEnv
 
 from orbit_guard.config import (
@@ -96,6 +100,11 @@ from orbit_guard.rl.episode_metrics import (
     EpisodeMetricsTracker,
     EpisodeSummary,
     ShieldStep,
+)
+from orbit_guard.rl.global_state import (
+    assemble_global_state,
+    global_state_space,
+    time_remaining,
 )
 from orbit_guard.rl.observation import build_observation
 from orbit_guard.rl.reward import (
@@ -276,12 +285,8 @@ class OrbitGuardEnv(ParallelEnv):
             }
         )
         self._action_space = spaces.Discrete(_NUM_ACTIONS)
-        self.state_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(num_agents * (_OWN_DIM + k_neighbors * _NEIGHBOR_DIM + _GLOBAL_SUMMARY_DIM),),
-            dtype=np.float32,
-        )
+        # Critic-only global state: [slots | alive mask | time remaining] (rl.global_state, PRD §28).
+        self.state_space = global_state_space(num_agents, flatdim(self._observation_space))
 
         self._rng = np.random.default_rng()
         self._sensing_rng = np.random.default_rng()
@@ -411,8 +416,10 @@ class OrbitGuardEnv(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def state(self) -> np.ndarray:
-        flattened = [flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents]
-        return np.concatenate(flattened).astype(np.float32)
+        """The centralized critic's input (layout in `rl.global_state`); a collided satellite's slot is zeroed."""
+        slots = [flatten(self._observation_space, self._last_observations[agent]) for agent in self.possible_agents]
+        alive = [self._agent_index[agent] not in self._collided_agents for agent in self.possible_agents]
+        return assemble_global_state(slots, alive, time_remaining(self._step_count, self._horizon_steps))
 
     @property
     def delta_v_budget_mps(self) -> float:
