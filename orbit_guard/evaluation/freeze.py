@@ -7,12 +7,16 @@ enforced, not promised:
     `git status --porcelain -- orbit_guard configs scripts data` is empty (edits under docs/ do not block).
     It records config_digest(config, overlay) (CORE-1), the sha256 of the test and validation pool files,
     every checkpoint's actor_weights sha256 and its run_config.json sha256, and HEAD. A checkpoint with no
-    run_config.json sidecar is refused: its training configuration could not be shown.
+    run_config.json sidecar is refused: its training configuration could not be shown. So is a checkpoint
+    whose sidecar does not show a clean training tree (`git_commit` set, `git_dirty` an empty list), a set of
+    checkpoints trained at different commits, and any change under orbit_guard/, configs/ or data/
+    (`TRAINING_CODE_PATHS`) between that training commit and the freeze; the training commit is recorded.
   * `verify_freeze` re-checks every recorded hash, that the checkpoints passed are exactly the frozen
     (model, training seed) set (adding or dropping a training seed after seeing results fails), that
     those paths are still clean, and that
     `git diff --quiet <frozen commit> -- orbit_guard configs scripts data` holds: no code, config, data or script
-    change since the freeze, committed or not. Any failure raises `FrozenConfigError` naming what moved.
+    change since the freeze, committed or not. It re-derives the training commit from the sidecars and requires
+    the recorded one. Any failure raises `FrozenConfigError` naming what moved.
   * the final-test loader (`test_seed_pool.load_test_pool`) calls `verify_freeze`, so retraining,
     retuning or editing the code after the freeze closes the gate.
 
@@ -35,7 +39,10 @@ from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
 
 GIT_ROOT = REPO_ROOT
 FROZEN_PATHS = ("orbit_guard", "configs", "scripts", "data")  # data/: the TLE file config_digest covers
-SNAPSHOT_FORMAT = 2
+# What a trained policy depends on. rl/training.py records their porcelain status, and the freeze refuses any change
+# to them between the training commit and the freeze. scripts/ only launches training (its flags land in the sidecar).
+TRAINING_CODE_PATHS = ("orbit_guard", "configs", "data")
+SNAPSHOT_FORMAT = 3  # 3: records and re-checks the commit the checkpoints were trained at
 DEFAULT_TEST_POOL = REPO_ROOT / "configs" / "test_seeds.json"
 DEFAULT_VALIDATION_POOL = REPO_ROOT / "configs" / "validation_seeds.json"
 RUN_CONFIG_FILENAME = "run_config.json"  # written by rl/training.py next to actor_weights.npz
@@ -85,9 +92,12 @@ class GitTree:
             raise FrozenConfigError(f"git status failed in {self.root}: {completed.stderr.strip()}")
         return [line for line in completed.stdout.splitlines() if line.strip()]
 
+    def has_commit(self, commit: str) -> bool:
+        return self._git("cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
+
     def changed_since(self, commit: str, paths: Sequence[str]) -> bool:
         """True if the working tree under `paths` differs from `commit` (`git diff --quiet`)."""
-        if self._git("cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+        if not self.has_commit(commit):
             raise FrozenConfigError(f"the frozen commit {commit} is unknown to the repository at {self.root}")
         completed = self._git("diff", "--quiet", commit, "--", *paths)
         if completed.returncode not in (0, 1):
@@ -146,6 +156,65 @@ def _require_sidecars(checkpoints: Mapping[str, str | Path]) -> None:
         )
 
 
+def _sidecar_git(name: str, weights: Path) -> tuple[str | None, str | None]:
+    """(training commit, problem): the commit a checkpoint's sidecar says it trained at, or why it is unusable."""
+    sidecar = weights.parent / RUN_CONFIG_FILENAME
+    try:
+        record = json.loads(sidecar.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        return None, f"{name}: {sidecar} is unreadable ({error})"
+    missing = [key for key in ("git_commit", "git_dirty") if not isinstance(record, dict) or key not in record]
+    if missing:
+        return None, f"{name}: its {RUN_CONFIG_FILENAME} records no {'/'.join(missing)} (trained before it was recorded)"
+    commit, dirty = record["git_commit"], record["git_dirty"]
+    if not isinstance(commit, str) or not commit or not isinstance(dirty, list):
+        return None, f"{name}: its training git state is unknown (git_commit {commit!r}, git_dirty {dirty!r})"
+    if dirty:
+        paths = ", ".join(f"{path}/" for path in TRAINING_CODE_PATHS)
+        return None, f"{name}: trained with uncommitted changes under {paths}: {'; '.join(map(str, dirty))}"
+    return commit, None
+
+
+def _common_training_commit(checkpoints: Mapping[str, str | Path]) -> str | None:
+    """The one commit every checkpoint's sidecar records a clean training run at; None for no checkpoints."""
+    commits: dict[str, str] = {}
+    problems = []
+    for name, file in sorted(checkpoints.items()):
+        commit, problem = _sidecar_git(name, Path(file))
+        if problem is None:
+            commits[name] = commit
+        else:
+            problems.append(problem)
+    if problems:
+        raise FrozenConfigError(
+            "cannot show these checkpoints were trained on committed code (retrain them from a clean tree): "
+            + " | ".join(problems)
+        )
+    if len(set(commits.values())) > 1:
+        listing = ", ".join(f"{name} at {commit}" for name, commit in commits.items())
+        raise FrozenConfigError(
+            f"the checkpoints were trained at different commits, so the code may differ between them (retrain them "
+            f"all at one commit): {listing}"
+        )
+    return next(iter(commits.values()), None)
+
+
+def _training_commit(checkpoints: Mapping[str, str | Path], git: GitTree) -> str | None:
+    """`_common_training_commit`, which must also be unchanged under TRAINING_CODE_PATHS in the working tree."""
+    commit = _common_training_commit(checkpoints)
+    if commit is None:
+        return None
+    if not git.has_commit(commit):
+        raise FrozenConfigError(f"the training commit {commit} is unknown to the repository at {git.root}")
+    if git.changed_since(commit, TRAINING_CODE_PATHS):
+        raise FrozenConfigError(
+            f"code, configs or data changed since training at commit {commit} (git diff {commit} -- "
+            f"{' '.join(TRAINING_CODE_PATHS)} is not empty): the checkpoints were not trained on the code that would "
+            "evaluate them; retrain at the current commit"
+        )
+    return commit
+
+
 def _pool_record(path: str | Path, split: str) -> dict:
     pool = Path(path)
     if not pool.exists():
@@ -170,6 +239,7 @@ def write_freeze_snapshot(
     _require_sidecars(checkpoints)
     git = git or _default_git()
     _require_clean(git, "freeze")
+    training_commit = _training_commit(checkpoints, git)
     snapshot = {
         "format": SNAPSHOT_FORMAT,
         "config_path": str(config_path),
@@ -181,6 +251,7 @@ def write_freeze_snapshot(
         },
         "checkpoints": {name: _checkpoint_record(Path(file)) for name, file in sorted(checkpoints.items())},
         "git_commit": git.head(),
+        "training_commit": training_commit,
         "frozen_paths": list(FROZEN_PATHS),
         "frozen_at": datetime.now(UTC).isoformat(),
     }
@@ -260,6 +331,15 @@ def _verify_code(snapshot: dict, git: GitTree) -> None:
         )
 
 
+def _verify_training_commit(snapshot: dict, checkpoints: Mapping[str, str | Path], git: GitTree) -> None:
+    current = _training_commit(checkpoints, git)
+    if current != snapshot.get("training_commit"):
+        raise FrozenConfigError(
+            f"the checkpoints' training commit {current} differs from the training commit "
+            f"{snapshot.get('training_commit')} the freeze recorded"
+        )
+
+
 def verify_freeze(
     path: str | Path,
     checkpoints: Mapping[str, str | Path],
@@ -282,5 +362,7 @@ def verify_freeze(
     _verify_config(snapshot, config_path, overlay_path)
     _verify_pools(snapshot, {"test": test_pool_path, "validation": validation_pool_path})
     _verify_checkpoints(snapshot, checkpoints)
-    _verify_code(snapshot, git or _default_git())
+    git = git or _default_git()
+    _verify_code(snapshot, git)
+    _verify_training_commit(snapshot, checkpoints, git)
     return snapshot

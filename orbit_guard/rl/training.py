@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +39,7 @@ from orbit_guard.config import (
     load_config,
     margin_from_config,
 )
+from orbit_guard.evaluation.freeze import GitTree
 from orbit_guard.rl.actor_policy import export_from_algo
 from orbit_guard.rl.ctde_module import (
     CRITIC_INPUTS,
@@ -61,6 +61,7 @@ from orbit_guard.rl.rllib_env import (
     EnvFactory,
     register_orbit_guard_env,
 )
+from orbit_guard.rl.run_provenance import git_drift, git_state
 from orbit_guard.safety.adaptive_margin import margin_record
 
 DEFAULT_ENV_NAME = "orbit_guard_ctde"
@@ -167,8 +168,12 @@ def build_run_config(
     settings: TrainingSettings,
     num_agents: int,
     git_commit: str | None,
+    git_dirty: list[str] | None,
 ) -> dict:
-    """Provenance record of one training run: which config, overlay, reward, margin and settings produced it."""
+    """Provenance record of one training run: which config, overlay, reward, margin, settings and code produced it.
+
+    `git_commit`/`git_dirty` are the run's `run_provenance.git_state` at start plus any `git_drift` (None: unknown).
+    """
     return {
         "config_path": str(config_path),
         "overlay_path": None if overlay_path is None else str(overlay_path),
@@ -180,6 +185,7 @@ def build_run_config(
         "seed": settings.seed,
         "num_agents": num_agents,
         "git_commit": git_commit,
+        "git_dirty": None if git_dirty is None else list(git_dirty),
     }
 
 
@@ -190,15 +196,9 @@ def write_run_config(checkpoint_dir: str | Path, run_config: dict) -> Path:
     return path
 
 
-def _git_commit() -> str | None:
-    """HEAD of the checkout the run came from; None when git or the repository is unavailable."""
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=10
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.stdout.strip() or None
+def _repository() -> GitTree:
+    """The checkout the run imports its code from (injectable for tests)."""
+    return GitTree(REPO_ROOT)
 
 
 def build_algo(env_factory: EnvFactory, settings: TrainingSettings, env_name: str = DEFAULT_ENV_NAME) -> Algorithm:
@@ -327,6 +327,7 @@ def main(argv: list[str] | None = None) -> None:
     for coefficient in ("alpha", "beta", "gamma-margin"):
         parser.add_argument(f"--margin-{coefficient}", type=float, default=None)
     args = parser.parse_args(argv)
+    started = git_state(_repository())  # the code this process (and, at build_algo, its workers) imports
 
     overrides = {
         "seed": args.seed,
@@ -378,10 +379,12 @@ def main(argv: list[str] | None = None) -> None:
 
         report = train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
         if report.checkpoint_path is not None:
+            dirty = started["git_dirty"]
             run_config = build_run_config(
                 config_path=args.config, overlay_path=args.overlay, reward_weights=reward_weights,
                 margin_fn=margin_fn, shield=args.shield, settings=settings, num_agents=args.agents,
-                git_commit=_git_commit(),
+                git_commit=started["git_commit"],
+                git_dirty=None if dirty is None else dirty + git_drift(_repository(), started),
             )
             print("run config:", write_run_config(report.checkpoint_path, run_config), flush=True)
         baseline = evaluate_policy(no_maneuver_policy, env_factory, args.eval_episodes, args.eval_seed)

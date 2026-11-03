@@ -21,8 +21,8 @@ from orbit_guard.evaluation.freeze import (
     verify_freeze,
     write_freeze_snapshot,
 )
-from orbit_guard.evaluation.seed_pools import generate_validation_pool, write_seed_pool
-from orbit_guard.evaluation.test_seed_pool import load_test_pool, write_test_pool
+from orbit_guard.evaluation.test_seed_pool import load_test_pool
+from tests.evaluation.freeze_world import build_world, training_sidecar
 from tests.evaluation.git_repo_fixture import commit_all, git, make_repo
 from tests.evaluation.sidecar_fixtures import sidecar_record
 
@@ -36,26 +36,9 @@ def repo(tmp_path, monkeypatch) -> Path:
 
 @pytest.fixture
 def world(tmp_path, repo) -> dict:
-    """Config, overlay, both pools and one checkpoint with a run_config.json sidecar, outside the repo."""
-    files = tmp_path / "files"
-    files.mkdir()
-    config = files / "default.yaml"
-    config.write_text("a: 1\n")
-    overlay = files / "tuned.yaml"
-    overlay.write_text("reward:\n  w3: 1.5\n")
-    test_pool = files / "test_seeds.json"
-    write_test_pool(test_pool)
-    validation_pool = files / "validation_seeds.json"
-    write_seed_pool(validation_pool, "validation", generate_validation_pool())
-    run = files / "n15_adaptive_s0"
-    run.mkdir()
-    (run / "actor_weights.npz").write_bytes(b"weights-v1")
-    (run / "run_config.json").write_text(json.dumps({"config_digest": config_digest(config, overlay)}))
-    return {
-        "snapshot": files / "frozen.json", "config": config, "overlay": overlay, "test_pool": test_pool,
-        "validation_pool": validation_pool, "run": run,
-        "checkpoints": {"adaptive_mappo/0": run / "actor_weights.npz"},
-    }
+    """Config, overlay, both pools and one checkpoint with a run_config.json sidecar (trained at the repo's HEAD
+    from a clean tree), outside the repo."""
+    return build_world(tmp_path / "files", repo)
 
 
 def _freeze(world: dict, **overrides) -> dict:
@@ -394,7 +377,7 @@ def test_the_freeze_command_records_the_overlay(world):
     # and the sidecar a training run under it would write (tests/evaluation/sidecar_fixtures.py).
     world["config"].write_bytes(DEFAULT_CONFIG_PATH.read_bytes())
     (world["run"] / "run_config.json").write_text(
-        json.dumps(sidecar_record(world["overlay"], config_path=world["config"]))
+        json.dumps({**sidecar_record(world["overlay"], config_path=world["config"]), **training_sidecar(world["repo"])})
     )
     experiment.main(
         [
