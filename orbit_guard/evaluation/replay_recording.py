@@ -145,10 +145,12 @@ def check_plan_provenance(
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
     freeze_snapshot: str | Path | None = None,
+    num_agents: int | None = None,
 ) -> None:
     """Refuse the plan if any trained checkpoint has no run_config.json sidecar, or its sidecar records another
     config_digest, or a margin or reward weights other than the ones the item's model gets from config + overlay;
-    with `freeze_snapshot`, also unless its weights are the frozen checkpoint of that model and training seed."""
+    with `freeze_snapshot`, also unless its weights are the frozen checkpoint of that model and training seed.
+    The sidecar's shield must match the item's model and its num_agents `num_agents` (when given)."""
     frozen = _frozen_hashes(freeze_snapshot)
     for item in plan:
         if item.policy != "trained" or item.weights_path is None:
@@ -159,7 +161,10 @@ def check_plan_provenance(
                 "under cannot be shown (checkpoints trained before sidecars existed are retired): replay checkpoints "
                 "from a runs dir written by rl/training.py"
             )
-        check_checkpoint_provenance(item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model)
+        check_checkpoint_provenance(
+            item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model,
+            n_agents=num_agents,
+        )
         if frozen is not None:
             _check_frozen(item, frozen)
 
@@ -176,7 +181,10 @@ def record_plan_item(
     freeze_snapshot: str | Path | None = None,
 ) -> Path:
     """Run one episode and write its trace; returns the path (the file name is informational only)."""
-    check_plan_provenance([item], config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot)
+    check_plan_provenance(
+        [item], config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot,
+        num_agents=num_agents,
+    )
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     env_model = "adaptive_mappo" if item.shield else "adaptive_mappo_no_shield"
@@ -228,7 +236,10 @@ def record_all(
     freeze_snapshot: str | Path | None = None,
 ) -> list[Path]:
     """Record every plan item under one configuration; every checkpoint is checked before the first episode runs."""
-    check_plan_provenance(plan, config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot)
+    check_plan_provenance(
+        plan, config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot,
+        num_agents=num_agents,
+    )
     paths = []
     for number, item in enumerate(plan, start=1):
         progress(f"[{number}/{len(plan)}] {item.condition}:{item.seed} {item.policy} shield={'on' if item.shield else 'off'}")

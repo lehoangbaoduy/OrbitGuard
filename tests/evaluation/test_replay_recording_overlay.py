@@ -44,7 +44,7 @@ def _checkpoint(tmp_path: Path, *, trained_with: Path | None, sidecar: bool = Tr
     weights = run / "actor_weights.npz"
     save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), weights)  # stands in for a trained actor
     if sidecar:
-        record = {**sidecar_record(trained_with), "overlay_path": str(trained_with)}
+        record = {**sidecar_record(trained_with, num_agents=2), "overlay_path": str(trained_with)}
         (run / "run_config.json").write_text(json.dumps(record))
     return weights
 
@@ -161,7 +161,8 @@ def _all_weights(runs: Path, *, trained_with: Path | None) -> None:
         run = runs / f"n15_{variant}_s0"
         run.mkdir(parents=True)
         save_actor_weights(untrained_actor_weights(**_DIMS, init_seed=5), run / "actor_weights.npz")
-        (run / "run_config.json").write_text(json.dumps(sidecar_record(trained_with)))
+        record = sidecar_record(trained_with, shield=variant == "adaptive")
+        (run / "run_config.json").write_text(json.dumps(record))
 
 
 def test_the_script_passes_overlay_to_the_recorder(tmp_path, monkeypatch):

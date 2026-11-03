@@ -46,7 +46,9 @@ def main(argv: list[str] | None = None) -> None:
     if missing:
         parser.error("missing trained actor weights:\n  " + "\n  ".join(sorted(set(missing))))
     try:
-        check_plan_provenance(plan, overlay_path=args.overlay, freeze_snapshot=args.freeze_snapshot)
+        check_plan_provenance(
+            plan, overlay_path=args.overlay, freeze_snapshot=args.freeze_snapshot, num_agents=args.agents
+        )
     except CheckpointProvenanceError as error:
         parser.error(str(error))
     paths = record_all(

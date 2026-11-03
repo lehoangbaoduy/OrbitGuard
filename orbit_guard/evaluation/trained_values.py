@@ -6,6 +6,8 @@ it, while evaluation (baselines.build_env_factory, the replay recorder) rebuilds
 overlay only. The run_config.json sidecar records the margin (`margin_record`) and reward weights the run really
 used; `trained_value_mismatches` compares them with what the evaluation environment for the model will build, so
 a checkpoint trained under CLI overrides is refused instead of evaluated under a margin or reward it never saw.
+`run_shape_mismatches` likewise compares the recorded `shield` and `num_agents` with the model's shield setting and
+the constellation size the evaluation runs at.
 
 Ray-free (evaluation workers never import Ray): only the config loader and the margin value types are used.
 """
@@ -56,6 +58,37 @@ def trained_value_mismatches(recorded: Mapping[str, Any], expected: Mapping[str,
             problems.append(f"it records no {key}")
         elif not _same_values(recorded[key], expected[key]):
             problems.append(f"{label}: trained with {recorded[key]!r}, evaluation would use {dict(expected[key])!r}")
+    return problems
+
+
+RUN_SHAPE_ADVICE = (
+    "register each checkpoint under the model it was trained as (shield on/off) and evaluate it at the N it was "
+    "trained at (--n-agents; the queue trains every model at N=15)"
+)
+
+
+def run_shape_mismatches(
+    recorded: Mapping[str, Any], *, shield: bool | None, num_agents: int | None, model: str | None
+) -> list[str]:
+    """One line per problem with the sidecar's `shield` / `num_agents`: missing, malformed, or (when the expected
+    value is given) different. The record must be a real bool / int: 1 is not True and 15.0 is not 15."""
+    problems = []
+    if "shield" not in recorded:
+        problems.append("it records no shield")
+    elif not isinstance(recorded["shield"], bool):
+        problems.append(f"its recorded shield {recorded['shield']!r} is not true/false")
+    elif shield is not None and recorded["shield"] != shield:
+        problems.append(
+            f"shield: trained with the shield {'on' if recorded['shield'] else 'off'}, but {model} evaluates with "
+            f"it {'on' if shield else 'off'}"
+        )
+    count = recorded.get("num_agents")
+    if "num_agents" not in recorded:
+        problems.append("it records no num_agents")
+    elif isinstance(count, bool) or not isinstance(count, int):
+        problems.append(f"its recorded num_agents {count!r} is not an integer")
+    elif num_agents is not None and count != num_agents:
+        problems.append(f"num_agents: trained with {count} agents, evaluation would run {num_agents}")
     return problems
 
 

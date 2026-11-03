@@ -60,8 +60,10 @@ from orbit_guard.evaluation.statistics import (
 )
 from orbit_guard.evaluation.trained_values import (
     OVERLAY_ADVICE,
+    RUN_SHAPE_ADVICE,
     evaluation_values,
     recorded_margin_kind,
+    run_shape_mismatches,
     trained_value_mismatches,
 )
 
@@ -83,14 +85,17 @@ def check_checkpoint_provenance(
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
     model: str | None = None,
+    n_agents: int | None = None,
 ) -> None:
-    """Refuse `weights_path` if its run_config.json sidecar records another config_digest, margin or reward weights.
+    """Refuse `weights_path` if its run_config.json sidecar records another config_digest, margin, reward weights,
+    shield setting or constellation size.
 
     Digests, not paths, are compared: an overlay copied elsewhere with identical bytes is the same
     configuration. The recorded `margin` and `reward_weights` must equal what the evaluation environment for
     `model` builds from config + overlay (its `models:` margin kind; without a model, the kind the sidecar
-    records); a sidecar missing either is refused. A checkpoint with no sidecar (exported before sidecars
-    existed) is accepted.
+    records); a sidecar missing either is refused. The recorded `shield` must equal `model`'s spec and the recorded
+    `num_agents` must equal `n_agents`; both keys must be present (and a bool / an int) even when `model` or
+    `n_agents` is not given. A checkpoint with no sidecar (exported before sidecars existed) is accepted.
     """
     sidecar = Path(weights_path).parent / RUN_CONFIG_FILENAME
     if not sidecar.exists():
@@ -108,7 +113,22 @@ def check_checkpoint_provenance(
             f"evaluated under {expected} (config {str(config_path)!r}, overlay "
             f"{None if overlay_path is None else str(overlay_path)!r}); pass the overlay it was trained with"
         )
-    _check_trained_values(weights_path, recorded, load_config(config_path, overlay_path), model)
+    config = load_config(config_path, overlay_path)
+    _check_run_shape(weights_path, recorded, config, model, n_agents)
+    _check_trained_values(weights_path, recorded, config, model)
+
+
+def _check_run_shape(
+    weights_path: str | Path, recorded: Mapping, config: Mapping, model: str | None, n_agents: int | None
+) -> None:
+    """Refuse a checkpoint trained with another shield setting than `model`'s or at another N than `n_agents`."""
+    shield = None if model is None else bool(_spec_from_config(model, config)["shield"])
+    problems = run_shape_mismatches(recorded, shield=shield, num_agents=n_agents, model=model)
+    if problems:
+        raise CheckpointProvenanceError(
+            f"checkpoint {weights_path} does not match the model or constellation it would be evaluated as: "
+            f"{'; '.join(problems)}. {RUN_SHAPE_ADVICE}"
+        )
 
 
 def _check_trained_values(weights_path: str | Path, recorded: Mapping, config: Mapping, model: str | None) -> None:
@@ -128,11 +148,15 @@ def check_registry_provenance(
     *,
     config_path: str | Path = _DEFAULT_CONFIG,
     overlay_path: str | Path | None = None,
+    n_agents: int | None = None,
 ) -> None:
-    """`check_checkpoint_provenance` for every registered checkpoint, against the model it is registered as."""
+    """`check_checkpoint_provenance` for every registered checkpoint, against the model it is registered as and the
+    constellation size `n_agents` it will run at."""
     for model, seeds in registry.items():
         for weights in seeds.values():
-            check_checkpoint_provenance(weights, config_path=config_path, overlay_path=overlay_path, model=model)
+            check_checkpoint_provenance(
+                weights, config_path=config_path, overlay_path=overlay_path, model=model, n_agents=n_agents
+            )
 
 
 def build_tasks(
@@ -156,7 +180,9 @@ def build_tasks(
         if learned and not registry.get(model):
             raise ValueError(f"{model} is learned: register its trained checkpoints (training seed -> actor weights)")
         if learned:
-            check_registry_provenance({model: registry[model]}, config_path=config_path, overlay_path=overlay_path)
+            check_registry_provenance(
+                {model: registry[model]}, config_path=config_path, overlay_path=overlay_path, n_agents=n_agents
+            )
         variants = sorted(registry[model].items()) if learned else [(None, None)]
         for training_seed, weights in variants:
             for condition, seeds in condition_seeds.items():
@@ -529,6 +555,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     for command in (registry_cmd, freeze):
         command.add_argument(
+            "--n-agents", type=int, default=15, help="constellation size the checkpoints must have been trained at",
+        )
+        command.add_argument(
             ALLOW_PARTIAL_FLAG, action="store_true",
             help="accept learned models missing some of their rl.num_training_seeds seeds (recorded in the freeze)",
         )
@@ -559,7 +588,7 @@ def _check_complete(registry: Mapping[str, Mapping[int, str]], args: argparse.Na
 def _registry_command(args: argparse.Namespace) -> None:
     built = build_registry(args.runs_dir)
     _check_complete(built, args)
-    check_registry_provenance(built, config_path=args.config, overlay_path=args.overlay)
+    check_registry_provenance(built, config_path=args.config, overlay_path=args.overlay, n_agents=args.n_agents)
     serialized = {model: {str(seed): path for seed, path in seeds.items()} for model, seeds in built.items()}
     Path(args.out).write_text(json.dumps(serialized, indent=2))
     print({model: sorted(seeds) for model, seeds in built.items()})
@@ -570,7 +599,7 @@ def _freeze_command(args: argparse.Namespace) -> None:
 
     registry = _read_registry(args.registry)
     _check_complete(registry, args)
-    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
+    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay, n_agents=args.n_agents)
     snapshot = write_freeze_snapshot(
         args.out, _flat_checkpoints(registry), config_path=args.config, overlay_path=args.overlay,
         test_pool_path=args.test_pool, validation_pool_path=args.validation_pool, allow_partial=args.allow_partial,
@@ -600,7 +629,7 @@ def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         parser.error("--conditions applies to --split validation only; the final test runs the frozen pool's five")
     registry = _read_registry(args.registry)
     # Before any seed pool is read: a mismatched checkpoint must not even open the final-test pool.
-    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay)
+    check_registry_provenance(registry, config_path=args.config, overlay_path=args.overlay, n_agents=args.n_agents)
     if args.split == "validation":
         from orbit_guard.evaluation.seed_pools import load_seed_pool
 
