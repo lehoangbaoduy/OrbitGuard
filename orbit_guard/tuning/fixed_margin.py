@@ -38,6 +38,9 @@ from orbit_guard.safety.maneuver_mapper import ManeuverIntent
 
 PROTOCOL_SEED_COUNT = 12
 PROTOCOL_NUM_AGENTS = 15
+# Spawned children re-import the parent's __main__; under the grid CLI that pulls in torch and Ray, so the
+# default stays within the 6-process envelope the N=15 training already runs in (prereg RAM note).
+DEFAULT_MAX_WORKERS = 6
 _VALIDATION_CONFIG = REPO_ROOT / "configs" / "validation.yaml"
 
 
@@ -82,11 +85,13 @@ def no_manoeuvre_margin_inputs(
     """(sigma_rel_m, rho, risk) of every decision-time pair assessment of the protocol, in seed order.
 
     `max_decisions` caps the decision points per episode (None = the whole episode, the protocol). Episodes run
-    in `workers` spawned processes (default: one per seed, at most the CPU count); the rows do not depend on it.
+    in `workers` spawned processes (default: one per seed, at most DEFAULT_MAX_WORKERS and the CPU count); the
+    rows do not depend on it.
     """
     seeds = validation_seeds() if seeds is None else tuple(int(seed) for seed in seeds)
     jobs = [(dict(config), seed, num_agents, max_decisions) for seed in seeds]
-    count = min(len(jobs), os.cpu_count() or 1) if workers is None else max(1, min(workers, len(jobs)))
+    default = min(len(jobs), DEFAULT_MAX_WORKERS, os.cpu_count() or 1)
+    count = default if workers is None else max(1, min(workers, len(jobs)))
     if count <= 1:
         episodes = [_episode_margin_inputs(job) for job in jobs]
     else:

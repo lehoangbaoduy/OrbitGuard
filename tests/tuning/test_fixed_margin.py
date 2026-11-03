@@ -189,3 +189,33 @@ def test_measure_fixed_margin_is_the_mean_over_the_protocol_inputs(monkeypatch):
     adaptive = margin_from_config(config, "adaptive")
 
     assert measure_fixed_margin(config) == pytest.approx((adaptive(*inputs[0]) + adaptive(*inputs[1])) / 2)
+
+
+def test_the_default_worker_count_is_capped_for_the_grid_clis_memory(monkeypatch):
+    # Under `python -m orbit_guard.tuning.grid_search` every spawned child re-imports torch and Ray.
+    from orbit_guard.tuning import fixed_margin
+
+    sizes = []
+
+    class _Pool:
+        def __init__(self, size):
+            sizes.append(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def map(self, function, jobs):
+            return [np.zeros((0, 3)) for _ in jobs]
+
+    class _Context:
+        Pool = _Pool
+
+    monkeypatch.setattr(fixed_margin, "get_context", lambda method: _Context)
+    monkeypatch.setattr(fixed_margin.os, "cpu_count", lambda: 24)
+
+    no_manoeuvre_margin_inputs(load_config(), seeds=range(12))
+
+    assert sizes == [fixed_margin.DEFAULT_MAX_WORKERS] == [6]
