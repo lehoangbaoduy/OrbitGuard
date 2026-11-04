@@ -140,3 +140,12 @@ def test_a_torn_frozen_snapshot_stops_the_pipeline_before_the_test_run(tmp_path)
 
     assert [_step(call) for call in calls] == ["registry", "run"]
     assert all(_flag(call, "--split") != "test" for call in calls if _step(call) == "run")
+
+
+def test_the_results_step_installs_the_viz_extra_it_needs(tmp_path):
+    # results.py draws the figure with plotly, which only the `viz` extra installs: a fresh `uv sync` checkout
+    # ran the whole sweep and then failed on the last step (fresh-clone reproduction, 2026-11-04).
+    calls = _run_script(tmp_path, {"OVERLAY": ""})
+
+    (results,) = [call for call in calls if "orbit_guard.evaluation.results" in call]
+    assert results[:3] == ["run", "--extra", "viz"]

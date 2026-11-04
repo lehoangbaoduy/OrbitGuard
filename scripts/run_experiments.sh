@@ -54,5 +54,6 @@ uv run python -m orbit_guard.evaluation.experiment run --split test --freeze-sna
   --registry "$OUT/registry.json" --out "$OUT/test_episodes.jsonl" --workers "$WORKERS" --experiment-id final \
   ${overlay_flags[@]+"${overlay_flags[@]}"}
 
-# 4. Tables + figures + failure taxonomy, straight from the log.
-uv run python -m orbit_guard.evaluation.results --episodes "$OUT/test_episodes.jsonl" --out-dir "$OUT/results"
+# 4. Tables + figures + failure taxonomy, straight from the log. The figure needs plotly, which only the `viz`
+#    extra installs (a plain `uv sync` checkout has none).
+uv run --extra viz python -m orbit_guard.evaluation.results --episodes "$OUT/test_episodes.jsonl" --out-dir "$OUT/results"
