@@ -203,3 +203,12 @@ def test_the_failure_taxonomy_shows_how_many_episodes_each_column_counts():
 
     assert _cells(markdown, "episodes (any status)") == ["episodes (any status)", "4"]
     assert "total over all conditions, scenario seeds and training seeds, failed episodes included" in markdown
+
+
+def test_the_results_footnote_warns_that_mission_deviation_rises_with_sensor_noise():
+    report = format_report(_paired_records())
+    footnote = report.splitlines()[-1]
+
+    assert "mission deviation is measured on the belief-based shadow" in footnote.lower()
+    assert "rises with sensor noise even for the no_maneuver baseline" in footnote
+    assert "do not read it as mission performance under noise_increase" in footnote

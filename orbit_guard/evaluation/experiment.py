@@ -54,8 +54,11 @@ from orbit_guard.evaluation.registry_checks import (
 from orbit_guard.evaluation.runner import EpisodeTask, read_records, run_tasks
 from orbit_guard.evaluation.shifts import CONDITION_NAMES
 from orbit_guard.evaluation.statistics import (
+    BOOTSTRAP_RESAMPLES,
+    BOOTSTRAP_SEED,
     PairedComparison,
     Summary,
+    cluster_bootstrap_ci,
     degradation,
     holm_adjust,
     normal_mean_is_zero,
@@ -390,12 +393,20 @@ def _metric_value(record: Mapping, metric: str) -> float:
     return float(derived[metric] if metric in derived else record[metric])
 
 
-def _per_scenario(records: Sequence[Mapping], model: str, condition: str, metric: str) -> dict[int, float]:
+def _values_by_scenario(records: Sequence[Mapping], model: str, condition: str, metric: str) -> dict[int, list[float]]:
+    """Every ok episode's value of `metric`, grouped by scenario seed (one list entry per training seed)."""
     by_seed: dict[int, list[float]] = defaultdict(list)
     for record in records:
         if record["model_name"] == model and record["shift_type"] == condition and _is_ok(record):
             by_seed[record["scenario_seed"]].append(_metric_value(record, metric))
-    return {seed: float(np.mean(values)) for seed, values in by_seed.items()}
+    return dict(by_seed)
+
+
+def _per_scenario(records: Sequence[Mapping], model: str, condition: str, metric: str) -> dict[int, float]:
+    return {
+        seed: float(np.mean(values))
+        for seed, values in _values_by_scenario(records, model, condition, metric).items()
+    }
 
 
 def paired_by_scenario(
@@ -466,7 +477,9 @@ def format_report(records: Sequence[Mapping]) -> str:
         "Fleet Δv is the episode total over all satellites; shield agent-changes/step is the number of agents "
         "whose action the shield changed, per control step. `episodes` counts ok "
         "episodes; `failed` episodes (PRD §36 #9) are excluded from every metric but always listed here, and a "
-        f"row whose episodes all failed shows {_MISSING}."
+        f"row whose episodes all failed shows {_MISSING}. "
+        "Mission deviation is measured on the belief-based shadow, so it rises with sensor noise even for the "
+        "no_maneuver baseline; do not read it as mission performance under noise_increase."
         ),
     ]
     return "\n".join(lines)
@@ -555,6 +568,94 @@ def format_paired_report(
         "headline comparison, so this column is a robustness check, not a confirmatory test."
         ),
     ]
+    return "\n".join(lines)
+
+
+CONFIRMATORY_METRIC = "unsafe_rate"  # the collision-or-unsafe rate (Q33)
+CONFIRMATORY_FAMILIES = (
+    ("Family 1 (primary, PRD §2 headline)", "adaptive_mappo", "fixed_margin_mappo"),
+    ("Family 2 (secondary)", "adaptive_mappo", "adaptive_mappo_no_shield"),
+)
+_CONFIRMATORY_HEADER = (
+    "| condition | n | mean difference | 95% CI (paired t, clipped to [-1, 1]) | Wilcoxon p "
+    "| Holm p (within family) | 95% CI (two-stage cluster bootstrap) |"
+)
+
+
+def _bootstrap_cell(
+    records: Sequence[Mapping], method: str, baseline: str, condition: str, n_resamples: int, seed: int
+) -> str:
+    low, high = cluster_bootstrap_ci(
+        _values_by_scenario(records, method, condition, CONFIRMATORY_METRIC),
+        _values_by_scenario(records, baseline, condition, CONFIRMATORY_METRIC),
+        n_resamples=n_resamples, seed=seed,
+    )
+    return f"[{low:.3f}, {high:.3f}]"
+
+
+def _confirmatory_section(
+    records: Sequence[Mapping], title: str, method: str, baseline: str, n_resamples: int, seed: int
+) -> list[str]:
+    """One family: a row per canonical condition, Holm over the rows that carry a test (n >= 2)."""
+    results = {c: _paired_result(records, method, baseline, c, CONFIRMATORY_METRIC) for c in CONDITION_NAMES}
+    tested = [c for c in CONDITION_NAMES if not isinstance(results[c], str) and results[c].n >= 2]
+    holm = dict(zip(tested, holm_adjust([results[c].p_value for c in tested]), strict=True))
+    lines = [f"### {title}: {method} − {baseline}", "", _CONFIRMATORY_HEADER, "|---|---:|---:|---|---:|---:|---|"]
+    for condition in CONDITION_NAMES:
+        result = results[condition]
+        if isinstance(result, str):
+            lines.append(f"| {condition} | 0 | {_MISSING} | {_MISSING} | {result} | {_MISSING} | {_MISSING} |")
+            continue
+        low, high = max(result.ci_low, -1.0), min(result.ci_high, 1.0)  # a difference of two rates lies in [-1, 1]
+        interval = f"n/a (n={result.n})" if result.n < 2 else f"[{low:.3f}, {high:.3f}]"
+        if result.n < 2:
+            bootstrap, holm_cell = f"n/a (n={result.n})", _MISSING
+        else:
+            bootstrap = _bootstrap_cell(records, method, baseline, condition, n_resamples, seed)
+            holm_cell = _p_cell(holm[condition])
+        lines.append(
+            f"| {condition} | {result.n} | {result.mean_difference:.3f} | {interval} | {_p_cell(result.p_value)} "
+            f"| {holm_cell} | {bootstrap} |"
+        )
+    return lines
+
+
+_CONFIRMATORY_FOOTNOTE = (
+    "The families and the bootstrap were declared on 2026-11-04, AFTER the final test sweep: the pre-registration "
+    "(R1–R6) fixed no headline test, "
+    "threshold or correction, so the two families, the Holm correction within each family, the rate clipping and "
+    "the bootstrap are post-hoc confirmatory choices, not pre-registered tests. Only the two families are "
+    "confirmatory; everything else (paired_comparisons.md, the other metrics and baselines, degradation.md, "
+    "failure_taxonomy.md) is descriptive. The metric counts an episode as collision-or-unsafe if it had a collision "
+    "or any pair's closest approach fell inside the default-config adaptive margin (Q33). Sign: method − baseline, "
+    "so a negative difference favours the first model. Holm p is a step-down over the five conditions of its "
+    f"family; a row without a test (skipped, or n < 2) is outside the family and shown as {_MISSING}. The paired-t "
+    "CI is the t-interval of the paired differences, clipped to [-1, 1]. The bootstrap CI is a two-stage cluster "
+    f"bootstrap percentile interval of the mean paired difference, B = {BOOTSTRAP_RESAMPLES} resamples with numpy "
+    f"default_rng seed {BOOTSTRAP_SEED}: it resamples scenario seeds with replacement and, within them, "
+    "training seeds of each learned model with replacement (non-learned models have one record per scenario)."
+)
+
+
+def format_confirmatory_report(
+    records: Sequence[Mapping], n_resamples: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED
+) -> str:
+    """The two declared families on the collision-or-unsafe rate, each with its own Holm and a bootstrap column.
+
+    Post hoc: declared after the final test sweep (see the footnote); the other tables stay descriptive.
+    """
+    lines = [
+        "# Confirmatory comparisons (declared 2026-11-04, after the final test sweep; post hoc)",
+        "",
+        (
+            "Metric: collision-or-unsafe rate, the paired difference of per-episode 0/1 outcomes on matched scenario "
+            "seeds (training seeds averaged per scenario)."
+        ),
+        "",
+    ]
+    for title, method, baseline in CONFIRMATORY_FAMILIES:
+        lines += _confirmatory_section(records, title, method, baseline, n_resamples, seed) + [""]
+    lines.append(_CONFIRMATORY_FOOTNOTE)
     return "\n".join(lines)
 
 
