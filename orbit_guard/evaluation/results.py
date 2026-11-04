@@ -3,8 +3,8 @@
 Nothing here is hand-typed: `write_results(records, out_dir)` reads logged
 episode records and writes the markdown results table, the paired-comparison
 and degradation tables (PRD §34), the failure-taxonomy table, and the
-primary-endpoint figure, and confirmatory.md (the two post-hoc families of PRD §2 comparisons, each with Holm
-and a cluster-bootstrap sensitivity column). Every episode can carry several of the nine §36
+primary-endpoint figure, and confirmatory.md (the two post-hoc families of PRD §2 comparisons, each with
+Holm and a cluster-bootstrap sensitivity column). Every episode can carry several of the nine §36
 labels; they are counted separately, never collapsed into one flag. Failed
 episodes are counted in the results table and a condition whose episodes all
 failed keeps its place on the figure's x axis with an empty bar.
@@ -104,8 +104,7 @@ def collision_rate_figure(records: Sequence[Mapping]) -> go.Figure:
 
 
 def write_results(records: Sequence[Mapping], out_dir: str | Path) -> list[Path]:
-    """Write the results, paired-comparison, degradation, taxonomy and confirmatory tables and the figure; return
-    the paths."""
+    """Write the results, paired, degradation, taxonomy and confirmatory tables and the figure; return the paths."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     table = out / "results_table.md"

@@ -593,6 +593,11 @@ def _bootstrap_cell(
     return f"[{low:.3f}, {high:.3f}]"
 
 
+def _confirmatory_p_cell(p_value: float) -> str:
+    """A p-value cell; a non-finite p is no test, so it shows as a dash rather than as `nan`."""
+    return _p_cell(p_value) if np.isfinite(p_value) else _MISSING
+
+
 def _confirmatory_section(
     records: Sequence[Mapping], title: str, method: str, baseline: str, n_resamples: int, seed: int
 ) -> list[str]:
@@ -609,13 +614,13 @@ def _confirmatory_section(
         low, high = max(result.ci_low, -1.0), min(result.ci_high, 1.0)  # a difference of two rates lies in [-1, 1]
         interval = f"n/a (n={result.n})" if result.n < 2 else f"[{low:.3f}, {high:.3f}]"
         if result.n < 2:
-            bootstrap, holm_cell = f"n/a (n={result.n})", _MISSING
+            bootstrap, holm_cell = _MISSING, _MISSING
         else:
             bootstrap = _bootstrap_cell(records, method, baseline, condition, n_resamples, seed)
-            holm_cell = _p_cell(holm[condition])
+            holm_cell = _confirmatory_p_cell(holm[condition])
         lines.append(
-            f"| {condition} | {result.n} | {result.mean_difference:.3f} | {interval} | {_p_cell(result.p_value)} "
-            f"| {holm_cell} | {bootstrap} |"
+            f"| {condition} | {result.n} | {result.mean_difference:.3f} | {interval} "
+            f"| {_confirmatory_p_cell(result.p_value)} | {holm_cell} | {bootstrap} |"
         )
     return lines
 
@@ -628,8 +633,8 @@ _CONFIRMATORY_FOOTNOTE = (
     "confirmatory; everything else (paired_comparisons.md, the other metrics and baselines, degradation.md, "
     "failure_taxonomy.md) is descriptive. The metric counts an episode as collision-or-unsafe if it had a collision "
     "or any pair's closest approach fell inside the default-config adaptive margin (Q33). Sign: method − baseline, "
-    "so a negative difference favours the first model. Holm p is a step-down over the five conditions of its "
-    f"family; a row without a test (skipped, or n < 2) is outside the family and shown as {_MISSING}. The paired-t "
+    "so a negative difference favours the first model. Holm p is a step-down over the rows of its family that carry "
+    f"a test (n >= 2, not skipped); a row without a test is outside the family and shown as {_MISSING}. The paired-t "
     "CI is the t-interval of the paired differences, clipped to [-1, 1]. The bootstrap CI is a two-stage cluster "
     f"bootstrap percentile interval of the mean paired difference, B = {BOOTSTRAP_RESAMPLES} resamples with numpy "
     f"default_rng seed {BOOTSTRAP_SEED}: it resamples scenario seeds with replacement and, within them, "

@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from orbit_guard.evaluation.statistics import (
+    BOOTSTRAP_RESAMPLES,
+    BOOTSTRAP_SEED,
     cluster_bootstrap_ci,
     degradation,
     mean_std_ci,
@@ -151,3 +153,8 @@ def test_cluster_bootstrap_uses_only_scenarios_both_models_ran():
 def test_cluster_bootstrap_needs_a_shared_scenario():
     with pytest.raises(ValueError):
         cluster_bootstrap_ci({0: [1.0]}, {1: [0.0]}, n_resamples=10, seed=1)
+
+
+def test_cluster_bootstrap_default_resamples_and_seed_are_the_declared_ones():
+    assert BOOTSTRAP_RESAMPLES == 10_000
+    assert BOOTSTRAP_SEED == 20261104

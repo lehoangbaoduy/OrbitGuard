@@ -7,10 +7,13 @@ of these choices, so the report says so, and the descriptive tables stay as they
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 pytest.importorskip("plotly")
 
+from orbit_guard.evaluation import experiment
 from orbit_guard.evaluation.experiment import format_confirmatory_report
 from orbit_guard.evaluation.results import write_results
 from orbit_guard.evaluation.shifts import CONDITION_NAMES
@@ -121,7 +124,7 @@ def test_a_row_without_a_test_stays_out_of_its_family_and_is_shown_as_a_dash():
     skipped = _row(report, FAMILY_2, "simultaneous_conjunctions")
     single = _row(report, FAMILY_2, "capability_reduction")
     assert skipped[1] == "0" and skipped[5] == "—" and skipped[6] == "—"
-    assert single[1] == "1" and single[5] == "—" and single[6] == "n/a (n=1)"
+    assert single[1] == "1" and single[5] == "—" and single[6] == "—"
     tested = [_row(report, FAMILY_2, c) for c in ("normal", "noise_increase", "density_increase")]
     assert [float(cells[5]) for cells in tested] == pytest.approx(
         holm_adjust([float(cells[4]) for cells in tested]), abs=5e-4
@@ -164,6 +167,22 @@ def test_the_footnote_declares_the_families_post_hoc_and_the_bootstrap():
     assert "Q33" in report
     assert "resamples scenario seeds" in report and "within them, training seeds" in report
     assert "B = 10000" in report and "20261104" in report
+    assert "over the rows of its family that carry a test" in report
+    assert "five conditions" not in report
+
+
+def test_a_non_finite_p_value_is_shown_as_a_dash_not_as_nan(monkeypatch):
+    real = experiment.paired_by_scenario
+
+    def with_nan_p(*args, **kwargs):
+        return dataclasses.replace(real(*args, **kwargs), p_value=float("nan"))
+
+    monkeypatch.setattr(experiment, "paired_by_scenario", with_nan_p)
+    report = format_confirmatory_report(_fixture())
+    row = _row(report, FAMILY_1, "normal")
+
+    assert row[4] == "—" and row[5] == "—"
+    assert "nan" not in row
 
 
 def test_write_results_writes_and_returns_confirmatory_md(tmp_path):

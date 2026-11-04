@@ -24,6 +24,8 @@ import numpy as np
 from scipy import stats
 
 DEGRADATION_EPSILON = 1.0e-9
+BOOTSTRAP_RESAMPLES = 10_000  # cluster_bootstrap_ci default; confirmatory.md states B
+BOOTSTRAP_SEED = 20261104  # numpy default_rng seed for the bootstrap; declared with the confirmatory families
 
 
 @dataclass(frozen=True)
@@ -97,11 +99,9 @@ def holm_adjust(p_values: Sequence[float]) -> list[float]:
     return adjusted
 
 
-BOOTSTRAP_RESAMPLES = 10_000
-BOOTSTRAP_SEED = 20261104
-
-
-def _resampled_scenario_means(values_by_scenario: Sequence[Sequence[float]], drawn: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def _resampled_scenario_means(
+    values_by_scenario: Sequence[Sequence[float]], drawn: np.ndarray, rng: np.random.Generator
+) -> np.ndarray:
     """Stage 2: for each drawn scenario position, the mean of a fresh with-replacement resample of its training seeds.
 
     `drawn` is (resamples, positions) of indices into `values_by_scenario`; the result has the same shape. Every
