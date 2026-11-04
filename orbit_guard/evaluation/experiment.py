@@ -638,7 +638,9 @@ _CONFIRMATORY_FOOTNOTE = (
     "CI is the t-interval of the paired differences, clipped to [-1, 1]. The bootstrap CI is a two-stage cluster "
     f"bootstrap percentile interval of the mean paired difference, B = {BOOTSTRAP_RESAMPLES} resamples with numpy "
     f"default_rng seed {BOOTSTRAP_SEED}: it resamples scenario seeds with replacement and, within them, "
-    "training seeds of each learned model with replacement (non-learned models have one record per scenario)."
+    "training seeds of each learned model with replacement (non-learned models have one record per scenario). "
+    "Its bounds are discrete (the mean difference moves in steps of 1/(training seeds x scenarios), 1/30 here), "
+    "so another resampling seed can move a bound by one step; read them as approximate."
 )
 
 

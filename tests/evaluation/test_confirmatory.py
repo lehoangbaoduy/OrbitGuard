@@ -169,6 +169,7 @@ def test_the_footnote_declares_the_families_post_hoc_and_the_bootstrap():
     assert "B = 10000" in report and "20261104" in report
     assert "over the rows of its family that carry a test" in report
     assert "five conditions" not in report
+    assert "discrete" in report and "one step" in report  # bounds sit on the 1/(seeds x scenarios) grid
 
 
 def test_a_non_finite_p_value_is_shown_as_a_dash_not_as_nan(monkeypatch):
