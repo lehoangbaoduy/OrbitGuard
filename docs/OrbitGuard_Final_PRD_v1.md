@@ -903,7 +903,7 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 - [x] Joint-action safety shield implemented, all 7 steps (§29) — **Safety**
 - [x] Shield repair search implemented and tested — exact enumeration for ≤4 affected agents, beam search (width 50) otherwise — **Safety**
 - [x] Acceptance Test E (§38) passes — an intentionally unsafe proposal is rejected or replaced when a feasible alternative exists — **Safety**
-- [ ] Coarse grid search of reward weights and margin coefficients run on the **validation** split only (§25, §33 — never touch test seeds here) — **RL**
+- [x] Coarse grid search of reward weights and margin coefficients run on the **validation** split only (§25, §33 — never touch test seeds here) — **RL** *(2026-11-03, prereg R5: 8 points × 20 validation episodes, winner `margin_narrow_w4_1.5`; every point was collision- and unsafe-free, so selection rested on Δv budget alone — see docs/OrbitGuard_progress.md §0c)*
 
 **Exit criteria:** N=15 shielded MAPPO trains end-to-end without crashing across at least 3 training seeds; shield intervention rate is logged and its magnitude looks sane (neither ~0%, which suggests the diagnostic isn't wired up, nor so high it's clearly suppressing all learning).
 
@@ -912,9 +912,9 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 **Goal:** Generate the actual numbers the paper's central claim depends on.
 
 - [x] All 5 baselines implemented, runnable from configuration alone (§31, FR14) — **Evaluation** *(No-Maneuver and Rule-Based are Evaluation's own build; the 3 MARL-based baselines reuse RL's config-driven pipeline from Phase 3–4)*
-- [ ] Adaptive-vs-Fixed-Margin comparison run across the full 3-training-seed protocol — **Evaluation** orchestrates, on top of **RL**'s pipeline
+- [x] Adaptive-vs-Fixed-Margin comparison run across the full 3-training-seed protocol — **Evaluation** orchestrates, on top of **RL**'s pipeline *(2026-11-04, final test sweep after the one-way freeze: inconclusive — 0 collisions in both arms; the largest directional difference, noise_increase, is not significant — see docs/OrbitGuard_progress.md §0c)*
 - [ ] All 4 core distribution-shift scenarios implemented and run zero-shot (§32, FR15) — **Evaluation** builds the harness; **Astro** defines the physical scenario parameters (e.g. what "increased density" or the stuck-thruster capability-down case concretely means)
-- [ ] Full seed protocol executed: 3 training seeds × 10 evaluation seeds × 5 conditions (§33) — **Evaluation**
+- [x] Full seed protocol executed: 3 training seeds × 10 evaluation seeds × 5 conditions (§33) — **Evaluation** *(2026-11-04: 550 final-test episodes, 0 failed)*
 - [x] Acceptance Tests F and G (§38) pass — same config + seed reproduces the same result; the shift-scenario suite runs from one config interface — **F: RL + Evaluation jointly · G: Evaluation**
 - [x] Metrics/statistics pipeline producing means, spread, and degradation scores (§34) — **Evaluation**
 
@@ -924,10 +924,10 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Fill in the supporting evidence and make the system's behavior visible to someone other than the person who built it.
 
-- [ ] Shield-vs-no-shield ablation run (§28) — prioritized per §46 over any remaining stretch feature — **RL** trains the no-shield policy (a separate training run, per §28) · **Evaluation** runs the comparison · **Safety** supports interpreting shield-specific results
+- [x] Shield-vs-no-shield ablation run (§28) — prioritized per §46 over any remaining stretch feature — **RL** trains the no-shield policy (a separate training run, per §28) · **Evaluation** runs the comparison · **Safety** supports interpreting shield-specific results *(2026-11-04: separately trained no-shield arm, 3 seeds, all five conditions; Safety's interpretation still to come)*
 - [x] Dash/Plotly visualization built (§41); replay mode works standalone, no live training/inference required (FR16) — **Visualization**
 - [x] Failure-mode taxonomy (§36) applied to logged episodes — **Evaluation**, reviewed by **Astro** for physical plausibility
-- [ ] Result tables and figures generated directly from logged experiment data, not hand-copied numbers — **Evaluation**
+- [x] Result tables and figures generated directly from logged experiment data, not hand-copied numbers — **Evaluation** *(2026-11-04: `orbit_guard/evaluation/results.py` from the episode log; regenerated at the frozen commit `066679c` byte for byte; the post-hoc renderer at HEAD writes `results_posthoc/`)*
 
 #### Phase 7 — Paper, Poster & Buffer (Week 15)
 
