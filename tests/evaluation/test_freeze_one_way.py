@@ -486,3 +486,29 @@ def test_the_test_split_refuses_an_overlay_other_than_the_frozen_one(world, monk
                 "--config", str(world["config"]), "--test-pool", str(world["test_pool"]),
             ]
         )
+
+
+@pytest.mark.parametrize("errno_name", ["EPERM", "ENOTSUP"])
+def test_a_filesystem_without_hard_links_fails_with_a_clear_message_and_no_leftover(world, monkeypatch, errno_name):
+    import errno
+
+    before = _names(world)
+
+    def no_links(source, target):
+        raise OSError(getattr(errno, errno_name), "Operation not permitted")
+
+    monkeypatch.setattr(freeze.os, "link", no_links)
+
+    with pytest.raises(FrozenConfigError, match="hard link"):
+        _freeze(world)
+
+    assert _names(world) == before
+
+
+def test_the_snapshot_directory_is_synced_after_the_link(world, monkeypatch):
+    synced = []
+    monkeypatch.setattr(freeze, "fsync_directory", lambda directory: synced.append(Path(directory)))
+
+    _freeze(world)
+
+    assert synced == [world["snapshot"].parent]

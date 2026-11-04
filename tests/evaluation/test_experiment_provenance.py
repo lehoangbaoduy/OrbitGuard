@@ -148,7 +148,7 @@ def test_a_checkpoint_trained_as_another_training_seed_is_refused(tmp_path):
     run = _run_dir(tmp_path, "n15_adaptive_s0", None)
     _trained_as(run, seed=0)
 
-    with pytest.raises(CheckpointProvenanceError, match="seed"):
+    with pytest.raises(CheckpointProvenanceError, match=r"records seed 0, registered as seed 1"):
         check_checkpoint_provenance(
             run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None, training_seed=1
         )
@@ -160,7 +160,7 @@ def test_a_sidecar_without_a_seed_is_refused_when_a_seed_is_expected(tmp_path):
     record = json.loads((run / "run_config.json").read_text())
     (run / "run_config.json").write_text(json.dumps({key: value for key, value in record.items() if key != "seed"}))
 
-    with pytest.raises(CheckpointProvenanceError, match="seed"):
+    with pytest.raises(CheckpointProvenanceError, match="records no seed"):
         check_checkpoint_provenance(
             run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None, training_seed=0
         )
@@ -193,7 +193,7 @@ def test_the_registry_seed_must_be_the_training_seed_the_checkpoint_recorded(tmp
     run = _run_dir(tmp_path, "n15_adaptive_s0", None)
     _trained_as(run, seed=0)
 
-    with pytest.raises(CheckpointProvenanceError, match="seed"):
+    with pytest.raises(CheckpointProvenanceError, match=r"records seed 0, registered as seed 1"):
         check_registry_provenance({"adaptive_mappo": {1: str(run / "actor_weights.npz")}}, config_path=DEFAULT_CONFIG_PATH)
 
 
@@ -204,7 +204,7 @@ def test_the_run_command_refuses_a_registry_seed_the_checkpoint_was_not_trained_
     registry.write_text(json.dumps({"adaptive_mappo": {"1": str(run / "actor_weights.npz")}}))
     monkeypatch.setattr(experiment, "run_tasks", lambda *a, **k: pytest.fail("must refuse before running"))
 
-    with pytest.raises(CheckpointProvenanceError, match="seed"):
+    with pytest.raises(CheckpointProvenanceError, match=r"records seed 0, registered as seed 1"):
         experiment.main(
             [
                 "run", "--split", "validation", "--max-seeds", "1", "--models", "adaptive_mappo",
@@ -282,3 +282,17 @@ def test_the_freeze_command_refuses_a_checkpoint_trained_under_another_overlay(t
         experiment.main(["freeze", "--registry", str(registry), "--out", str(tmp_path / "frozen.json")])
 
     assert not (tmp_path / "frozen.json").exists()
+
+
+@pytest.mark.parametrize("seed", [True, "0", 0.0], ids=["bool", "string", "float"])
+def test_a_sidecar_seed_that_is_not_an_integer_is_refused(tmp_path, seed):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+    record = json.loads((run / "run_config.json").read_text())
+    (run / "run_config.json").write_text(json.dumps({**record, "seed": seed}))
+
+    with pytest.raises(CheckpointProvenanceError, match="not an integer seed"):
+        check_checkpoint_provenance(
+            run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None,
+            training_seed=int(seed) if seed is not True else 1,
+        )

@@ -21,7 +21,6 @@ Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -270,6 +269,10 @@ def train(
     )
 
 
+def _malformed_sidecar(sidecar: Path, detail: str) -> ValueError:
+    return ValueError(f"checkpoint sidecar {sidecar} is malformed: {detail}; cannot recover its critic_input")
+
+
 def _settings_matching_checkpoint(settings: TrainingSettings, checkpoint_path: str | Path) -> TrainingSettings:
     """`settings` with the critic_input the checkpoint was trained with, as its run_config.json sidecar records it.
 
@@ -285,9 +288,14 @@ def _settings_matching_checkpoint(settings: TrainingSettings, checkpoint_path: s
         raise ValueError(
             f"checkpoint sidecar {sidecar} is unreadable ({error!r}); cannot recover its critic_input"
         ) from error
-    recorded_input = recorded.get("training", {}).get("critic_input")
+    training_record = recorded.get("training", {}) if isinstance(recorded, dict) else None
+    if not isinstance(training_record, dict):
+        raise _malformed_sidecar(sidecar, "expected an object with a 'training' object")
+    recorded_input = training_record.get("critic_input")
     if recorded_input is None:
         return settings
+    if not isinstance(recorded_input, str):
+        raise _malformed_sidecar(sidecar, f"training.critic_input is {recorded_input!r}")
     if recorded_input != settings.critic_input:
         print(
             f"[restore] {sidecar} records critic_input {recorded_input!r}; "
@@ -297,24 +305,18 @@ def _settings_matching_checkpoint(settings: TrainingSettings, checkpoint_path: s
     return dataclasses.replace(settings, critic_input=recorded_input)
 
 
-def _file_sha256(path: str | Path | None) -> str | None:
-    """sha256 of a file's bytes, or None when there is no file (a run without an overlay)."""
-    if path is None:
-        return None
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def _require_unchanged_config(config_path: str | Path, overlay_path: str | Path | None, started_digest: str) -> None:
+    """Raise unless config_digest (base config, TLE file and overlay bytes) is what it was when the run started.
 
-
-def _require_unchanged_overlay(overlay_path: str | Path | None, started_sha256: str | None) -> None:
-    """Raise unless the overlay still has the bytes the run was started with.
-
-    The config was read from the overlay at start, so a file edited during training would make the sidecar's
-    config_digest describe a configuration the run never trained with.
+    The config was read at start, so a file edited during training would make the sidecar's config_digest
+    describe a configuration the run never trained with. An edit reverted before the end is not detected.
     """
-    ending_sha256 = _file_sha256(overlay_path)
-    if ending_sha256 != started_sha256:
+    ending_digest = config_digest(config_path, overlay_path)
+    if ending_digest != started_digest:
         raise RuntimeError(
-            f"overlay {overlay_path} changed during training (sha256 {started_sha256} at start, {ending_sha256} "
-            "now); refusing to write run_config.json for a configuration the run did not train with"
+            f"config {config_path} / overlay {overlay_path} changed during training (config_digest "
+            f"{started_digest} at start, {ending_digest} now); refusing to write run_config.json for a "
+            "configuration the run did not train with"
         )
 
 
@@ -379,7 +381,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.add_argument(f"--margin-{coefficient}", type=float, default=None)
     args = parser.parse_args(argv)
     started = git_state(_repository())  # the code this process (and, at build_algo, its workers) imports
-    overlay_started_sha256 = _file_sha256(args.overlay)  # before the first load reads the overlay
+    started_digest = config_digest(args.config, args.overlay)  # before the first load reads the config
 
     overrides = {
         "seed": args.seed,
@@ -431,7 +433,7 @@ def main(argv: list[str] | None = None) -> None:
 
         report = train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
         if report.checkpoint_path is not None:
-            _require_unchanged_overlay(args.overlay, overlay_started_sha256)
+            _require_unchanged_config(args.config, args.overlay, started_digest)
             dirty = started["git_dirty"]
             run_config = build_run_config(
                 config_path=args.config, overlay_path=args.overlay, reward_weights=reward_weights,

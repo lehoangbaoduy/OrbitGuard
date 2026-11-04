@@ -8,8 +8,8 @@ run_config.json, so an episode can be traced to the exact configuration it ran u
 pickles into worker processes and is reproducible: the same task gives the same
 record up to the timing fields (Acceptance Test F). Learned policies run from
 exported NumPy actor weights (`rl.actor_policy`), so an episode needs neither Ray
-nor torch at run time. Importing this module still loads both: `baselines` imports `rl.evaluation`,
-which imports ray and torch at module level, so each spawn worker pays that import once.
+nor torch, and importing this module loads neither (`rl.evaluation` imports them lazily), so a spawn worker
+stays light (tests/evaluation/test_worker_imports.py).
 
 `run_tasks` fans tasks out over processes, appends one JSON line per episode as
 it completes, and RESUMES: tasks whose key is already in the output file are

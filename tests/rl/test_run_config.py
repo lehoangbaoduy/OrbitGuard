@@ -194,3 +194,42 @@ def test_training_refuses_to_write_a_sidecar_when_the_overlay_changed_mid_run(tm
 
     assert (checkpoint / ACTOR_WEIGHTS_FILENAME).exists()
     assert not (checkpoint / RUN_CONFIG_FILENAME).exists()
+
+
+@pytest.mark.parametrize(
+    "sidecar", ["[]", '{"training": null}', '{"training": []}', '{"training": {"critic_input": 5}}'],
+    ids=["not-an-object", "training-null", "training-not-an-object", "critic-input-not-a-string"],
+)
+def test_restore_refuses_a_malformed_sidecar_instead_of_crashing_or_guessing(tmp_path, monkeypatch, sidecar):
+    (tmp_path / RUN_CONFIG_FILENAME).write_text(sidecar)
+    _capture_build_algo(monkeypatch)
+
+    with pytest.raises(ValueError, match=f"{RUN_CONFIG_FILENAME}.*malformed"):
+        restore(lambda config: None, TrainingSettings(), tmp_path)
+
+
+def test_training_refuses_to_write_a_sidecar_when_the_base_config_changed_mid_run(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "run"
+    config = tmp_path / "default.yaml"
+    config.write_text(DEFAULT_CONFIG_PATH.read_text())
+
+    def fake_train(algo, num_iterations, checkpoint_dir=None, on_iteration=None):
+        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        (Path(checkpoint_dir) / ACTOR_WEIGHTS_FILENAME).write_bytes(b"")
+        config.write_text(config.read_text() + "\n# edited while the run trained\n")
+        return TrainingReport(iterations=num_iterations, episode_return_means=(), env_steps_sampled=0,
+                              checkpoint_path=str(checkpoint_dir))
+
+    monkeypatch.setattr(training, "build_algo", lambda env_factory, settings: _FakeAlgo())
+    monkeypatch.setattr(training, "train", fake_train)
+    monkeypatch.setattr("orbit_guard.rl.evaluation.evaluate_policy", lambda *a, **k: _report())
+    monkeypatch.setattr("orbit_guard.rl.evaluation.evaluate", lambda *a, **k: _report())
+    monkeypatch.setattr("orbit_guard.rl.evaluation.gate_verdict", lambda *a, **k: "PASS")
+
+    with pytest.raises(RuntimeError, match="changed during training"):
+        training.main([
+            "--agents", "2", "--iterations", "1", "--eval-episodes", "1", "--num-env-runners", "0",
+            "--checkpoint-dir", str(checkpoint), "--config", str(config),
+        ])
+
+    assert not (checkpoint / RUN_CONFIG_FILENAME).exists()

@@ -146,13 +146,17 @@ def _seed_mismatches(recorded: Mapping, training_seed: int | None) -> list[str]:
         return []
     if "seed" not in recorded:
         return ["sidecar records no seed"]
+    if not isinstance(recorded["seed"], int) or isinstance(recorded["seed"], bool):
+        return [f"sidecar records {recorded['seed']!r}, not an integer seed"]
     if recorded["seed"] != training_seed:
         return [f"sidecar records seed {recorded['seed']!r}, registered as seed {training_seed}"]
     return []
 
 
 def _critic_input_mismatches(recorded: Mapping, config: Mapping) -> list[str]:
-    expected = config["rl"]["critic_input"]
+    expected = config.get("rl", {}).get("critic_input")
+    if expected is None:
+        return ["the config sets no rl.critic_input to compare the sidecar's with"]
     training = recorded.get("training")
     if not isinstance(training, Mapping) or "critic_input" not in training:
         return ["sidecar records no training.critic_input"]

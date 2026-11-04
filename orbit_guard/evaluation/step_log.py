@@ -77,7 +77,8 @@ def _encode(records: Sequence[Mapping]) -> bytes:
     return gzip.compress(raw, compresslevel=_COMPRESS_LEVEL, mtime=0)
 
 
-def _fsync_directory(directory: Path) -> None:
+def fsync_directory(directory: Path) -> None:
+    """Best-effort fsync of a directory entry after a rename or link (a no-op where unsupported)."""
     try:
         fd = os.open(directory, os.O_RDONLY)
     except OSError:  # not supported on every platform/filesystem; the file itself is already fsynced
@@ -107,7 +108,7 @@ def write_step_log(directory: str | Path, episode_key: str, records: Sequence[Ma
     except BaseException:
         temp_path.unlink(missing_ok=True)
         raise
-    _fsync_directory(target_dir)
+    fsync_directory(target_dir)
     return WrittenStepLog(name, hashlib.sha256(payload).hexdigest(), len(records))
 
 

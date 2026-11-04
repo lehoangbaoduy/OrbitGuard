@@ -128,7 +128,7 @@ def test_a_checkpoint_without_a_sidecar_is_refused(tmp_path):
 def test_a_replayed_checkpoint_must_have_been_trained_as_its_training_seed(tmp_path):
     weights = _checkpoint(tmp_path, trained_with=None)  # the sidecar records seed 0
     item = EpisodePlan("normal", 0, "trained", True, "adaptive_mappo", weights, training_seed=1)
-    with pytest.raises(CheckpointProvenanceError, match="seed"):
+    with pytest.raises(CheckpointProvenanceError, match=r"records seed 0, registered as seed 1"):
         _record(tmp_path, item)
     assert not list(tmp_path.glob("out/*.npz"))
 

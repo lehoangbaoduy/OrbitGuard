@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from orbit_guard.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_digest
+from orbit_guard.evaluation.step_log import fsync_directory
 
 GIT_ROOT = REPO_ROOT
 FROZEN_PATHS = ("orbit_guard", "configs", "scripts", "data")  # data/: the TLE file config_digest covers
@@ -294,7 +295,9 @@ def _publish_new_file(target: Path, text: str) -> None:
 
     The text goes to a synced temporary file beside the target, which `os.link` then gives the target's name.
     Link fails when the target exists, so a race with another freeze cannot overwrite it, and a crash before the
-    link leaves only the temporary file, never a torn snapshot under the target's name.
+    link leaves only the temporary file, never a torn snapshot under the target's name. The directory is synced
+    after the link so the name survives a crash. A filesystem without hard links is refused, not worked around:
+    an exclusive create would bring back the torn-file case.
     """
     temp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -306,8 +309,14 @@ def _publish_new_file(target: Path, text: str) -> None:
             os.link(temp, target)
         except FileExistsError as error:
             raise _already_frozen(target) from error
+        except OSError as error:
+            raise FrozenConfigError(
+                f"cannot write freeze snapshot {target}: its filesystem refused a hard link ({error}); the "
+                "one-way freeze needs one (write the snapshot on a local disk such as ext4)"
+            ) from error
     finally:
         temp.unlink(missing_ok=True)
+    fsync_directory(target.parent)
 
 
 def _load_snapshot(path: Path) -> dict:
