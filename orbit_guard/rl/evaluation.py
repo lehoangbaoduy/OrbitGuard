@@ -39,17 +39,18 @@ import math
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 from gymnasium.spaces.utils import flatten
-from ray.rllib.algorithms.algorithm import Algorithm
-from ray.rllib.core.columns import Columns
 
-from orbit_guard.rl.ctde_module import POLICY_ID
 from orbit_guard.rl.observation import THREATENING_RISK_THRESHOLD
-from orbit_guard.rl.rllib_env import EnvFactory
 from orbit_guard.safety.maneuver_mapper import ManeuverIntent
+
+if TYPE_CHECKING:  # annotations only: a runtime import would load torch and ray in every evaluation worker
+    from ray.rllib.algorithms.algorithm import Algorithm
+
+    from orbit_guard.rl.rllib_env import EnvFactory
 
 Policy = Callable[[str, dict[str, np.ndarray]], int]
 _MAX_RISK_INDEX = 1
@@ -89,6 +90,11 @@ def make_greedy_policy(algo: Algorithm, env_factory: EnvFactory) -> Policy:
     global slice (alive mask and time remaining included) is zero-padded; the
     actor never reads it (see ctde_module).
     """
+    import torch
+    from ray.rllib.core.columns import Columns
+
+    from orbit_guard.rl.ctde_module import POLICY_ID
+
     module = algo.get_module(POLICY_ID)
     probe_env = env_factory({})
     observation_space = probe_env.observation_space(probe_env.possible_agents[0])

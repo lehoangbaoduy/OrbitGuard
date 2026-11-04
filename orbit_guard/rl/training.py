@@ -21,7 +21,9 @@ Config-driven: hyperparameters come from `configs/default.yaml`'s `rl:` block
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -268,9 +270,58 @@ def train(
     )
 
 
+def _settings_matching_checkpoint(settings: TrainingSettings, checkpoint_path: str | Path) -> TrainingSettings:
+    """`settings` with the critic_input the checkpoint was trained with, as its run_config.json sidecar records it.
+
+    A checkpoint without a sidecar, or whose sidecar predates the critic_input record, keeps `settings` as given.
+    The caller's default cannot be told apart from an explicit value, so the sidecar wins and a differing one is noted.
+    """
+    sidecar = Path(checkpoint_path) / RUN_CONFIG_FILENAME
+    if not sidecar.is_file():
+        return settings
+    try:
+        recorded = json.loads(sidecar.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"checkpoint sidecar {sidecar} is unreadable ({error!r}); cannot recover its critic_input"
+        ) from error
+    recorded_input = recorded.get("training", {}).get("critic_input")
+    if recorded_input is None:
+        return settings
+    if recorded_input != settings.critic_input:
+        print(
+            f"[restore] {sidecar} records critic_input {recorded_input!r}; "
+            f"using it instead of {settings.critic_input!r}",
+            file=sys.stderr, flush=True,
+        )
+    return dataclasses.replace(settings, critic_input=recorded_input)
+
+
+def _file_sha256(path: str | Path | None) -> str | None:
+    """sha256 of a file's bytes, or None when there is no file (a run without an overlay)."""
+    if path is None:
+        return None
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _require_unchanged_overlay(overlay_path: str | Path | None, started_sha256: str | None) -> None:
+    """Raise unless the overlay still has the bytes the run was started with.
+
+    The config was read from the overlay at start, so a file edited during training would make the sidecar's
+    config_digest describe a configuration the run never trained with.
+    """
+    ending_sha256 = _file_sha256(overlay_path)
+    if ending_sha256 != started_sha256:
+        raise RuntimeError(
+            f"overlay {overlay_path} changed during training (sha256 {started_sha256} at start, {ending_sha256} "
+            "now); refusing to write run_config.json for a configuration the run did not train with"
+        )
+
+
 def restore(env_factory: EnvFactory, settings: TrainingSettings, checkpoint_path: str | Path) -> Algorithm:
     """Rebuild the algorithm from the same config and restore weights (no code changes between train/eval)."""
-    algo = build_algo(env_factory, settings)
+    matching = _settings_matching_checkpoint(settings, checkpoint_path)
+    algo = build_algo(env_factory, matching)
     algo.restore_from_path(str(checkpoint_path))
     return algo
 
@@ -328,6 +379,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.add_argument(f"--margin-{coefficient}", type=float, default=None)
     args = parser.parse_args(argv)
     started = git_state(_repository())  # the code this process (and, at build_algo, its workers) imports
+    overlay_started_sha256 = _file_sha256(args.overlay)  # before the first load reads the overlay
 
     overrides = {
         "seed": args.seed,
@@ -379,6 +431,7 @@ def main(argv: list[str] | None = None) -> None:
 
         report = train(algo, args.iterations, args.checkpoint_dir, on_iteration=print_iteration)
         if report.checkpoint_path is not None:
+            _require_unchanged_overlay(args.overlay, overlay_started_sha256)
             dirty = started["git_dirty"]
             run_config = build_run_config(
                 config_path=args.config, overlay_path=args.overlay, reward_weights=reward_weights,

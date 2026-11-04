@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -205,3 +209,26 @@ def test_efficiency_check_matches_the_old_absolute_test_when_every_budget_is_equ
 
     old_check = used_mps <= criteria.max_delta_v_fraction * _BUDGET_MPS
     assert gate_verdict(report, _report(), criteria).checks["C2_efficiency"] == old_check
+
+
+_NUMPY_ONLY_PROBE = """
+import json
+import sys
+
+from orbit_guard.rl.evaluation import evaluate_policy, no_maneuver_policy
+from tests.rl.stub_env import StubOrbitGuardEnv
+
+report = evaluate_policy(no_maneuver_policy, lambda config: StubOrbitGuardEnv(num_agents=2), 1, seed=0)
+print(json.dumps({"episodes": report.episodes, "heavy": sorted(m for m in ("torch", "ray") if m in sys.modules)}))
+"""
+
+
+def test_the_numpy_evaluation_path_runs_in_a_fresh_process_without_torch_or_ray():
+    # Evaluation worker processes run the Ray-free actor; importing torch or ray there costs ~660 MB each.
+    repo_root = Path(__file__).resolve().parents[2]
+
+    completed = subprocess.run(
+        [sys.executable, "-c", _NUMPY_ONLY_PROBE], cwd=repo_root, capture_output=True, text=True, timeout=300, check=True
+    )
+
+    assert json.loads(completed.stdout) == {"episodes": 1, "heavy": []}
