@@ -41,6 +41,9 @@ ALL_FAILURE_LABELS = (
 _PALETTE = ["#7d8ba1", "#ffb020", "#b794f6", "#3dd6e6", "#4ade80"]
 
 
+EPISODES_ROW = "episodes (any status)"
+
+
 def failure_taxonomy(records: Sequence[Mapping]) -> dict[str, dict[str, int]]:
     """Per model, the number of episodes carrying each failure label (all nine categories always present)."""
     counts: dict[str, Counter] = defaultdict(Counter)
@@ -49,12 +52,24 @@ def failure_taxonomy(records: Sequence[Mapping]) -> dict[str, dict[str, int]]:
     return {model: {label: counts[model][label] for label in ALL_FAILURE_LABELS} for model in counts}
 
 
-def taxonomy_markdown(table: Mapping[str, Mapping[str, int]]) -> str:
+def episode_counts(records: Sequence[Mapping]) -> dict[str, int]:
+    """Per model, every logged episode, failed ones included (a failed episode carries the §36 #9 label)."""
+    return dict(Counter(record["model_name"] for record in records))
+
+
+def taxonomy_markdown(table: Mapping[str, Mapping[str, int]], episodes: Mapping[str, int] | None = None) -> str:
     models = sorted(table, key=lambda m: (MODEL_NAMES.index(m) if m in MODEL_NAMES else len(MODEL_NAMES), m))
     lines = ["| failure mode (PRD §36) | " + " | ".join(models) + " |", "|---|" + "---:|" * len(models)]
     for label in ALL_FAILURE_LABELS:
         lines.append(f"| {label} | " + " | ".join(str(table[model][label]) for model in models) + " |")
-    lines += ["", "Counts are episodes carrying the label; one episode may carry several."]
+    note = "Counts are episodes carrying the label; one episode may carry several."
+    if episodes is not None:
+        lines.append(f"| {EPISODES_ROW} | " + " | ".join(str(episodes.get(model, 0)) for model in models) + " |")
+        note += (
+            f" `{EPISODES_ROW}` is each model's denominator: its total over all conditions, scenario seeds and "
+            "training seeds, failed episodes included."
+        )
+    lines += ["", note]
     return "\n".join(lines)
 
 
@@ -98,7 +113,7 @@ def write_results(records: Sequence[Mapping], out_dir: str | Path) -> list[Path]
     table.write_text(format_report(records) + "\n")
     paired.write_text(format_paired_report(records) + "\n")
     degradation_table.write_text(format_degradation_report(records) + "\n")
-    taxonomy.write_text(taxonomy_markdown(failure_taxonomy(records)) + "\n")
+    taxonomy.write_text(taxonomy_markdown(failure_taxonomy(records), episode_counts(records)) + "\n")
     collision_rate_figure(records).write_html(figure, include_plotlyjs="cdn")
     return [table, paired, degradation_table, taxonomy, figure]
 

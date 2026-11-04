@@ -55,6 +55,7 @@ from orbit_guard.evaluation.statistics import (
     PairedComparison,
     Summary,
     degradation,
+    holm_adjust,
     paired_comparison,
     pooled_by_training_seed,
 )
@@ -281,6 +282,7 @@ _METRICS = tuple(_derived(
 
 
 DEGRADATION_METRICS = ("collision_rate", "unsafe_rate", "total_delta_v_mps")
+RATE_METRICS = ("collision_rate", "unsafe_rate")  # per-episode 0/1: CIs are clipped to the rate's range
 PAIRED_BASELINES = ("fixed_margin_mappo", "adaptive_mappo_no_shield", "rule_based", "no_maneuver")
 PAIRED_METRICS = ("collision_rate", "unsafe_rate", "total_delta_v_mps", "mean_mission_deviation")
 
@@ -368,12 +370,22 @@ def _cell(summary: Summary | None, digits: int = 3) -> str:
     return _MISSING if summary is None else f"{summary.mean:.{digits}f} ± {summary.std:.{digits}f}"
 
 
-def _ci_cell(summary: Summary | None, digits: int = 3) -> str:
+_RATE_RANGE = (0.0, 1.0)
+_NO_SPREAD = 1.0e-12
+
+
+def _ci_cell(summary: Summary | None, digits: int = 3, bounds: tuple[float, float] | None = None) -> str:
+    """The t-interval across training seeds; `bounds` clips it to the metric's range (a rate lies in [0, 1])."""
     if summary is None:
         return _MISSING
     if summary.n < 2:
         return f"n/a ({summary.n} seed)"
-    return f"[{summary.ci_low:.{digits}f}, {summary.ci_high:.{digits}f}]"
+    if summary.std <= _NO_SPREAD * max(1.0, abs(summary.mean)):  # equal seed means can carry ~1e-16 of float std
+        return f"no spread ({summary.n} seeds, all {summary.mean:.{digits}f})"
+    low, high = summary.ci_low, summary.ci_high
+    if bounds is not None:
+        low, high = max(low, bounds[0]), min(high, bounds[1])
+    return f"[{low:.{digits}f}, {high:.{digits}f}]"
 
 
 def format_report(records: Sequence[Mapping]) -> str:
@@ -382,16 +394,17 @@ def format_report(records: Sequence[Mapping]) -> str:
     lines = [
         (
             "| model | condition | episodes | failed | training seeds | collision-episode rate | collision 95% CI "
-            "| unsafe-conjunction rate | unsafe 95% CI | Δv (m/s) | maneuvers | mission dev. | shield interv./step "
-            "| residual risk |"
+            "| collision-or-unsafe rate | collision-or-unsafe 95% CI | fleet Δv (m/s) | maneuvers | mission dev. "
+            "| shield agent-changes/step | residual risk |"
         ),
         "|---|---|---:|---:|---:|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"| {row['model']} | {row['condition']} | {row['episodes']} | {row['failed']} | {row['training_seeds']} "
-            f"| {_cell(row['collision_rate'])} | {_ci_cell(row['collision_rate'])} "
-            f"| {_cell(row['unsafe_rate'])} | {_ci_cell(row['unsafe_rate'])} | {_cell(row['total_delta_v_mps'])} "
+            f"| {_cell(row['collision_rate'])} | {_ci_cell(row['collision_rate'], bounds=_RATE_RANGE)} "
+            f"| {_cell(row['unsafe_rate'])} | {_ci_cell(row['unsafe_rate'], bounds=_RATE_RANGE)} "
+            f"| {_cell(row['total_delta_v_mps'])} "
             f"| {_cell(row['maneuver_count'], 1)} | {_cell(row['mean_mission_deviation'])} "
             f"| {_cell(row['shield_intervention_rate'], 4)} | {_cell(row['mean_residual_risk'])} |"
         )
@@ -399,7 +412,12 @@ def format_report(records: Sequence[Mapping]) -> str:
         "",
         (
             "Values are mean ± std across training seeds (per-seed means first); non-learned models have one 'seed'. "
-        "95% CIs are t-intervals across training seeds, so a single seed has none (n/a). `episodes` counts ok "
+        "95% CIs are t-intervals across training seeds, clipped to [0, 1] for the rates; a single seed has none "
+        "(n/a), and seeds with identical rates show `no spread` instead of a zero-width interval. An episode counts "
+        "as collision-or-unsafe if it had a collision or any pair's closest approach fell inside the "
+        "default-config adaptive margin (one yardstick for every model, so a tuned overlay cannot move it; Q33). "
+        "Fleet Δv is the episode total over all satellites; shield agent-changes/step is the number of agents "
+        "whose action the shield changed, per control step. `episodes` counts ok "
         "episodes; `failed` episodes (PRD §36 #9) are excluded from every metric but always listed here, and a "
         f"row whose episodes all failed shows {_MISSING}."
         ),
@@ -407,23 +425,31 @@ def format_report(records: Sequence[Mapping]) -> str:
     return "\n".join(lines)
 
 
-def _paired_row(records: Sequence[Mapping], method: str, baseline: str, condition: str, metric: str) -> str:
+def _paired_result(
+    records: Sequence[Mapping], method: str, baseline: str, condition: str, metric: str
+) -> PairedComparison | str:
+    """The comparison, or the reason it was skipped."""
     try:
-        result = paired_by_scenario(records, method, baseline, condition, metric)
+        return paired_by_scenario(records, method, baseline, condition, metric)
     except ValueError:
         method_seeds = len(_per_scenario(records, method, condition, metric))
         baseline_seeds = len(_per_scenario(records, baseline, condition, metric))
-        reason = (
+        return (
             f"skipped: no shared scenario seeds ({method} {method_seeds}, {baseline} {baseline_seeds} "
             "seeds with an ok episode)"
         )
-        return f"| {condition} | {baseline} | {metric} | 0 | {_MISSING} | {_MISSING} | {reason} |"
-    interval = (
-        f"n/a (n={result.n})" if result.n < 2 else f"[{result.ci_low:.3f}, {result.ci_high:.3f}]"
-    )
+
+
+def _paired_row(condition: str, baseline: str, metric: str, result: PairedComparison | str, holm: float | None) -> str:
+    if isinstance(result, str):
+        return f"| {condition} | {baseline} | {metric} | 0 | {_MISSING} | {_MISSING} | {result} | {_MISSING} |"
+    low, high = result.ci_low, result.ci_high
+    if metric in RATE_METRICS:  # a difference of two rates lies in [-1, 1]
+        low, high = max(low, -1.0), min(high, 1.0)
+    interval = f"n/a (n={result.n})" if result.n < 2 else f"[{low:.3f}, {high:.3f}]"
     return (
         f"| {condition} | {baseline} | {metric} | {result.n} | {result.mean_difference:.3f} | {interval} "
-        f"| {_p_cell(result.p_value)} |"
+        f"| {_p_cell(result.p_value)} | {_MISSING if holm is None or np.isnan(holm) else _p_cell(holm)} |"
     )
 
 
@@ -448,14 +474,24 @@ def format_paired_report(
     lines = [
         f"Paired comparison: {method} − baseline on matched scenario seeds",
         "",
-        "| condition | baseline | metric | n | mean difference | 95% CI | Wilcoxon p |",
-        "|---|---|---|---:|---:|---|---:|",
+        "| condition | baseline | metric | n | mean difference | 95% CI | Wilcoxon p | Holm p (post hoc) |",
+        "|---|---|---|---:|---:|---|---:|---:|",
     ]
-    for condition in conditions:
-        for baseline in (b for b in baselines if b != method):
-            lines.extend(_paired_row(records, method, baseline, condition, metric) for metric in metrics)
+    cells = [
+        (condition, baseline, metric, _paired_result(records, method, baseline, condition, metric))
+        for condition in conditions
+        for baseline in (b for b in baselines if b != method)
+        for metric in metrics
+    ]
+    # The family: every row with a test. A skipped row has none, and n = 1 gets p = 1.0 by convention, not a test.
+    family = [i for i, (*_, result) in enumerate(cells) if not isinstance(result, str) and result.n >= 2]
+    holm = dict(zip(family, holm_adjust([cells[i][3].p_value for i in family]), strict=True))
+    for index, (condition, baseline, metric, result) in enumerate(cells):
+        lines.append(_paired_row(condition, baseline, metric, result, holm.get(index)))
     if not conditions:
-        lines.append(f"| {_MISSING} | {_MISSING} | {_MISSING} | 0 | {_MISSING} | {_MISSING} | no {method} episodes |")
+        lines.append(
+            f"| {_MISSING} | {_MISSING} | {_MISSING} | 0 | {_MISSING} | {_MISSING} | no {method} episodes | {_MISSING} |"
+        )
     lines += [
         "",
         (
@@ -465,7 +501,11 @@ def format_paired_report(
         "paired differences. Wilcoxon signed-rank (two-sided, zero_method='wilcox'): zero differences are "
         "dropped before ranking and tied |differences| share average ranks; when every difference is zero "
         "there is no evidence either way and p = 1.000. With few non-zero differences p cannot be small "
-        "(n = 3 non-zero gives p >= 0.25)."
+        "(n = 3 non-zero gives p >= 0.25). Rate-difference CIs are clipped to [-1, 1]. Holm p: Holm step-down "
+        "over every row with a test (n >= 2, finite p) in this table, across conditions, baselines and metrics; "
+        f"{_MISSING} marks a row outside the family. The family was declared after the final test sweep: the "
+        "pre-registered compute plan (R1–R6) named no significance test or multiplicity correction for the "
+        "headline comparison, so this column is a robustness check, not a confirmatory test."
         ),
     ]
     return "\n".join(lines)
@@ -479,7 +519,7 @@ def _degradation_cell(row: Mapping | None, base: Mapping | None, metric: str) ->
         return _MISSING
     normal_mean, shift_mean = base[metric].mean, row[metric].mean
     if abs(normal_mean) < _DEGRADATION_ZERO:
-        return f"n/a (normal = 0; shift {shift_mean:.3f})"
+        return f"n/a (normal = 0; shift {shift_mean:.3f}; change {shift_mean - normal_mean:+.3f})"
     return f"{row[f'{metric}_degradation']:+.3f} ({normal_mean:.3f} → {shift_mean:.3f})"
 
 
@@ -504,7 +544,8 @@ def format_degradation_report(records: Sequence[Mapping], metrics: Sequence[str]
         (
             "Higher is worse for every metric here, so a positive degradation is a deterioration under the shift. "
         "Means are pooled across training seeds. When the normal mean is 0 the ratio is undefined (ε = 1e-9 "
-        f"would print ~1e8), so the cell shows n/a with the shift mean; {_MISSING} means a condition was not run "
+        f"would print ~1e8), so the cell shows n/a with the shift mean and the absolute change; {_MISSING} means a "
+        "condition was not run "
         "or all its episodes failed."
         ),
     ]

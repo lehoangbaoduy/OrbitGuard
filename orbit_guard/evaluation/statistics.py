@@ -3,6 +3,7 @@
   * `mean_std_ci`          mean, sample standard deviation, t-based confidence interval
   * `degradation`          (shift - normal) / (|normal| + eps)
   * `paired_comparison`    paired difference on matched scenario seeds: mean, CI, Wilcoxon p
+  * `holm_adjust`          Holm step-down adjustment of a family of p-values
   * `pooled_by_training_seed`  average episodes within each training seed first, then summarize
                            ACROSS training seeds -- a single training run is never the headline
                            (PRD §34), and episodes from one seed are not independent samples of
@@ -69,6 +70,21 @@ def paired_comparison(method: Sequence[float], baseline: Sequence[float], confid
     else:
         p_value = float(stats.wilcoxon(differences, zero_method="wilcox").pvalue)
     return PairedComparison(summary.n, summary.mean, summary.ci_low, summary.ci_high, p_value)
+
+
+def holm_adjust(p_values: Sequence[float]) -> list[float]:
+    """Holm step-down adjusted p-values, in input order: max over k <= rank of (m - k) * p_(k), capped at 1.
+
+    A non-finite p (NaN from a NaN metric) is no test: it stays NaN and is not counted in the family size m.
+    """
+    finite = [i for i, p in enumerate(p_values) if np.isfinite(p)]
+    order = sorted(finite, key=lambda i: p_values[i])
+    adjusted = [float("nan")] * len(p_values)
+    running = 0.0
+    for rank, index in enumerate(order):
+        running = max(running, min(1.0, (len(order) - rank) * float(p_values[index])))
+        adjusted[index] = running
+    return adjusted
 
 
 def pooled_by_training_seed(records: Sequence[Mapping], key: str, seed_key: str = "training_seed") -> Summary:

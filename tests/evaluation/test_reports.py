@@ -51,7 +51,9 @@ def test_the_report_renders_the_95_percent_ci_of_the_collision_and_unsafe_rates(
 
     assert "collision 95% CI" in report and "unsafe 95% CI" in report
     line = _row_line(report, "adaptive_mappo", "normal")
-    assert f"[{collision.ci_low:.3f}, {collision.ci_high:.3f}]" in line
+    assert collision.ci_low < 0.0  # the raw t-interval; a rate's CI is clipped to [0, 1] (test_reports_posthoc)
+    assert collision.ci_high > 1.0
+    assert "[0.000, 1.000]" in line
     assert f"[{unsafe.ci_low:.3f}, {unsafe.ci_high:.3f}]" in line
 
 
@@ -179,7 +181,7 @@ def test_degradation_from_a_zero_normal_rate_is_not_a_huge_number():
     report = format_degradation_report(records)
 
     line = _row_line(report, "rule_based", "collision_rate")
-    assert "n/a (normal = 0; shift 1.000)" in line
+    assert "n/a (normal = 0; shift 1.000; change +1.000)" in line
     assert "e+" not in line
 
 
