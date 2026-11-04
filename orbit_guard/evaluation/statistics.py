@@ -2,6 +2,7 @@
 
   * `mean_std_ci`          mean, sample standard deviation, t-based confidence interval
   * `degradation`          (shift - normal) / (|normal| + eps)
+  * `normal_mean_is_zero`  the zero-normal-mean test the report uses, with the same eps as `degradation`
   * `paired_comparison`    paired difference on matched scenario seeds: mean, CI, Wilcoxon p
   * `holm_adjust`          Holm step-down adjustment of a family of p-values
   * `pooled_by_training_seed`  average episodes within each training seed first, then summarize
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
-_DEGRADATION_EPSILON = 1.0e-9
+DEGRADATION_EPSILON = 1.0e-9
 
 
 @dataclass(frozen=True)
@@ -54,9 +55,15 @@ def mean_std_ci(values: Sequence[float], confidence: float = 0.95) -> Summary:
     return Summary(int(data.size), mean, std, mean - half_width, mean + half_width)
 
 
-def degradation(metric_shift: float, metric_normal: float, epsilon: float = _DEGRADATION_EPSILON) -> float:
+def degradation(metric_shift: float, metric_normal: float, epsilon: float = DEGRADATION_EPSILON) -> float:
     """(Metric_shift - Metric_normal) / (|Metric_normal| + eps); sign convention is the caller's per metric."""
     return (metric_shift - metric_normal) / (abs(metric_normal) + epsilon)
+
+
+def normal_mean_is_zero(normal_mean: float) -> bool:
+    """True when the normal condition's mean is zero for reporting: the ratio is then undefined (~1/eps), so the
+    report shows the absolute change instead. Shares `DEGRADATION_EPSILON` so the report and the ratio never disagree."""
+    return abs(normal_mean) < DEGRADATION_EPSILON
 
 
 def paired_comparison(method: Sequence[float], baseline: Sequence[float], confidence: float = 0.95) -> PairedComparison:

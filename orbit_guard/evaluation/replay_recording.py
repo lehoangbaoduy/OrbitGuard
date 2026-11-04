@@ -163,7 +163,7 @@ def check_plan_provenance(
             )
         check_checkpoint_provenance(
             item.weights_path, config_path=config_path, overlay_path=overlay_path, model=item.model,
-            n_agents=num_agents,
+            n_agents=num_agents, training_seed=item.training_seed,
         )
         if frozen is not None:
             _check_frozen(item, frozen)

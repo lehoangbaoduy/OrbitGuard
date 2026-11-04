@@ -111,7 +111,7 @@ def test_the_registry_command_checks_n_agents(tmp_path):
     for variant, margin, shield in (("adaptive", "adaptive", True), ("fixed", "fixed", True),
                                     ("noshield", "adaptive", False)):
         for seed in (0, 1, 2):
-            sidecar = {**sidecar_record(None, margin_kind=margin, shield=shield, num_agents=2)}
+            sidecar = {**sidecar_record(None, margin_kind=margin, shield=shield, num_agents=2, seed=seed)}
             _checkpoint(runs, f"n15_{variant}_s{seed}", **sidecar)
     out = tmp_path / "reg.json"
 

@@ -8,6 +8,7 @@ import pytest
 from orbit_guard.evaluation.statistics import (
     degradation,
     mean_std_ci,
+    normal_mean_is_zero,
     paired_comparison,
     pooled_by_training_seed,
 )
@@ -44,6 +45,13 @@ def test_constant_values_have_a_zero_width_interval():
 def test_empty_input_is_rejected():
     with pytest.raises(ValueError):
         mean_std_ci([])
+
+
+def test_a_normal_mean_counts_as_zero_below_the_shared_threshold():
+    # Between the report's former 1e-12 cut-off and the 1e-9 epsilon: the one threshold must decide.
+    assert normal_mean_is_zero(1.0e-10)
+    assert normal_mean_is_zero(-1.0e-10)
+    assert not normal_mean_is_zero(1.0e-8)
 
 
 def test_degradation_follows_the_prd_formula_and_guards_a_zero_baseline():

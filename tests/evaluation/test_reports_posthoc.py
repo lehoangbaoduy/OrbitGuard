@@ -172,6 +172,18 @@ def test_degradation_from_a_zero_normal_mean_shows_the_absolute_change():
     assert "n/a (normal = 0; shift 1.000; change +1.000)" in line
 
 
+def test_a_normal_mean_between_the_old_thresholds_is_reported_as_zero():
+    # 1e-10 lies between the report's former 1e-12 cut-off and statistics' 1e-9 epsilon: one threshold decides.
+    records = [
+        _record("rule_based", "normal", 1, dv=1.0e-10),
+        _record("rule_based", "density_increase", 1, dv=0.5),
+    ]
+
+    line = " | ".join(_cells(format_degradation_report(records), "rule_based", "total_delta_v_mps"))
+
+    assert "n/a (normal = 0; shift 0.500; change +0.500)" in line
+
+
 def test_the_failure_taxonomy_shows_how_many_episodes_each_column_counts():
     pytest.importorskip("plotly")
     from orbit_guard.evaluation.results import (

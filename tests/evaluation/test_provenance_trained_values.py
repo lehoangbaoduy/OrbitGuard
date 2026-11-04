@@ -37,7 +37,8 @@ def _checkpoint(tmp_path: Path, *, margin: dict | None, weights: dict | None, ov
     run.mkdir()
     (run / "actor_weights.npz").write_bytes(b"weights")
     record: dict = {"config_digest": config_digest(DEFAULT_CONFIG_PATH, overlay),
-                    "overlay_path": None if overlay is None else str(overlay), "shield": shield, "num_agents": 15}
+                    "overlay_path": None if overlay is None else str(overlay), "shield": shield, "num_agents": 15,
+                    "seed": 0, "training": {"critic_input": "agent_global"}}
     if margin is not None:
         record["margin"] = margin
     if weights is not None:

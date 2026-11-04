@@ -17,6 +17,8 @@
                         The sidecar's recorded margin and reward weights must also equal the ones the
                         evaluation environment for that model builds from config + overlay
                         (`trained_values`), so training CLI overrides that bypass the digest are refused.
+                        The sidecar's seed must equal the training seed the registry assigns the checkpoint,
+                        and its training.critic_input must equal the configured rl.critic_input.
 `registry` and `freeze` refuse a registry in which a learned model lacks one of its rl.num_training_seeds training
 seeds (`registry_checks`) unless `--allow-partial` is passed; the freeze snapshot records that flag.
 CLI subcommands (see `main`): `registry`, `run`, `freeze`, `report`; the first three take `--config` and
@@ -56,6 +58,7 @@ from orbit_guard.evaluation.statistics import (
     Summary,
     degradation,
     holm_adjust,
+    normal_mean_is_zero,
     paired_comparison,
     pooled_by_training_seed,
 )
@@ -72,7 +75,8 @@ _DEFAULT_CONFIG = DEFAULT_CONFIG_PATH
 _DEFAULT_VALIDATION_POOL = REPO_ROOT / "configs" / "validation_seeds.json"
 _DEFAULT_TEST_POOL = REPO_ROOT / "configs" / "test_seeds.json"
 # rl/training.py writes this sidecar next to actor_weights.npz; the name is repeated here (and pinned equal by a
-# test) because importing rl.training pulls in Ray, which evaluation workers deliberately never need.
+# test) because importing rl.training pulls in the training stack (the RLlib algorithm build and the training CLI),
+# which this module never needs.
 RUN_CONFIG_FILENAME = "run_config.json"
 
 
@@ -87,16 +91,20 @@ def check_checkpoint_provenance(
     overlay_path: str | Path | None = None,
     model: str | None = None,
     n_agents: int | None = None,
+    training_seed: int | None = None,
 ) -> None:
     """Refuse `weights_path` if its run_config.json sidecar records another config_digest, margin, reward weights,
-    shield setting or constellation size.
+    shield setting, constellation size, training seed or critic input.
 
     Digests, not paths, are compared: an overlay copied elsewhere with identical bytes is the same
     configuration. The recorded `margin` and `reward_weights` must equal what the evaluation environment for
     `model` builds from config + overlay (its `models:` margin kind; without a model, the kind the sidecar
     records); a sidecar missing either is refused. The recorded `shield` must equal `model`'s spec and the recorded
     `num_agents` must equal `n_agents`; both keys must be present (and a bool / an int) even when `model` or
-    `n_agents` is not given. A checkpoint with no sidecar (exported before sidecars existed) is accepted.
+    `n_agents` is not given. When `training_seed` is given (the seed the registry assigns the checkpoint) the
+    recorded `seed` must equal it, and a sidecar without `seed` is refused; `None` skips that check. The recorded
+    `training.critic_input` must equal the configured `rl.critic_input` (a training CLI override bypasses the
+    digest). A checkpoint with no sidecar (exported before sidecars existed) is accepted.
     """
     sidecar = Path(weights_path).parent / RUN_CONFIG_FILENAME
     if not sidecar.exists():
@@ -115,8 +123,42 @@ def check_checkpoint_provenance(
             f"{None if overlay_path is None else str(overlay_path)!r}); pass the overlay it was trained with"
         )
     config = load_config(config_path, overlay_path)
+    _check_training_identity(weights_path, recorded, config, training_seed)
     _check_run_shape(weights_path, recorded, config, model, n_agents)
     _check_trained_values(weights_path, recorded, config, model)
+
+
+def _check_training_identity(
+    weights_path: str | Path, recorded: Mapping, config: Mapping, training_seed: int | None
+) -> None:
+    """Refuse a checkpoint trained as another seed than the one it is registered under, or with another critic input
+    than the configured one."""
+    problems = [*_seed_mismatches(recorded, training_seed), *_critic_input_mismatches(recorded, config)]
+    if problems:
+        raise CheckpointProvenanceError(
+            f"checkpoint {weights_path} was not trained as the seed and critic input it is registered or configured "
+            f"with: {'; '.join(problems)}"
+        )
+
+
+def _seed_mismatches(recorded: Mapping, training_seed: int | None) -> list[str]:
+    if training_seed is None:
+        return []
+    if "seed" not in recorded:
+        return ["sidecar records no seed"]
+    if recorded["seed"] != training_seed:
+        return [f"sidecar records seed {recorded['seed']!r}, registered as seed {training_seed}"]
+    return []
+
+
+def _critic_input_mismatches(recorded: Mapping, config: Mapping) -> list[str]:
+    expected = config["rl"]["critic_input"]
+    training = recorded.get("training")
+    if not isinstance(training, Mapping) or "critic_input" not in training:
+        return ["sidecar records no training.critic_input"]
+    if training["critic_input"] != expected:
+        return [f"sidecar records critic_input {training['critic_input']!r}, the config sets {expected!r}"]
+    return []
 
 
 def _check_run_shape(
@@ -151,12 +193,13 @@ def check_registry_provenance(
     overlay_path: str | Path | None = None,
     n_agents: int | None = None,
 ) -> None:
-    """`check_checkpoint_provenance` for every registered checkpoint, against the model it is registered as and the
-    constellation size `n_agents` it will run at."""
+    """`check_checkpoint_provenance` for every registered checkpoint, against the model and training seed it is
+    registered as and the constellation size `n_agents` it will run at."""
     for model, seeds in registry.items():
-        for weights in seeds.values():
+        for training_seed, weights in seeds.items():
             check_checkpoint_provenance(
-                weights, config_path=config_path, overlay_path=overlay_path, model=model, n_agents=n_agents
+                weights, config_path=config_path, overlay_path=overlay_path, model=model, n_agents=n_agents,
+                training_seed=training_seed,
             )
 
 
@@ -511,14 +554,11 @@ def format_paired_report(
     return "\n".join(lines)
 
 
-_DEGRADATION_ZERO = 1.0e-12
-
-
 def _degradation_cell(row: Mapping | None, base: Mapping | None, metric: str) -> str:
     if row is None or base is None or row[metric] is None or base[metric] is None:
         return _MISSING
     normal_mean, shift_mean = base[metric].mean, row[metric].mean
-    if abs(normal_mean) < _DEGRADATION_ZERO:
+    if normal_mean_is_zero(normal_mean):
         return f"n/a (normal = 0; shift {shift_mean:.3f}; change {shift_mean - normal_mean:+.3f})"
     return f"{row[f'{metric}_degradation']:+.3f} ({normal_mean:.3f} → {shift_mean:.3f})"
 

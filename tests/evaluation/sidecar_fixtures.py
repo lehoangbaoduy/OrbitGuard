@@ -20,11 +20,16 @@ def sidecar_record(
     margin_kind: str = "adaptive",
     shield: bool = True,
     num_agents: int = 15,
+    seed: int = 0,
 ) -> dict:
-    """The provenance fields of a run trained from `config_path` + `overlay_path` with no CLI overrides."""
+    """The provenance fields of a run trained from `config_path` + `overlay_path` with no CLI overrides: its training
+    seed and the configured critic input, as rl/training.py records them."""
+    config = load_config(config_path, overlay_path)
     return {
         "config_digest": config_digest(config_path, overlay_path),
-        **evaluation_values(load_config(config_path, overlay_path), margin_kind),
+        **evaluation_values(config, margin_kind),
         "shield": shield,
         "num_agents": num_agents,
+        "seed": seed,
+        "training": {"critic_input": config["rl"]["critic_input"]},
     }

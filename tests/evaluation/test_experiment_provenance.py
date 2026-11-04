@@ -19,8 +19,19 @@ from orbit_guard.evaluation.experiment import (
     build_registry,
     build_tasks,
     check_checkpoint_provenance,
+    check_registry_provenance,
 )
 from tests.evaluation.sidecar_fixtures import sidecar_record
+
+
+def _edit_sidecar(run: Path, **fields) -> None:
+    path = run / "run_config.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **fields}))
+
+
+def _trained_as(run: Path, seed: int, critic_input: str | None = "agent_global") -> None:
+    """Record the training seed and critic input that rl/training.py writes (critic_input None: not recorded)."""
+    _edit_sidecar(run, seed=seed, training={} if critic_input is None else {"critic_input": critic_input})
 
 
 def _overlay(tmp_path: Path, w3: float = 1.5) -> Path:
@@ -31,7 +42,7 @@ def _overlay(tmp_path: Path, w3: float = 1.5) -> Path:
 
 def _run_dir(
     tmp_path: Path, name: str, overlay: Path | None, *, sidecar: bool = True, margin_kind: str = "adaptive",
-    shield: bool = True,
+    shield: bool = True, seed: int = 0,
 ) -> Path:
     run = tmp_path / "runs" / name
     run.mkdir(parents=True)
@@ -40,7 +51,7 @@ def _run_dir(
         record = {
             "config_path": str(DEFAULT_CONFIG_PATH),
             "overlay_path": None if overlay is None else str(overlay),
-            **sidecar_record(overlay, margin_kind=margin_kind, shield=shield),
+            **sidecar_record(overlay, margin_kind=margin_kind, shield=shield, seed=seed),
         }
         (run / "run_config.json").write_text(json.dumps(record))
     return run
@@ -53,7 +64,9 @@ def _all_runs(tmp_path: Path, overlay: Path | None) -> Path:
     """The nine finished queue runs (three variants x seeds 0-2), all trained under `overlay`; returns the runs dir."""
     for variant, (margin_kind, shield) in _VARIANTS.items():
         for seed in (0, 1, 2):
-            _run_dir(tmp_path, f"n15_{variant}_s{seed}", overlay, margin_kind=margin_kind, shield=shield)
+            _run_dir(
+                tmp_path, f"n15_{variant}_s{seed}", overlay, margin_kind=margin_kind, shield=shield, seed=seed,
+            )
     return tmp_path / "runs"
 
 
@@ -120,6 +133,84 @@ def test_a_sidecar_without_a_digest_is_refused(tmp_path):
 
     with pytest.raises(CheckpointProvenanceError, match="config_digest"):
         check_checkpoint_provenance(run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None)
+
+
+def test_a_checkpoint_is_accepted_as_the_training_seed_it_was_trained_with(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+
+    check_checkpoint_provenance(
+        run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None, training_seed=0
+    )
+
+
+def test_a_checkpoint_trained_as_another_training_seed_is_refused(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+
+    with pytest.raises(CheckpointProvenanceError, match="seed"):
+        check_checkpoint_provenance(
+            run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None, training_seed=1
+        )
+
+
+def test_a_sidecar_without_a_seed_is_refused_when_a_seed_is_expected(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+    record = json.loads((run / "run_config.json").read_text())
+    (run / "run_config.json").write_text(json.dumps({key: value for key, value in record.items() if key != "seed"}))
+
+    with pytest.raises(CheckpointProvenanceError, match="seed"):
+        check_checkpoint_provenance(
+            run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None, training_seed=0
+        )
+
+
+def test_the_training_seed_is_not_checked_when_none_is_expected(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=7)
+
+    check_checkpoint_provenance(run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None)
+
+
+def test_a_checkpoint_trained_with_another_critic_input_is_refused(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0, critic_input="global")
+
+    with pytest.raises(CheckpointProvenanceError, match="critic_input"):
+        check_checkpoint_provenance(run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None)
+
+
+def test_a_sidecar_without_a_critic_input_is_refused(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0, critic_input=None)
+
+    with pytest.raises(CheckpointProvenanceError, match="critic_input"):
+        check_checkpoint_provenance(run / "actor_weights.npz", config_path=DEFAULT_CONFIG_PATH, overlay_path=None)
+
+
+def test_the_registry_seed_must_be_the_training_seed_the_checkpoint_recorded(tmp_path):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+
+    with pytest.raises(CheckpointProvenanceError, match="seed"):
+        check_registry_provenance({"adaptive_mappo": {1: str(run / "actor_weights.npz")}}, config_path=DEFAULT_CONFIG_PATH)
+
+
+def test_the_run_command_refuses_a_registry_seed_the_checkpoint_was_not_trained_as(tmp_path, monkeypatch):
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+    registry = tmp_path / "reg.json"
+    registry.write_text(json.dumps({"adaptive_mappo": {"1": str(run / "actor_weights.npz")}}))
+    monkeypatch.setattr(experiment, "run_tasks", lambda *a, **k: pytest.fail("must refuse before running"))
+
+    with pytest.raises(CheckpointProvenanceError, match="seed"):
+        experiment.main(
+            [
+                "run", "--split", "validation", "--max-seeds", "1", "--models", "adaptive_mappo",
+                "--registry", str(registry), "--out", str(tmp_path / "e.jsonl"),
+            ]
+        )
 
 
 def test_build_tasks_refuses_a_registry_trained_under_another_config(tmp_path):
