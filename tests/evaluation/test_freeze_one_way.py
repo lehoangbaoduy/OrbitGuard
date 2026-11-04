@@ -9,6 +9,7 @@ config changed since the frozen commit. All git calls go to a temporary reposito
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -118,6 +119,51 @@ def test_an_existing_snapshot_is_never_overwritten(world):
         _freeze(world)
 
     assert world["snapshot"].read_text() == before
+
+
+def _names(world: dict) -> set[str]:
+    return {path.name for path in world["snapshot"].parent.iterdir()}
+
+
+def test_a_snapshot_that_cannot_be_serialized_leaves_no_file_behind(world, monkeypatch):
+    before = _names(world)
+    monkeypatch.setattr(freeze, "_training_commit", lambda checkpoints, git: object())  # json cannot encode it
+
+    with pytest.raises(TypeError):
+        _freeze(world)
+
+    assert _names(world) == before
+
+
+def test_a_disk_failure_while_writing_leaves_no_torn_snapshot(world, monkeypatch):
+    before = _names(world)
+
+    def disk_full(fd):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(os, "fsync", disk_full)
+
+    with pytest.raises(OSError, match="No space"):
+        _freeze(world)
+
+    assert _names(world) == before
+
+
+def test_a_snapshot_created_during_the_freeze_is_never_replaced(world, monkeypatch):
+    real_require_sidecars = freeze._require_sidecars
+    before_race = _names(world)
+
+    def concurrent_freeze_wins(checkpoints):
+        world["snapshot"].write_text("written by a concurrent freeze\n")
+        real_require_sidecars(checkpoints)
+
+    monkeypatch.setattr(freeze, "_require_sidecars", concurrent_freeze_wins)
+
+    with pytest.raises(FrozenConfigError, match="already exists"):
+        _freeze(world)
+
+    assert world["snapshot"].read_text() == "written by a concurrent freeze\n"
+    assert _names(world) == {world["snapshot"].name, *before_race}
 
 
 @pytest.mark.parametrize(

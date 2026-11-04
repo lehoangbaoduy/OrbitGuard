@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -258,7 +260,7 @@ def write_freeze_snapshot(
     """
     snapshot_path = Path(path)
     if snapshot_path.exists():
-        raise FrozenConfigError(f"freeze snapshot {snapshot_path} already exists: the freeze is one-way")
+        raise _already_frozen(snapshot_path)
     _require_sidecars(checkpoints)
     git = git or _default_git()
     _require_clean(git, "freeze")
@@ -279,9 +281,33 @@ def write_freeze_snapshot(
         "frozen_paths": list(FROZEN_PATHS),
         "frozen_at": datetime.now(UTC).isoformat(),
     }
-    with snapshot_path.open("x") as handle:  # exclusive create: never overwrite, even in a race
-        handle.write(json.dumps(snapshot, indent=2) + "\n")
+    _publish_new_file(snapshot_path, json.dumps(snapshot, indent=2) + "\n")
     return snapshot
+
+
+def _already_frozen(path: Path) -> FrozenConfigError:
+    return FrozenConfigError(f"freeze snapshot {path} already exists: the freeze is one-way")
+
+
+def _publish_new_file(target: Path, text: str) -> None:
+    """Create `target` with `text` in one step, and never replace an existing file.
+
+    The text goes to a synced temporary file beside the target, which `os.link` then gives the target's name.
+    Link fails when the target exists, so a race with another freeze cannot overwrite it, and a crash before the
+    link leaves only the temporary file, never a torn snapshot under the target's name.
+    """
+    temp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temp.open("x") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp, target)
+        except FileExistsError as error:
+            raise _already_frozen(target) from error
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def _load_snapshot(path: Path) -> dict:

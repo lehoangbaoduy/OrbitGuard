@@ -7,8 +7,9 @@ run_config.json, so an episode can be traced to the exact configuration it ran u
 `run_episode_task` is a module-level pure function of the task, so it
 pickles into worker processes and is reproducible: the same task gives the same
 record up to the timing fields (Acceptance Test F). Learned policies run from
-exported NumPy actor weights (`rl.actor_policy`), so workers need neither Ray
-nor torch.
+exported NumPy actor weights (`rl.actor_policy`), so an episode needs neither Ray
+nor torch at run time. Importing this module still loads both: `baselines` imports `rl.evaluation`,
+which imports ray and torch at module level, so each spawn worker pays that import once.
 
 `run_tasks` fans tasks out over processes, appends one JSON line per episode as
 it completes, and RESUMES: tasks whose key is already in the output file are
@@ -45,6 +46,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from multiprocessing import get_context
+from multiprocessing.pool import Pool
 from pathlib import Path
 from typing import Any
 
@@ -338,23 +340,32 @@ def run_tasks(
     done = _completed_keys(out, retry_failed)
     pending = [task for task in tasks if task.key() not in done]
     _repair_tail(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     records: list[dict] = []
     with out.open("a") as handle:
-        if workers <= 1:
-            results = map(run_episode_task, pending)
-        else:
-            pool = get_context("spawn").Pool(workers)
-            results = pool.imap_unordered(run_episode_task, pending)
+        pool = get_context("spawn").Pool(workers) if workers > 1 else None
+        results = map(run_episode_task, pending) if pool is None else pool.imap_unordered(run_episode_task, pending)
         try:
             for record in results:
                 handle.write(json.dumps(record) + "\n")
                 handle.flush()
                 records.append(record)
-        finally:
-            if workers > 1:
-                pool.close()
-                pool.join()
+        except BaseException:
+            _shut_down(pool, interrupted=True)
+            raise
+        _shut_down(pool, interrupted=False)
     return records
+
+
+def _shut_down(pool: Pool | None, *, interrupted: bool) -> None:
+    """Stop a pool: an interrupted sweep terminates it and drops the queued episodes; a finished one closes it."""
+    if pool is None:
+        return
+    if interrupted:
+        pool.terminate()
+    else:
+        pool.close()
+    pool.join()
 
 
 def read_records(path: str | Path) -> list[dict]:
