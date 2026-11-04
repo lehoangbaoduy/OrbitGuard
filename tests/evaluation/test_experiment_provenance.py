@@ -213,6 +213,31 @@ def test_the_run_command_refuses_a_registry_seed_the_checkpoint_was_not_trained_
         )
 
 
+
+def test_the_run_command_accepts_a_registry_seed_read_back_from_json_as_a_string(tmp_path, monkeypatch):
+    # registry.json keys are strings ("0"); the sidecar's seed is an int. A matching pair must pass.
+    run = _run_dir(tmp_path, "n15_adaptive_s0", None)
+    _trained_as(run, seed=0)
+    registry = tmp_path / "reg.json"
+    registry.write_text(json.dumps({"adaptive_mappo": {"0": str(run / "actor_weights.npz")}}))
+    ran = []
+
+    def record_tasks(tasks, out_path, *args, **kwargs):
+        ran.extend(tasks)
+        Path(out_path).touch()  # main reads the (empty) episode log back for its report
+        return []
+
+    monkeypatch.setattr(experiment, "run_tasks", record_tasks)
+
+    experiment.main(
+        [
+            "run", "--split", "validation", "--max-seeds", "1", "--models", "adaptive_mappo",
+            "--registry", str(registry), "--out", str(tmp_path / "e.jsonl"),
+        ]
+    )
+
+    assert [task.training_seed for task in ran] == [0]
+
 def test_build_tasks_refuses_a_registry_trained_under_another_config(tmp_path):
     run = _run_dir(tmp_path, "n15_adaptive_s0", _overlay(tmp_path))
     registry = {"adaptive_mappo": {0: str(run / "actor_weights.npz")}}
