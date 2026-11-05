@@ -848,9 +848,9 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 - [x] Repo scaffolding created matching §8's module layout — **RL**
 - [x] Reference config (§39) committed as `configs/default.yaml` — **RL**
 - [x] TLE snapshot pulled from CelesTrak and frozen — `data/TLE_snapshot_53deg_shell.csv` committed, never re-pulled — **Astro**
-- [ ] Team roles assigned (§47), adjusted from the suggested split to actual skills — **Joint**
-- [ ] OSC compute allocation requested (don't wait until it's needed — §48) — **RL** (heaviest compute user; request under whichever account the team agrees on)
-- [ ] This PRD reviewed and acknowledged by every team member, including the design-decision log (§50) — **Joint**
+- [x] Team roles assigned (§47), adjusted from the suggested split to actual skills — **Joint** *(confirmed by the team 2026-11-04)*
+- [x] OSC compute allocation requested (don't wait until it's needed — §48) — **RL** (heaviest compute user; request under whichever account the team agrees on) *(not needed: all training and evaluation ran on a local workstation — team decision 2026-11-04)*
+- [x] This PRD reviewed and acknowledged by every team member, including the design-decision log (§50) — **Joint** *(confirmed by the team 2026-11-04)*
 
 **Exit criteria:** repo exists, config loads without error, TLE file is committed, and every team member can state the current MVP scope (§3.1) from memory.
 
@@ -913,7 +913,7 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 - [x] All 5 baselines implemented, runnable from configuration alone (§31, FR14) — **Evaluation** *(No-Maneuver and Rule-Based are Evaluation's own build; the 3 MARL-based baselines reuse RL's config-driven pipeline from Phase 3–4)*
 - [x] Adaptive-vs-Fixed-Margin comparison run across the full 3-training-seed protocol — **Evaluation** orchestrates, on top of **RL**'s pipeline *(2026-11-04, final test sweep after the one-way freeze: inconclusive — 0 collisions in both arms; the largest directional difference, noise_increase, is not significant — see docs/OrbitGuard_progress.md §0c)*
-- [ ] All 4 core distribution-shift scenarios implemented and run zero-shot (§32, FR15) — **Evaluation** builds the harness; **Astro** defines the physical scenario parameters (e.g. what "increased density" or the stuck-thruster capability-down case concretely means)
+- [x] All 4 core distribution-shift scenarios implemented and run zero-shot (§32, FR15) — **Evaluation** builds the harness; **Astro** defines the physical scenario parameters (e.g. what "increased density" or the stuck-thruster capability-down case concretely means) *(2026-11-04: run zero-shot in the final test sweep; Astro signed off the physical scenario parameters)*
 - [x] Full seed protocol executed: 3 training seeds × 10 evaluation seeds × 5 conditions (§33) — **Evaluation** *(2026-11-04: 550 final-test episodes, 0 failed)*
 - [x] Acceptance Tests F and G (§38) pass — same config + seed reproduces the same result; the shift-scenario suite runs from one config interface — **F: RL + Evaluation jointly · G: Evaluation**
 - [x] Metrics/statistics pipeline producing means, spread, and degradation scores (§34) — **Evaluation**
@@ -933,10 +933,10 @@ Eight phases, Week 1 through Week 15. Each phase has a single goal, a checkable 
 
 **Goal:** Ship it.
 
-- [ ] Paper draft complete — motivation, method, results, limitations, with claims staying inside the boundary set by §51 — **Joint**, each lead drafts their own section
-- [ ] Poster/demo built — **Joint**
-- [ ] Any result that looked off in Phase 5–6 has been rerun and confirmed, not silently left as-is — **Joint**, owned by whoever's module produced the result
-- [ ] Every item in §49 (Success Criteria) checked off — **Joint**
+- [ ] Paper draft complete — motivation, method, results, limitations, with claims staying inside the boundary set by §51 — **Joint**, each lead drafts their own section *(not required — team decision 2026-11-04; results and limitations are written up in docs/OrbitGuard_progress.md §0c)*
+- [ ] Poster/demo built — **Joint** *(not required — team decision 2026-11-04)*
+- [x] Any result that looked off in Phase 5–6 has been rerun and confirmed, not silently left as-is — **Joint**, owned by whoever's module produced the result *(2026-11-04: every anomaly is explained in docs/OrbitGuard_progress.md §0c; the final sweep was reproduced from a fresh checkout)*
+- [ ] Every item in §49 (Success Criteria) checked off — **Joint** *(all met except #10, the paper, which the team decided on 2026-11-04 not to write)*
 
 ### 45. Implementation Priority Order
 
