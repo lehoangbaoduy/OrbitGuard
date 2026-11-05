@@ -22,7 +22,7 @@ Every table below adds an **"Agent coverage"** column: whether the implementing 
 
 ## 0b. Status snapshot — 2026-10-06, updated 2026-11-03 and 2026-11-04 (read this first)
 
-**Update 2026-11-04 (evening): the project is complete on this branch.** What the team decided and what followed:
+**Update 2026-11-04 (evening): the project is complete on this branch** (the last Phase 0 exit criterion, every member can state the MVP scope, confirmed met by the team). What the team decided and what followed:
 - **Sign-offs:** Astro signed off the provisional physics choices (Q1–Q8, Q29–Q31, Q36, Q44–Q47; §3) with no change. Team roles and the PRD acknowledgement are confirmed; the OSC allocation was not needed (all compute ran locally). PRD §44 boxes ticked accordingly, plus "shifts run zero-shot" and "any result that looked off was rerun and confirmed".
 - **Dropped by team decision:** the paper and the poster/demo (Phase 7). Their PRD boxes stay unticked with that annotation, as does "every §49 item met" (all met except #10, the paper). `main` is left as it is; the project is finished on this branch.
 - **Q61 done:** the R2 recipe (N=2, seed 0, 80 iterations, 4 env runners, no shield, adaptive margin, judged on dev seeds 2000–2039) re-run with `critic_input: agent_global` at `70056b6` **passes C1–C4**: 0/40 collision episodes vs No-Maneuver 4/40, return per agent 322 vs 271, mean `vf_explained_var` over iterations 71–80 0.90 (0.78 with `global` in the 2026-11-03 rerun). Log `~/orbitguard_runs/final/logs/q61_gate.log`, checkpoint `final/q61_gate/`. Its sidecar records git drift because the Q62 reporting commits landed mid-run; they touch only `evaluation/{experiment,results,statistics}.py`, which training never imports.
@@ -346,7 +346,7 @@ If the actual astrophysics teammate reviews Q9-Q13 and disagrees, the affected c
 
 Legend for **Agent coverage**: `own` = implementing agent covers its nominal PRD tag; `covering:<Tag>` = implementing agent is doing work nominally owned by a different tag (flagged per master-prompt instruction, not hidden).
 
-### Phase 0 — Setup & Freeze (PRD Weeks 1) — status: **engineering items done 2026-09-22; human items done 2026-11-04** (one exit criterion open, below)
+### Phase 0 — Setup & Freeze (PRD Weeks 1) — status: **done 2026-11-04** (engineering 2026-09-22; human items and exit criteria 2026-11-04)
 
 | ID | Task | Owner | Agent coverage | Tests/Validation | Dependencies | Artifacts | PRD ref | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -358,7 +358,7 @@ Legend for **Agent coverage**: `own` = implementing agent covers its nominal PRD
 | P0-M6 | PRD + §50 log reviewed/acknowledged by team | Joint | own (agent review complete; human ack still pending — see §2) | This file exists and cites §50 | none | this file | §44, §50 | **Done 2026-11-04** (team acknowledgement confirmed) |
 | P0-M7 *(added, not in §44 but load-bearing per §40)* | Initial git commit establishing provenance baseline | Joint | covering:Joint | `git log` non-empty, `HEAD` short hash recorded below | P0-M1..M3 | initial commit `1c3c67d` (root commit, 27 files) | §40 (implied) | **Done** |
 
-**Exit criteria (§44):** repo exists ✓, config loads without error ✓, TLE file committed ✓, every team member can state MVP scope (§3.1) from memory — **human criterion, outstanding**. Engineering exit criteria met 2026-09-22; M4/M5/M6 done 2026-11-04. The "every member can state MVP scope from memory" criterion was not part of the team's confirmation and stays open (it has no PRD checkbox).
+**Exit criteria (§44):** repo exists ✓, config loads without error ✓, TLE file committed ✓, every team member can state MVP scope (§3.1) from memory — **met (team confirmed 2026-11-04)**. Engineering exit criteria met 2026-09-22; M4/M5/M6 done 2026-11-04. The "every member can state MVP scope from memory" criterion is met (team confirmed 2026-11-04; it has no PRD checkbox).
 
 ---
 
