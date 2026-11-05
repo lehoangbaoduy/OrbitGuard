@@ -29,7 +29,7 @@ __all__ = ["build_layout", "control_states", "meta_children", "policy_label", "s
 
 SHIELD_OFF_TEXT = "SHIELD OFF — nothing overrides the policy"
 SHIELD_OFF_NOTE = "Every proposed action is applied as-is. Remaining events: ■ maneuver · ◆ high risk · ○ inside d_safe · ✕ collision."
-_POLICY_NAMES = {"untrained": "BEFORE TRAINING", "trained": "AFTER TRAINING"}
+_POLICY_NAMES = {"untrained": "BEFORE TRAINING", "trained": "AFTER TRAINING", "no_maneuver": "DO NOTHING"}
 _SHIELD_GLYPHS = {"on": "◇", "off": "⊘"}
 _PANES = (("og-fuel", "Fleet fuel"), ("og-risk", "Conjunction & risk"))
 
@@ -66,6 +66,14 @@ def _recorded(index: EpisodeIndex, selection: Selection, *, policy: str | None =
     return found is not None
 
 
+def _opens(index: EpisodeIndex, selection: Selection, policy: str) -> bool | None:
+    """The shield setting a click on `policy` opens: the current one when recorded, else the other; None if neither."""
+    for shield in (selection.shield, not selection.shield):
+        if _recorded(index, selection, policy=policy, shield=shield):
+            return shield
+    return None
+
+
 def _policy_text(policy: str, shield: bool, recorded: bool) -> list[html.Span]:
     spans = [html.Span(policy_label(policy), className="og-tab-name"), html.Span(f"{policy} policy · shield {'ON' if shield else 'OFF'}", className="og-tab-sub")]
     return spans if recorded else [*spans, html.Span(NO_TRACE, className="og-tab-reason")]
@@ -84,8 +92,8 @@ def control_states(index: EpisodeIndex, selection: Selection) -> dict[str, dict[
     }
     policies = {
         policy: {
-            **_state(pressed=policy == selection.policy, disabled=not (ok := _recorded(index, selection, policy=policy)), class_name="og-tab"),
-            "children": _policy_text(policy, selection.shield, ok),
+            **_state(pressed=policy == selection.policy, disabled=not (ok := (opens := _opens(index, selection, policy)) is not None), class_name="og-tab"),
+            "children": _policy_text(policy, selection.shield if opens is None else opens, ok),
         }
         for policy in index.policies()
     }

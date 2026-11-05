@@ -2,7 +2,8 @@
 
 Pure functions over an `EpisodeIndex`, so every transition is testable without a browser. A combination with no
 trace is never selected; changing the scenario keeps the policy and shield when the new scenario has them and
-otherwise falls back deterministically (same policy with the other shield, then any recorded policy).
+otherwise falls back deterministically (same policy with the other shield, then any recorded policy). A policy
+recorded under one shield setting only (the do-nothing baseline is shield-off only) opens that setting when chosen.
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ def resolve_selection(
     )
     if target.scenario_id is None or index.find(target.scenario_id, target.policy, target.shield) is not None:
         return target
-    if scenario_id is None:  # an explicit policy/shield click on a missing trace is ignored (the control is disabled)
+    if policy is not None and shield is None and scenario_id is None:  # a policy click: its other shield setting, if any
+        other = replace(target, shield=not target.shield)
+        return other if target.scenario_id is not None and index.find(other.scenario_id, other.policy, other.shield) else current
+    if scenario_id is None:  # an explicit shield click on a missing trace is ignored (the control is disabled)
         return current
     return _first_available(index, target.scenario_id, current.policy, current.shield) or current

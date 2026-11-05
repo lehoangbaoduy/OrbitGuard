@@ -13,6 +13,10 @@ is recorded, exactly as the experiment refuses it; so is one whose sidecar recor
 other than the ones the item's model gets from config + overlay (training CLI overrides). A trained checkpoint
 with no run_config.json sidecar is refused too (unlike a validation run, a replay is shown as a final model), and
 with a freeze snapshot every replayed actor's sha256 must equal the frozen checkpoint of its model/training seed.
+
+Opt-in baseline lanes (`build_plan(baselines=...)`): the `no_maneuver` baseline ("do nothing") is recorded shield-off
+only, in the environment of its registered model, exactly as the experiment evaluated it. It has no actor, so its
+meta carries neither a weights hash nor an init seed.
 """
 
 from __future__ import annotations
@@ -40,6 +44,8 @@ from orbit_guard.rl.actor_policy import (
     load_actor_weights,
     save_actor_weights,
 )
+from orbit_guard.rl.evaluation import no_maneuver_policy
+from orbit_guard.rl.shielded_environment import ShieldedOrbitGuardEnv
 from orbit_guard.visualization.replay import record_episode, save_trace
 from orbit_guard.visualization.replay_meta import build_replay_meta
 
@@ -52,6 +58,7 @@ SCENARIOS: tuple[tuple[str, int], ...] = (
 )
 DEFAULT_INIT_SEED = 0
 UNTRAINED_MODEL = "untrained_policy"
+BASELINE_POLICIES = ("no_maneuver",)  # baselines a replay can show beside BEFORE/AFTER training (shield off only)
 WEIGHTS_SUBDIR = "weights"
 
 
@@ -59,17 +66,21 @@ WEIGHTS_SUBDIR = "weights"
 class EpisodePlan:
     condition: str
     seed: int
-    policy: str  # "untrained" | "trained"
+    policy: str  # "untrained" | "trained" | a BASELINE_POLICIES name
     shield: bool
     model: str
     weights_path: Path | None
-    training_seed: int | None = None  # which training run supplies a trained actor (None: untrained)
+    training_seed: int | None = None  # which training run supplies a trained actor (None: untrained or a baseline)
 
 
 def build_plan(
-    runs_dir: str | Path, scenarios: Sequence[tuple[str, int]] = SCENARIOS, trained_seed: int = 0
+    runs_dir: str | Path, scenarios: Sequence[tuple[str, int]] = SCENARIOS, trained_seed: int = 0,
+    baselines: Sequence[str] = (),
 ) -> list[EpisodePlan]:
-    """12 episodes: for each scenario, untrained then trained, shield on then off."""
+    """12 episodes: for each scenario, untrained then trained, shield on then off; then each baseline, shield off."""
+    unknown = sorted(set(baselines) - set(BASELINE_POLICIES))
+    if unknown:
+        raise ValueError(f"no replay lane for baseline(s) {unknown}; known: {list(BASELINE_POLICIES)}")
     runs = Path(runs_dir)
     plan = []
     for condition, seed in scenarios:
@@ -83,6 +94,7 @@ def build_plan(
                     weights = runs / f"n15_{variant}_s{trained_seed}" / "actor_weights.npz"
                 training_seed = None if policy == "untrained" else trained_seed
                 plan.append(EpisodePlan(condition, seed, policy, shield, model, weights, training_seed))
+        plan.extend(EpisodePlan(condition, seed, baseline, False, baseline, None) for baseline in dict.fromkeys(baselines))
     return plan
 
 
@@ -185,24 +197,32 @@ def record_plan_item(
         [item], config_path=config_path, overlay_path=overlay_path, freeze_snapshot=freeze_snapshot,
         num_agents=num_agents,
     )
+    baseline = item.policy in BASELINE_POLICIES
+    if baseline and item.shield:
+        raise ValueError(f"the {item.policy} baseline was evaluated without the shield; record it with shield off")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    env_model = "adaptive_mappo" if item.shield else "adaptive_mappo_no_shield"
+    env_model = item.policy if baseline else "adaptive_mappo" if item.shield else "adaptive_mappo_no_shield"
     kwargs = {**condition_env_kwargs(item.condition, config_path), **(env_kwargs or {})}
     env = build_env_factory(env_model, num_agents, config_path=config_path, overlay_path=overlay_path, **kwargs)({})
     agent = env.possible_agents[0]
-    if item.policy == "untrained":
+    if baseline and isinstance(env, ShieldedOrbitGuardEnv):
+        raise ValueError(f"the {item.policy} model is configured with the shield on; its lane is shown as shield off")
+    if baseline:
+        policy, weights_sha, seed_for_meta = no_maneuver_policy, None, None
+    elif item.policy == "untrained":
         weights = untrained_actor_weights(
             flatdim(env.observation_space(agent)), int(env.action_space(agent).n), init_seed,
             config_path=config_path, overlay_path=overlay_path,
         )
         (out / WEIGHTS_SUBDIR).mkdir(exist_ok=True)  # weights live beside, not among, the traces the UI scans
         save_actor_weights(weights, out / WEIGHTS_SUBDIR / f"untrained_actor_init{init_seed}.npz")
-        weights_sha, seed_for_meta = None, init_seed
+        policy, weights_sha, seed_for_meta = NumpyActorPolicy(weights), None, init_seed
     else:
         if item.weights_path is None:
             raise ValueError("a trained episode needs a weights file")
-        weights, weights_sha, seed_for_meta = load_actor_weights(item.weights_path), _file_sha256(item.weights_path), None
+        weights = load_actor_weights(item.weights_path)
+        policy, weights_sha, seed_for_meta = NumpyActorPolicy(weights), _file_sha256(item.weights_path), None
     meta = build_replay_meta(
         condition=item.condition,
         seed=item.seed,
@@ -217,7 +237,7 @@ def record_plan_item(
         config_digest=config_digest(config_path, overlay_path),
         overlay_path=None if overlay_path is None else str(overlay_path),
     )
-    trace = record_episode(env, NumpyActorPolicy(weights), seed=item.seed, meta=meta)
+    trace = record_episode(env, policy, seed=item.seed, meta=meta)
     path = out / f"{item.condition}_{item.seed}__{item.policy}__shield-{'on' if item.shield else 'off'}.npz"
     save_trace(trace, path)
     return path

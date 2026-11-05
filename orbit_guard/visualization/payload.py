@@ -28,6 +28,7 @@ from orbit_guard.visualization.vocabulary import vocabulary_payload
 
 PAYLOAD_SCHEMA = "orbitguard-replay-payload/1"
 METRICS = ("delta_v_mps", "maneuvers", "shield", "collisions", "mean_deviation")
+NOTHING_POLICY = "no_maneuver"  # the do-nothing baseline: its strip row is shown at every shield setting
 
 
 def encode_array(array: np.ndarray, dtype: str) -> dict[str, Any]:
@@ -59,7 +60,8 @@ def _metric_of(totals: SummaryTotals | None, metric: str) -> float | None:
 
 
 def build_strip(active_policy: str, totals_by_policy: Mapping[str, SummaryTotals | None]) -> dict[str, dict[str, Any]]:
-    """Per summary cell: the BEFORE (untrained) and AFTER (trained) totals plus a data-generated comparison note."""
+    """Per summary cell: the BEFORE (untrained) and AFTER (trained) totals plus a data-generated comparison note, and
+    the do-nothing (`no_maneuver`) total under "nothing" when the caller passes that key (the lane exists)."""
     before, after = totals_by_policy.get("untrained"), totals_by_policy.get("trained")
     active = totals_by_policy.get(active_policy)
     other = after if active_policy == "untrained" else before
@@ -71,6 +73,8 @@ def build_strip(active_policy: str, totals_by_policy: Mapping[str, SummaryTotals
             "after": after_value,
             "note": comparison_note(active_policy, value, other_value),
         }
+        if NOTHING_POLICY in totals_by_policy:
+            strip[metric] = {**strip[metric], "nothing": _metric_of(totals_by_policy[NOTHING_POLICY], metric)}
     return strip
 
 

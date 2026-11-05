@@ -13,7 +13,7 @@
   .og-seg { flex: 1 1 auto; min-height: 44px; }
   .og-tabs { width: 100%; }
   .og-tab { flex: 1 1 0; min-width: 0; padding: 10px 8px 9px; }
-  .og-tab-name { letter-spacing: .08em; font-size: var(--og-fs-sm); }
+  .og-tab-name { letter-spacing: .08em; font-size: var(--og-fs-sm); white-space: normal; } /* three tabs: names wrap, never overlap */
   .og-tab-sub { white-space: normal; }
   .og-shield-control { margin-left: 0; width: 100%; justify-content: space-between; }
   .og-shield-control .og-seg { min-height: 44px; }

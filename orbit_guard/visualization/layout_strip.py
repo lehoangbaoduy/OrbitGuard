@@ -2,7 +2,9 @@
 
 Every number is a recorded episode total from the payload (`summary`, `strip`); the running value at the current step
 is filled in by the JS stage into the empty `og-strip-run-*` spans. Missing data is shown as missing: the Shield cell
-is "—" when the shield was off (never 0), and a policy without a recorded counterpart has no bar.
+is "—" when the shield was off (never 0), and a policy without a recorded counterpart has no bar. When the do-nothing
+lane exists, a third row (NOTHING) shows its totals on the same scale; it was recorded shield-off, so its Shield bar
+says "shield off" whichever shield is selected (or "no trace recorded" when this scenario has no do-nothing episode).
 """
 
 from __future__ import annotations
@@ -33,8 +35,9 @@ _FORMATS: dict[str, Callable[[float], str]] = {
     "collisions": lambda v: str(int(v)),
     "mean_deviation": lambda v: f"{v:.3f}",
 }
-_POLICY_ROWS = (("before", "BEFORE"), ("after", "AFTER"))
-_ACTIVE_ROW = {"untrained": "before", "trained": "after"}
+_POLICY_ROWS = (("before", "BEFORE"), ("after", "AFTER"), ("nothing", "NOTHING"))
+_ACTIVE_ROW = {"untrained": "before", "trained": "after", "no_maneuver": "nothing"}
+_SHIELD_OFF_ROWS = {"nothing"}  # rows whose episode always ran without the shield
 
 
 def format_metric(metric: str, value: float | None) -> str:
@@ -63,13 +66,15 @@ def _bar_row(metric: str, key: str, label: str, value: float | None, largest: fl
     )
 
 
-def _bars(metric: str, entry: Mapping[str, Any], active_policy: str | None, shield_off: bool) -> html.Div:
-    values = [entry.get("before"), entry.get("after")]
+def _bars(metric: str, entry: Mapping[str, Any], active_policy: str | None, shield_off: bool, nothing_recorded: bool) -> html.Div:
+    shown = [(key, label) for key, label in _POLICY_ROWS if key != "nothing" or "nothing" in entry]
+    values = [entry.get(key) for key, _ in shown]
     largest = max((v for v in values if v is not None), default=0.0)
     active = _ACTIVE_ROW.get(active_policy or "")
     rows = [
-        _bar_row(metric, key, label, value, largest, active=key == active, shield_off=shield_off)
-        for (key, label), value in zip(_POLICY_ROWS, values, strict=True)
+        _bar_row(metric, key, label, value, largest, active=key == active,
+                 shield_off=nothing_recorded if key in _SHIELD_OFF_ROWS else shield_off)
+        for (key, label), value in zip(shown, values, strict=True)
     ]
     return html.Div(rows, className="og-cell-bars")
 
@@ -92,7 +97,8 @@ def _cell(metric: str, payload: Mapping[str, Any] | None) -> html.Div:
     ]
     if strip is not None:
         entry = strip.get(metric) or {}
-        children.append(_bars(metric, entry, meta.get("policy"), meta.get("shield") is False))
+        nothing_recorded = (strip.get("collisions") or {}).get("nothing") is not None  # a recorded episode has a count
+        children.append(_bars(metric, entry, meta.get("policy"), meta.get("shield") is False, nothing_recorded))
         children.append(html.Div(entry.get("note") or "", id=f"og-strip-note-{metric}", className="og-cell-note"))
     if metric == "collisions" and (payload or {}).get("reference_note"):
         children.append(html.Div(payload["reference_note"], id="og-strip-ref", className="og-cell-ref", title="From the evaluation log given with --reference-log"))

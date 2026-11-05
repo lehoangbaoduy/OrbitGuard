@@ -23,7 +23,7 @@ from orbit_guard.visualization.layout import (
     shield_off_bar,
     summary_strip,
 )
-from orbit_guard.visualization.payload import build_payload, build_strip
+from orbit_guard.visualization.payload import NOTHING_POLICY, build_payload, build_strip
 from orbit_guard.visualization.reference import ReferenceLogError, reference_note
 from orbit_guard.visualization.replay import load_trace
 from orbit_guard.visualization.replay_meta import ReplayMeta, ReplayMetaError
@@ -79,6 +79,9 @@ class PayloadProvider:
         for policy in ("untrained", "trained"):
             other = self._index.find(selection.scenario_id, policy, selection.shield)
             totals[policy] = None if other is None else read_episode_summary(other.path)
+        if NOTHING_POLICY in self._index.policies():  # the do-nothing lane: shield-off only, shown at either setting
+            nothing = self._index.find(selection.scenario_id, NOTHING_POLICY, False)
+            totals[NOTHING_POLICY] = None if nothing is None else read_episode_summary(nothing.path)
         note = reference_note(self._reference_log, meta.condition, (meta.model, _BASELINE_MODEL), n_agents=meta.n_agents)
         source = ReplaySource(load_trace(path))
         return build_payload(source, strip=build_strip(selection.policy, totals), reference_note=note)
