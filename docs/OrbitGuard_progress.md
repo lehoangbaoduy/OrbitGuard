@@ -190,9 +190,9 @@ Every table below adds an **"Agent coverage"** column: whether the implementing 
 | TLE snapshot frozen & committed | **Done** | Committed as-is, no modification; `.gitignore` excludes its Windows `:Zone.Identifier` sidecar file (not project content). |
 | Team roles assigned (§47) | **N/A — human action** | No real multi-person team in this session; roles are pre-defined in §47 for a human team. Implementing agent covers all tags until told otherwise. |
 | OSC compute allocation requested | **N/A — human action, cannot be done by the agent** | Flagging for the user; not blocking early solo/dev-scale work per §43 (RTX 4070 Ti is the primary dev path). |
-| PRD reviewed & acknowledged by every team member | **Partially satisfied** — reviewed in full by the implementing agent (this document is that review's evidence); **human acknowledgment by the user/team is still outstanding**, same category as M4/M5 above. | Not yet closed; do not treat as done until the user confirms. |
+| PRD reviewed & acknowledged by every team member | **Partially satisfied** — reviewed in full by the implementing agent (this document is that review's evidence); **human acknowledgment by the user/team is still outstanding**, same category as M4/M5 above. | **Closed 2026-11-04** — the team confirmed the acknowledgement. |
 
-**Exit criteria (§44) status:** repo exists ✓, config loads without error ✓ (verified above), TLE file committed ✓. "Every team member can state the current MVP scope (§3.1) from memory" is a human criterion — outstanding, same as PRD acknowledgment above. Phase 0 is **functionally complete on the engineering side**; the three human-only items (M4, M5, M6) remain open and don't block Phase 1 scaffolding-adjacent work, but should be closed by the user in parallel.
+**Exit criteria (§44) status:** repo exists ✓, config loads without error ✓ (verified above), TLE file committed ✓. "Every team member can state the current MVP scope (§3.1) from memory" is a human criterion — outstanding, same as PRD acknowledgment above. Phase 0 is **functionally complete on the engineering side**; the three human-only items (M4, M5, M6) remain open and don't block Phase 1 scaffolding-adjacent work, but should be closed by the user in parallel. *Update 2026-11-04:* all three human items and the MVP-scope criterion are closed (§7 Phase 0).
 
 ---
 
