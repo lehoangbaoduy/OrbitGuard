@@ -191,7 +191,10 @@ def _loading(selection: Selection) -> html.Div:
     )
 
 
-SCALE_CAPTION = "Satellite models are enlarged for visibility, not drawn to scale, and the light direction is fixed: visual aids, not data."
+SCALE_CAPTION = (
+    "Satellite models are enlarged for visibility, not drawn to scale, and the light direction is fixed: visual aids, not data. "
+    "A collided satellite is shown stopped at its impact point (in the simulation the debris keeps orbiting)."
+)
 
 
 _DASH_CLASS = {"dot": "is-dot", "dash": "is-dash", "solid": "is-solid"}

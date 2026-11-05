@@ -69,6 +69,7 @@
 
 @container (min-width: 780px) {
   .og-stage-controls { right: calc(330px + 28px); }
+  .og-legend { max-width: min(520px, calc(100% - 610px)); } /* ends left of the stage buttons (358 px from the right, ~220 px wide) */
   #og-tracked { flex: 1 1 0; min-height: 230px; display: flex; flex-direction: column; }
   #og-tracked .og-pane-body { overflow-y: auto; min-height: 0; }
   #og-tracked .og-pane-body > *, #og-tracked .og-rows { flex-shrink: 0; overflow: visible; }

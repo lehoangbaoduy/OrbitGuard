@@ -15,6 +15,7 @@ import numpy as np
 
 from orbit_guard.physics.constants import R_EARTH_EQUATORIAL_M
 from orbit_guard.visualization.derived.comparison import comparison_note
+from orbit_guard.visualization.derived.impact import impact_display_positions
 from orbit_guard.visualization.derived.key_steps import conjunction_entries
 from orbit_guard.visualization.derived.status import (
     EVENT_COLLISION,
@@ -106,7 +107,7 @@ def _density_payload(source: ReplaySource) -> dict[str, list | None]:
 def _arrays_payload(source: ReplaySource) -> dict[str, dict[str, Any]]:
     trace, partners = source.trace, source.partners
     return {
-        "positions_km": encode_array(trace.positions_m / 1000.0, "float32"),
+        "positions_km": encode_array(impact_display_positions(trace) / 1000.0, "float32"),  # collided satellites stop where they hit
         "sat_status": encode_array(source.sat_status, "uint8"),
         "events": encode_array(source.events, "uint8"),
         "pair_status": encode_array(source.pair_status, "uint8"),
